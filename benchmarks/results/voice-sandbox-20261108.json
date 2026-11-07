@@ -1,0 +1,182 @@
+{
+  "generated_at": "2026-11-07T20:45:47+00:00",
+  "environment": {
+    "python": "3.11.2",
+    "platform": "Linux-6.1.158+-x86_64-with-glibc2.36",
+    "processor": "unknown",
+    "cpu_count": 2,
+    "ram_total_mb": 3939.9,
+    "process_ram_mb": 29.5,
+    "note": "single-run numbers; repeat and compare medians before quoting"
+  },
+  "rows": [
+    {
+      "scenario": "idle",
+      "metric": "audio_loop_jitter_p95_ms",
+      "value": 0.3919760000417227,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": "coordinator pacing vs the 20 ms block; audio-callback jitter needs hardware"
+    },
+    {
+      "scenario": "idle",
+      "metric": "audio_loop_jitter_max_ms",
+      "value": 0.42266199998721277,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "scenario": "idle",
+      "metric": "cpu_usage_percent",
+      "value": 0.0,
+      "unit": "%",
+      "status": "MEASURED",
+      "note": "process sample over 1s (proc)"
+    },
+    {
+      "scenario": "idle",
+      "metric": "ram_usage_mb",
+      "value": 29.5,
+      "unit": "MB",
+      "status": "MEASURED",
+      "note": "source proc"
+    },
+    {
+      "scenario": "idle",
+      "metric": "vad_false_positives",
+      "value": 0,
+      "unit": "count",
+      "status": "MEASURED",
+      "note": "must be 0 for pure silence"
+    },
+    {
+      "scenario": "asr",
+      "metric": "asr_ms",
+      "value": null,
+      "unit": "ms",
+      "status": "NOT MEASURED",
+      "note": "مدل Whisper محلی موجود نیست"
+    },
+    {
+      "scenario": "llm",
+      "metric": "llm_ttft_ms",
+      "value": null,
+      "unit": "ms",
+      "status": "NOT MEASURED",
+      "note": "llama-server not reachable at http://127.0.0.1:8080: ConnectError"
+    },
+    {
+      "scenario": "llm",
+      "metric": "llm_tokens_per_second",
+      "value": null,
+      "unit": "tok/s",
+      "status": "NOT MEASURED",
+      "note": "start ./tools/start_server.ps1 and rerun"
+    },
+    {
+      "scenario": "tts",
+      "metric": "tts_first_chunk_ms",
+      "value": null,
+      "unit": "ms",
+      "status": "NOT MEASURED",
+      "note": "مدل Piper موجود نیست"
+    },
+    {
+      "scenario": "combined",
+      "metric": "asr_ms",
+      "value": 201.627,
+      "unit": "ms",
+      "status": "SIMULATED",
+      "note": "simulated ASR (مدل Whisper محلی موجود نیست)"
+    },
+    {
+      "scenario": "combined",
+      "metric": "asr_final_latency_ms",
+      "value": 201.772,
+      "unit": "ms",
+      "status": "SIMULATED",
+      "note": "simulated ASR (مدل Whisper محلی موجود نیست)"
+    },
+    {
+      "scenario": "combined",
+      "metric": "llm_ttft_ms",
+      "value": 202.959,
+      "unit": "ms",
+      "status": "SIMULATED",
+      "note": "simulated LLM (llama-server unreachable at http://127.0.0.1:8080)"
+    },
+    {
+      "scenario": "combined",
+      "metric": "first_audible_ms",
+      "value": 253.571,
+      "unit": "ms",
+      "status": "SIMULATED",
+      "note": "simulated TTS (مدل Piper موجود نیست)"
+    },
+    {
+      "scenario": "combined",
+      "metric": "playback_duration_ms",
+      "value": 452.967,
+      "unit": "ms",
+      "status": "SIMULATED",
+      "note": "simulated TTS (مدل Piper موجود نیست)"
+    },
+    {
+      "scenario": "combined",
+      "metric": "vad_start_ms",
+      "value": 60.0,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "scenario": "combined",
+      "metric": "vad_end_ms",
+      "value": 600.0,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "scenario": "combined",
+      "metric": "turn_total_ms",
+      "value": 662.8031669999928,
+      "unit": "ms",
+      "status": "SIMULATED",
+      "note": ""
+    },
+    {
+      "scenario": "combined",
+      "metric": "turn_completed",
+      "value": 1.0,
+      "unit": "flag",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "scenario": "combined",
+      "metric": "speech_queue_depth",
+      "value": 0.0,
+      "unit": "",
+      "status": "MEASURED",
+      "note": "must stay far below the configured bound"
+    },
+    {
+      "scenario": "bargein",
+      "metric": "barge_in_latency_ms",
+      "value": 0.11683500002845904,
+      "unit": "ms",
+      "status": "SIMULATED",
+      "note": "simulated ASR (مدل Whisper محلی موجود نیست)"
+    },
+    {
+      "scenario": "bargein",
+      "metric": "stale_completions_after_interrupt",
+      "value": 0.0,
+      "unit": "count",
+      "status": "MEASURED",
+      "note": "must be 0"
+    }
+  ]
+}

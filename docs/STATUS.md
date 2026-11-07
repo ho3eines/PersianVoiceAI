@@ -1,105 +1,103 @@
-# وضعیت اجرایی پروژه
+# وضعیت اجرایی پروژه — PersianVoiceAI Conversation Engine
 
-آخرین به‌روزرسانی: ۷ نوامبر ۲۰۲۶ — AEC محلی با SpeexDSP به PC Streaming اضافه شد.
-این سند میان پیاده‌سازی، تست fake و آزمون واقعی سخت‌افزار تفاوت می‌گذارد.
+آخرین به‌روزرسانی: ۸ نوامبر ۲۰۲۶ — مرحلهٔ ۱ تا ۶ بازبینی: رفع P0، بهبود خط لولهٔ صوتی، ماندگاری مکالمه،
+ابزار بنچمارک/ارزیابی و مستندسازی. مبنای تغییر: commit `9654a68`، شاخهٔ `arena/31347dde-persianvoiceai`.
 
-## وضعیت جاری
+این سند **وضعیت واقعی کد** است و سه سطح را از هم جدا می‌کند:
 
-| بخش | وضعیت |
-|---|---|
-| FastAPI و async HTTP به llama-server | پیاده‌شده؛ زیرساخت متنی قبلاً روی PC بررسی شده |
-| چت متنی JSON/SSE و CLI | پیاده‌شده، تست fake |
-| ورودی میکروفون پیوستهٔ ۲۰ms | پیاده‌شده با PortAudio/sounddevice؛ تست واقعی لازم |
-| ASR افزایشی فارسی | snapshotهای هم‌پوشان Whisper حین گفتار، partial/final؛ نه مدل ذاتاً streaming |
-| پاسخ LLM | async SSE؛ task قابل لغو حتی هنگام انتظار توکن |
-| TTS و خروجی صوت | Piper جمله‌ای با chunkهای PCM و نوشتن بلوک‌های ۲۰ms؛ وزن واقعی تست نشده |
-| قطع پاسخ | generation/token cancellation، حذف صف قدیمی و نتیجهٔ ASR منسوخ؛ با AEC نیازمند آزمون واقعی |
-| تاریخچه | فقط شش نوبت در RAM؛ پس از پایان پخش پاسخ ثبت می‌شود |
-| پیش‌فرض مدل | Qwen3-4B-Q4_K_M؛ وزن دانلود نشده و بنچمارک جدید نداریم |
-| AEC روی PC | SpeexDSP، ورودی/خروجی duplex و مرجع واقعی پخش؛ تست مصنوعی موفق |
-| VAD تخصصی / ESP32 صوتی | پیاده‌نشده |
+- **پیاده‌شده + تست خودکار** — با fake یا داده‌ی ساختگی در `pytest` سبز است.
+- **پیاده‌شده، تست واقعی لازم** — منطق کامل است ولی بدون مدل/میکروفون/بلندگو تأیید نشده.
+- **پیاده‌نشده** — نباید به‌عنوان قابلیت موجود معرفی شود.
 
-## معماری جایگزین‌شده
+---
 
-درخواست صریح کاربر، تغییر معماری PC را مجاز کرد. مسیر قبلی «ضبط نوبت، سپس ASR» دیگر
-مسیر پیش‌فرض نیست. `server/streaming_voice.py` هماهنگ‌کنندهٔ async و actorهای مستقل دارد:
+## ۱. جدول وضعیت
 
-- `transcript_partial` پیش از پایان گفتار با بازشناسی تکراری PCM در RAM؛ `agreed_prefix` از توافق دو decode.
-- final بعد از حدود ۵۰۰ms سکوت یا سقف بخش ۱۵ثانیه‌ای؛ فقط final به LLM می‌رود.
-- SSE async، صف محدود جمله و actor مستقل Piper؛ پخش قبل از پایان دریافت کل متن ممکن است.
-- لغو generation قبلی، حذف نتیجهٔ ASR قدیمی، جلوگیری از اجرای هم‌زمان مدل مشترک.
-- فایل صوتی زنده ساخته نمی‌شود؛ حالت عیب‌یابی `--turn-based` همچنان فایل موقت دارد.
+| بخش | وضعیت | مرجع |
+|---|---|---|
+| هستهٔ متنی: FastAPI + llama.cpp + CLI فارسی | پیاده‌شده + تست (fake مدل) | `server/main.py`, `server/llm.py` |
+| API سازگار OpenAI، JSON و SSE، لغو استریم | پیاده‌شده + تست | `tests/test_api.py` |
+| ورودی میکروفون پیوستهٔ ۲۰ms، انتخاب دستگاه، recovery | پیاده‌شده + تست fake؛ دستگاه واقعی **تست نشده** | `server/audio_io.py` |
+| VAD انرژی با هیسترزیس، پیش‌رول، کف نویز تطبیقی | پیاده‌شده + تست؛ صدای واقعی **تست نشده** | `server/vad.py` |
+| ASR افزایشی: صف final بدون‌افت + partial قابل‌جایگزینی | پیاده‌شده + تست کامل P0 | `server/streaming_voice.py` |
+| جدا شدن طول عمر utterance و generation دستیار | پیاده‌شده + تست (۶ سناریوی الزامی) | `tests/test_utterance_lifecycle.py` |
+| ماشین حالت صریح `idle/listening/transcribing/thinking/speaking` | پیاده‌شده + تست جدول گذار | `tests/test_state_machine.py` |
+| barge-in: توقف LLM/TTS/پخش، بدون آسیب به صف final | پیاده‌شده + تست fake؛ تأخیر دستگاه **تست نشده** | `tests/test_tts.py`, `tests/test_long_run.py` |
+| TTS Piper: انتخاب مرد/زن، جمله‌بندی، لغو، نرمال‌سازی نرخ | پیاده‌شده + تست؛ وزن فارسی **تست نشده** | `server/live_voice.py` |
+| AEC SpeexDSP duplex پیش از VAD/ASR | پیاده‌شده + تست مصنوعی؛ اتاق واقعی **تست نشده** | `server/aec.py`, `docs/AEC.md` |
+| تاریخچه: نشست، وضعیت interrupted، برش توکنی، JSONL محلی | پیاده‌شده + تست | `server/conversation.py`, `server/sessions.py` |
+| readiness و health (`/ready`, `/health`) | پیاده‌شده + تست | `server/readiness.py`, `tests/test_api.py` |
+| سنجه‌های کامل خط لوله | پیاده‌شده + تست | `server/metrics.py` |
+| بنچمارک کل زنجیرهٔ صوت | ابزار آماده (`tools/benchmark_voice.py`)؛ اعداد واقعی هدف **NOT MEASURED** | `docs/BENCHMARKS.md` |
+| ارزیابی فارسی WER/CER | مجموعهٔ ۴۰ جمله + ابزار؛ اعداد واقعی **NOT MEASURED** | `benchmarks/persian_eval.py` |
+| پروتکل WebSocket صوتی ESP32-S3 | فقط قرارداد + تست واحد؛ **transport و firmware پیاده نشده** | `server/protocol.py`, `docs/PROTOCOL.md` |
+| Command Broker / IoT / OTA / احراز هویت دستگاه | **پیاده‌نشده** | — |
 
-مرجع رفتار و محدودیت‌ها: [STREAMING_ARCHITECTURE.md](STREAMING_ARCHITECTURE.md).
-راهنمای نصب و اجرا: [PC_VOICE.md](PC_VOICE.md).
-
-## بررسی در sandbox
+## ۲. وضعیت تست
 
 ```text
-.venv/bin/python -m pytest -q
-54 passed (with native AEC test library)
-
-git diff --check
-بدون خطا
+$ python -m pytest
+231 passed, 2 skipped in 4.3s
 ```
 
-محیط تست sandbox Python 3.11 است؛ هدف اجرا Windows با Python 3.12 است.
-تست‌ها fake و بدون مدل، میکروفون یا شبکهٔ واقعی‌اند. پوشش جریان جدید:
+- دو تست skip فقط تست‌های native SpeexDSP هستند: در sandbox کتابخانهٔ native ساخته نشده و تست
+  به‌جای شکست، صریحاً skip می‌شود. اگر `libspeexdsp` نصب باشد اجرا می‌شوند (در اجرای قبلی همین
+  محیط: ۵۴ تست موفق با کتابخانهٔ ساخته‌شده).
+- تست پایه پیش از این مرحله: `53 passed, 2 skipped`. یعنی ۱۷۷ تست جدید یا گسترش‌یافته.
+- **همهٔ تست‌ها fake/ساختگی‌اند**: بدون مدل Whisper/Piper/Qwen، بدون میکروفون و بلندگو، بدون شبکهٔ
+  واقعی. این تست‌ها «صحت منطق و کنترل جریان» را ثابت می‌کنند، نه کیفیت صوتی.
 
-- انتشار partial حین ادامهٔ دریافت صوت و بدون endpoint؛ توافق دو decode.
-- final → SSE → صوت → ثبت تاریخچه.
-- آغاز پخش قبل از رسیدن توکن‌های باقی‌مانده.
-- لغو context SSE مسدود بدون انتظار توکن بعدی.
-- حذف snapshot قدیمی، صف یک‌تایی ASR و reset در overflow.
-- حذف خروجی inference قدیمی پس از شروع گفتار جدید.
-- عدم ثبت پاسخ در SSE ناقص، لغو PCM بین بلوک‌ها.
-- مدل محلی اجباری، دانلود خودکار Whisper غیرفعال، خطای startup فارسی بدون traceback.
-- reasoning_content به صدا/جواب تبدیل نمی‌شود؛ thinking برای Qwen پیش‌فرض خاموش است.
+نگاشت تست‌ها به ۲۰ الزام گزارش بازبینی:
 
-یک هشدار deprecation از Starlette/httpx در تست‌ها وجود دارد؛ نتیجهٔ تست‌ها موفق است.
-قرارداد Piper AudioChunk با wheel بررسی شده، اما synthesis فارسی واقعی اجرا نشده است.
+| # | الزام | تست |
+|---|---|---|
+| ۱ | final ASR با شروع گفتار جدید زنده می‌ماند | `test_utterance_lifecycle.py::test_final_asr_in_flight_survives_new_speech_onset` |
+| ۲ | چند utterance پشت‌سرهم حفظ می‌شوند | `…::test_multiple_consecutive_utterances_are_all_preserved` |
+| ۳ | جایگزینی partial، final را از بین نمی‌برد | `…::test_partial_replacement_never_loses_the_final` |
+| ۴ | گفتار بلند (>15s) همهٔ بخش‌ها را حفظ می‌کند | `…::test_long_speech_beyond_segment_limit_keeps_every_segment` + `test_vad.py::test_long_speech_is_segmented_without_losing_audio` |
+| ۵ | barge-in تولید LLM را لغو می‌کند | `test_streaming_voice.py::test_async_sse_stream_cancelled_without_waiting_for_next_token` |
+| ۶ | barge-in پخش TTS را متوقف می‌کند | `test_tts.py::test_playback_stops_within_one_block_and_aborts_the_stream` |
+| ۷ | هیچ صدای کهنه‌ای بعد از قطع پخش نمی‌شود | `test_streaming_voice.py::test_incremental_playback_before_remaining_tokens` + `test_long_run.py` |
+| ۸ | پیام کاربر تکراری ثبت نمی‌شود | `test_utterance_lifecycle.py::test_duplicate_final_result_is_not_committed_twice` |
+| ۹ | پاسخ دستیار تکراری ثبت نمی‌شود | `test_conversation.py::test_assistant_turn_is_committed_once` |
+| ۱۰ | وضعیت صریح interrupted/failed | `test_conversation.py::test_interrupted_reply_has_explicit_status_and_is_excluded_by_default` |
+| ۱۱ | نبود AEC = رفتار ایمن و پیام صریح | `test_aec.py::test_missing_library_is_explicit_not_silent_bypass` |
+| ۱۲ | حالت AEC خاموش | `test_aec.py::test_aec_config` |
+| ۱۳ | قطع دستگاه | `test_audio_io.py::test_pump_detects_a_stalled_device` |
+| ۱۴ | وصل دوباره/بازگشایی دستگاه | `test_audio_io.py::test_stream_forever_reopens_after_portaudio_failure_then_gives_up` |
+| ۱۵ | قطع llama-server | `test_api.py::test_backend_unavailable_returns_503`, `test_stream_backend_failure_is_sse_error` |
+| ۱۶ | خطای init مدل به‌صورت پیام | `test_voice.py::test_module_startup_missing_model_has_no_traceback`, `test_tts.py::test_missing_piper_model_is_a_user_facing_error` |
+| ۱۷ | ماندگاری context پس از restart | `test_conversation.py::test_session_is_persisted_and_reloaded`, `test_api.py::test_chat_with_session_id_persists_and_reuses_context` |
+| ۱۸ | برش توکنی | `test_conversation.py::test_context_is_truncated_by_tokens_not_only_message_count` |
+| ۱۹ | کار آفلاین بدون API خارجی | `test_voice.py::test_whisper_never_downloads`, `test_public_api_rejected` |
+| ۲۰ | نبود صف/حافظهٔ نامحدود | `test_long_run.py` (۲ تست) + `test_conversation.py` (۲ تست bounded-RAM) |
 
-## چیزهایی که هنوز تأیید نشده‌اند
+## ۳. اعداد اندازه‌گیری‌شده در sandbox
 
-- کیفیت و سرعت Whisper/Piper/Qwen با وزن‌های واقعی، به‌خصوص روی CPU لپ‌تاپ کاربر.
-- زمان واقعی اولین صدای پخش‌شده و تأخیر barge-in روی سخت‌افزار.
-- عملکرد بدون هدفون روی دستگاه واقعی؛ با وجود AEC، echo باقی‌مانده ممکن است false barge-in ایجاد کند.
-- توقف سخت native inference: لغو منطقی است؛ خروج executor ممکن است منتظر برگشت مدل بماند.
-- UI مرورگر، WebSocket صوتی سرور/ESP32، firmware، Command Broker، امنیت دستگاه و OTA.
+| معیار | مقدار | معنا |
+|---|---|---|
+| طول عمر خط لوله در حالت سکوت (jitter p95) | ۰٫۳۹ ms | فقط pacing هماهنگ‌کننده؛ **jitter واقعی callback دستگاه نیست** |
+| RAM پروسه در حالت idle | ۲۹٫۵ MB | بدون مدل لود شده |
+| CPU حالت idle | ~۰٪ | بدون مدل لود شده |
+| VAD false positive روی سکوت | ۰ | باورپذیر برای آستانهٔ انرژی |
 
-## سوابق اندازه‌گیری روی PC (نه تأیید معماری صوتی جدید)
+هیچ عدد ASR/LLM/TTS روی این sandbox تولید نشد: مدل‌ها نصب نیستند و llama-server اجرا نبود.
+جدول کامل با برچسب `MEASURED`/`SIMULATED`/`NOT MEASURED` در [BENCHMARKS.md](BENCHMARKS.md).
 
-درس ۱ روی i7-6500U با MiniCPM5-1B-Q8_0، FastAPI و llama-server اجرا شده بود:
+## ۴. کارهایی که فقط روی سخت‌افزار هدف معنا دارند (NOT TESTED)
 
-| معیار | نتیجهٔ تاریخی |
-|---|---|
-| تست‌های آن مرحله | ۱۷ تست موفق |
-| میانگین TTFT | ۱٫۴۵ ثانیه |
-| میانگین زمان کل | ۱۱٫۴۵ ثانیه |
-| میانگین تولید | ۱۹٫۹ توکن/ثانیه |
+- کیفیت و سرعت Whisper فارسی با وزن واقعی روی i7-6500U؛ RTF و تأخیر final.
+- کیفیت تلفظ Piper فارسی (اعداد، واژهٔ انگلیسی داخل جمله، نیم‌فاصله) با گوش انسان.
+- حذف اکوی اتاق واقعی و کالیبراسیون `PVAI_AEC_DELAY_MS`؛ رفتار double-talk در بلندگو.
+- jitter واقعی callback و dropout در همزمانی ASR+LLM+TTS.
+- انتخاب صدای مرد/زن با فایل‌های واقعی `.onnx` و مجوز آن‌ها.
+- قطع/وصل فیزیکی میکروفون و بلندگو در Windows 11.
 
-MiniCPM پاسخ فارسی مناسبی نداده بود و reasoning_content داشت؛ دیگر انتخاب پیش‌فرض نیست.
-اعداد بالا به Qwen یا زنجیرهٔ صوتی تعمیم داده نمی‌شوند.
-روی همان MiniCPM با `llama-bench -p 512 -n 128`، CPU حدود ۱۷٫۴۹ و Vulkan/940MX حدود
-۱۲٫۳۲ توکن/ثانیه تولید داشت؛ در نتیجه پیش‌فرض CPU حفظ شده است.
+چک‌لیست اجرای این موارد: [HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md).
 
-## گام بعدی واقعی
+## ۵. اولویت بعدی
 
-1. تهیهٔ وزن‌های محلی و نصب وابستگی‌های اختیاری روی Windows هدف.
-2. آزمون partial حین گفتار، پخش قبل از پایان پاسخ و لغو با هدفون طبق چک‌لیست راهنما.
-3. اندازه‌گیری CPU/RAM و تأخیر؛ در صورت عقب‌ماندن ASR، تنظیم interval/مدل یا تعویض adapter بر مبنای داده.
-4. کالیبراسیون AEC و افزودن VAD تخصصی پیش از ادعای مکالمهٔ طبیعیِ تأییدشده بدون هدفون.
-
-
-## AEC — اجرای جدید
-
-- `server/aec.py`: binding محلی SpeexDSP، فیلتر تطبیقی و تأخیر مرجع قابل تنظیم.
-- RawStream دوطرفه، صف ورودی جفت‌شده با PCM واقعاً ارسال‌شده به خروجی؛ خروجی Piper به mono16k resample می‌شود.
-- AEC پیش از VAD، تشخیص آغاز گفتار و Whisper اعمال می‌شود؛ ورودی حین پخش mute نمی‌شود.
-- خطای native library صریح، reset در overflow و cleanup state هنگام خروج.
-- وابستگی native در pip نصب نمی‌شود؛ راهنمای [AEC.md](AEC.md) لازم است.
-- ۵۴ تست موفق با کتابخانهٔ native ساخته‌شده در sandbox؛ در اجرای عادی بدون آن، دو تست native skip می‌شوند.
-- تست مصنوعی echo-only: کاهش توان اکو ۵۷٫۸۲ dB پس از همگرایی.
-- تست مصنوعی double-talk: correlation=0.918 و RMS retention=0.993 برای سیگنال مستقل دوفرکانسی.
-- upstream commit و روش آزمون در AEC.md ثبت شده‌اند؛ فایل باینری/منبع خارجی وارد مخزن نشده است.
-- این نتایج برای سیگنال مصنوعی‌اند؛ حذف اکوی اتاق واقعی، Windows DLL و کیفیت مکالمهٔ بدون هدفون هنوز تأیید نشده‌اند.
+1. تهیهٔ وزن‌ها و اجرای `tools/benchmark_voice.py` روی هدف؛ ثبت اعداد در BENCHMARKS.
+2. اجرای چک‌لیست سخت‌افزاری، مخصوصاً barge-in و بدون هدفون.
+3. کلکسیون صدای ارزیابی (۴۰ جمله) و اجرای `benchmarks/persian_eval.py --audio-dir` برای WER واقعی.
+4. WebSocket صوتی روی `server/protocol.py` برای ESP32-S3 (پس از پاس‌شدن تست‌های PC).

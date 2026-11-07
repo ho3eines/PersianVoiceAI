@@ -3,9 +3,14 @@
 Endpoints
 ---------
 GET  /health                 service + model runtime status
+GET  /ready                  full readiness checklist (models, AEC, audio deps)
 GET  /v1/models              available local models
 POST /v1/chat/completions    OpenAI-compatible chat (stream or JSON)
-POST /api/chat               minimal one-shot endpoint for simple clients
+POST /api/chat               one-shot chat, optionally bound to a local session
+GET  /api/sessions           locally persisted sessions
+GET  /api/sessions/{id}      one session with message lifecycle statuses
+DEL  /api/sessions/{id}      delete a locally persisted session
+GET  /api/protocol           ESP32 wire-protocol description (design only)
 """
 
 from __future__ import annotations
@@ -18,12 +23,15 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Literal
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
 from .config import Settings
+from .conversation import STATUS_COMPLETE, Conversation, open_store
+from .protocol import describe as describe_protocol
+from .readiness import collect as collect_readiness
 from .llm import (
     ChatResult,
     GenerationError,
@@ -63,6 +71,8 @@ class SimpleChatRequest(BaseModel):
     system: str | None = Field(default=None, max_length=16_000)
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(default=None, ge=1, le=4096)
+    session_id: str | None = Field(default=None, max_length=64)
+    """Optional local session. Without it the request stays stateless (no disk writes)."""
 
 
 def _completion_id() -> str:
@@ -94,6 +104,7 @@ def create_app(settings: Settings | None = None, llm: LlamaServerClient | Any | 
         app.state.settings = resolved
         app.state.started_at = time.time()
         app.state.llm = llm or LlamaServerClient(resolved)
+        app.state.store = open_store(resolved)
         logger.info(
             "Persian Voice AI %s | model=%s",
             __version__,
@@ -160,7 +171,28 @@ def create_app(settings: Settings | None = None, llm: LlamaServerClient | Any | 
             "model": resolved.model_path.split("\\")[-1].split("/")[-1],
             "uptime_s": round(time.time() - request.app.state.started_at, 1),
             "backend": backend,
+            "ready": "/ready",
         }
+
+    @app.get("/ready", tags=["meta"])
+    async def ready(request: Request) -> JSONResponse:
+        """Full readiness checklist; never raises on a broken installation."""
+        backend = await request.app.state.llm.health()
+        report = collect_readiness(request.app.state.settings, backend=backend)
+        status_code = 200 if report["ready"] else 503
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "status": "ready" if report["ready"] else "not_ready",
+                "uptime_s": round(time.time() - request.app.state.started_at, 1),
+                **report,
+            },
+        )
+
+    @app.get("/api/protocol", tags=["meta"])
+    async def protocol(request: Request) -> dict[str, Any]:
+        """Wire protocol that the future ESP32-S3 firmware will speak (design only)."""
+        return describe_protocol()
 
     @app.get("/v1/models", tags=["openai"])
     async def list_models(request: Request) -> dict[str, Any]:
@@ -296,13 +328,54 @@ def create_app(settings: Settings | None = None, llm: LlamaServerClient | Any | 
             },
         )
 
+    # ------------------------------------------------------------- sessions
+    def _conversation(session_id: str | None) -> Conversation:
+        """Load a persisted session, or build a RAM-only conversation."""
+        options = {
+            "max_messages": resolved.history_max_messages,
+            "token_budget": resolved.history_token_budget,
+            "include_interrupted": resolved.history_include_interrupted,
+        }
+        if not session_id:
+            return Conversation(store=None, **options)
+        try:
+            return Conversation.load(request_store(), session_id, **options)
+        except ValueError as exc:  # invalid identifier (path traversal etc.)
+            raise HTTPException(status_code=400, detail="شناسهٔ نشست نامعتبر است.") from exc
+
+    def request_store():
+        return app.state.store
+
+    @app.get("/api/sessions", tags=["sessions"])
+    async def list_sessions(request: Request) -> dict[str, Any]:
+        store = request_store()
+        return {
+            "persistence": bool(store.enabled),
+            "directory": str(store.root) if store.enabled else None,
+            "sessions": store.sessions(),
+        }
+
+    @app.get("/api/sessions/{session_id}", tags=["sessions"])
+    async def show_session(session_id: str, request: Request) -> dict[str, Any]:
+        conversation = _conversation(session_id)
+        if not conversation.messages:
+            raise HTTPException(status_code=404, detail="نشست پیدا نشد.")
+        return conversation.as_dict()
+
+    @app.delete("/api/sessions/{session_id}", tags=["sessions"])
+    async def delete_session(session_id: str, request: Request) -> dict[str, Any]:
+        deleted = request_store().delete(session_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="نشست پیدا نشد.")
+        return {"deleted": True, "session_id": session_id}
+
     # -------------------------------------------------------- simple endpoint
     @app.post("/api/chat", tags=["simple"])
     async def simple_chat(payload: SimpleChatRequest, request: Request) -> dict[str, Any]:
-        messages: list[dict[str, str]] = []
-        if payload.system:
-            messages.append({"role": "system", "content": payload.system})
-        messages.append({"role": "user", "content": payload.message})
+        conversation = _conversation(payload.session_id)
+        turn_id = conversation.new_turn_id()
+        conversation.add_user(payload.message, turn_id=turn_id)
+        messages = conversation.context_with_system(payload.system or resolved.system_prompt)
 
         result = await request.app.state.llm.chat(
             messages,
@@ -310,12 +383,18 @@ def create_app(settings: Settings | None = None, llm: LlamaServerClient | Any | 
             temperature=payload.temperature,
             max_tokens=payload.max_tokens,
         )
-        return {
+        conversation.finish_assistant(
+            result.content, status=STATUS_COMPLETE, turn_id=turn_id
+        )
+        body: dict[str, Any] = {
             "reply": result.content,
             "model": result.model,
             "finish_reason": result.finish_reason,
             "timings": result.timings.as_dict(),
         }
+        if payload.session_id:
+            body["session"] = conversation.summary()
+        return body
 
     return app
 

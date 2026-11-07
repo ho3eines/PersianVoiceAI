@@ -5,13 +5,18 @@
 
 ## مسیر فعلی PC
 
-میکروفون پیوسته → snapshot هم‌پوشان → Whisper افزایشی (partial/final) → FastAPI → llama-server (async SSE)
-→ جمله‌بندی تدریجی پاسخ → Piper محلی → پخش PCM.
+```text
+میکروفون پیوسته (20ms) → AEC SpeexDSP → VAD با هیسترزیس و پیش‌رول
+   → partial هم‌پوشان (۶s) + صف final بدون‌افت  →  Whisper محلی
+   → AssistantTurn روی llama-server (async SSE)  →  جمله‌بندی تدریجی
+   → Piper محلی (زن/مرد) → پخش 20ms در duplex
+```
 
-**حالت پیش‌فرض زنده است و Enter لازم ندارد.** حذف اکو با SpeexDSP و جریان دوطرفه اضافه شده؛
-کتابخانهٔ native باید نصب باشد. عملکرد بدون هدفون نیازمند تست و تنظیم تأخیر روی دستگاه واقعی است.
-ASR حین صحبت با snapshotهای هم‌پوشان اجرا و متن partial منتشر می‌کند؛ پس از سکوت متن final به مدل می‌رود.
-این adapter افزایشی روی Whisper است، نه مدل ذاتاً streaming؛ سرعت واقعی نیازمند تست PC است.
+**حالت پیش‌فرض زنده است و Enter لازم ندارد.** شروع صحبت جدید پاسخ دستیار را قطع می‌کند
+(barge-in) اما **هیچ‌وقت نتیجهٔ final ASR قبلی را از بین نمی‌برد** — این تفکیک، هستهٔ
+`Utterance` / `AssistantTurn` / `PartialASR` / `FinalASR` است.
+ASR حین صحبت با پنجره‌های هم‌پوشان اجرا می‌شود؛ این adapter افزایشی روی Whisper است،
+نه مدل ذاتاً streaming. سرعت واقعی روی هدف هنوز اندازه‌گیری نشده است (NOT MEASURED).
 
 ## شروع
 
@@ -35,15 +40,19 @@ D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 1
 .\.venv\Scripts\python.exe -m server.voice
 ```
 
-[راهنمای کامل PC، مدل‌ها، تنظیم حساسیت و محدودیت‌ها](docs/PC_VOICE.md)
+[راهنمای کامل PC، مدل‌ها، تنظیم حساسیت و محدودیت‌ها](docs/PC_VOICE.md) ·
+[مرجع همهٔ متغیرهای `.env`](docs/CONFIGURATION.md)
 
 ## وضعیت صادقانه
 
-- کلاینت PC: actorهای مستقل capture، ASR افزایشی، async SSE و TTS؛ generation/cancellation و صف‌های محدود.
-- تست خودکار بدون مدل/سخت‌افزار موجود است؛ اجرای واقعی مدل‌های صوتی و Qwen روی PC هنوز لازم است.
-- Qwen جایگزین **پیش‌فرض تنظیمات** MiniCPM شده؛ فایل وزن در مخزن نیست و بنچمارکش ثبت نشده است.
-- AEC محلی پیاده شده و با اکو/دوصدایی مصنوعی تست شده؛ اتاق و دستگاه واقعی تأیید نشده‌اند.
-- ASR ذاتاً streaming، چنددستگاهی و firmware ESP32 کامل نیستند.
+- تست خودکار: **۲۳۱ passed، ۲ skipped** (بدون مدل/میکروفون/شبکه؛ ۲ skip فقط native SpeexDSP).
+  این تست‌ها منطق و کنترل جریان را ثابت می‌کنند، نه کیفیت صدا.
+- مدل‌های واقعی (Whisper/Piper/Qwen) در مخزن نیستند؛ در sandbox نصب هم نبودند، پس
+  ASR/TTS/LLM واقعی **NOT MEASURED** است.
+- AEC با اکو/دوصدایی مصنوعی تست شده (کاهش ۵۷٫۸dB در سیگنال ساختگی)؛ اتاق و دستگاه واقعی
+  تأیید نشده‌اند. بدون هدفون، کالیبراسیون `PVAI_AEC_DELAY_MS` لازم است.
+- تاریخچهٔ مکالمه محلی و ماندگار است (`data/conversations/*.jsonl`)؛ پنجرهٔ RAM محدود است.
+- پروتکل WebSocket صوتی ESP32-S3 فقط **قرارداد + تست واحد** است؛ transport و firmware پیاده نشده‌اند.
 - اجرای CPU پیش‌فرض است؛ بنچمارک قدیمی GPU روی MiniCPM به Qwen قابل تعمیم نیست.
 
 ## API و چت متنی
@@ -51,9 +60,12 @@ D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 1
 | مسیر | کار |
 |---|---|
 | `GET /health` | وضعیت اتصال backend و مدل |
+| `GET /ready` | چک‌لیست کامل: تنظیمات، مدل ASR/TTS، وابستگی‌ها، AEC، ذخیره‌سازی، backend (503 اگر ناقص) |
+| `GET /api/protocol` | قرارداد انتقال ESP32 (design-only، `implemented: false`) |
 | `GET /v1/models` | مدل‌های بارشده در llama-server |
 | `POST /v1/chat/completions` | چت JSON یا SSE با `stream=true` |
-| `POST /api/chat` | پاسخ سادهٔ یک‌پیامی |
+| `POST /api/chat` | پاسخ سادهٔ یک‌پیامی با `session_id` اختیاری |
+| `GET/DELETE /api/sessions[/{id}]` | بازبینی و حذف نشست‌های محلی |
 
 چت متنی: `python -m server.cli` یا `tools/chat.ps1`.
 مستندات API: `http://127.0.0.1:8000/docs`.
@@ -62,20 +74,35 @@ FastAPI از طریق **async HTTP به llama-server** متصل می‌شود؛ 
 ## تست و بنچمارک
 
 ```powershell
+# تست واحد/یکپارچه — بدون مدل و بدون سخت‌افزار
 .\.venv\Scripts\python.exe -m pytest -q
+
+# بنچمارک کل زنجیرهٔ صوت (هر ردیف برچسب MEASURED / SIMULATED / NOT MEASURED دارد)
+.\.venv\Scripts\python.exe tools\benchmark_voice.py --json-out benchmarks\results\voice-pc.json
+
+# ارزیابی فارسی WER/CER (۴۰ جمله، سیاست نرمال‌سازی مستند)
+.\.venv\Scripts\python.exe benchmarks\persian_eval.py --list
+.\.venv\Scripts\python.exe benchmarks\persian_eval.py --audio-dir recordings\fa --strict
+
+# بنچمارک متنی قدیمی
 .\tools\benchmark.ps1
 ```
 
-بنچمارک فعلی متن را می‌سنجد، نه کل زنجیرهٔ صوت. دادهٔ خصوصی و وزن‌ها وارد Git نشوند.
+اعداد sandbox و روش‌شناسی در [BENCHMARKS](docs/BENCHMARKS.md) است؛ اعداد i7-6500U تا اجرای
+واقعی `NOT MEASURED` نوشته می‌شوند. دادهٔ خصوصی و وزن‌ها وارد Git نشوند.
 API فعلی احراز هویت ندارد؛ پورت‌ها را عمومی نکنید.
 
 ## مستندات
 
-- [AGENTS.md](AGENTS.md): قواعد توسعه
+- [AGENTS.md](AGENTS.md): قواعد توسعه و نقشهٔ مخزن
 - [SPEC](docs/SPEC.md): معماری و تصمیم‌ها
-- [STATUS](docs/STATUS.md): پیاده‌سازی و نتایج ثبت‌شده
-- [PC_VOICE](docs/PC_VOICE.md): مسیر فعلی اجرای صوت PC
-
-- [معماری Streaming جدید](docs/STREAMING_ARCHITECTURE.md): رویدادها، لغو، صف‌ها و معیار پذیرش
-
-- [نصب و تنظیم حذف اکو](docs/AEC.md): SpeexDSP، تأخیر و چک‌لیست بلندگو/میکروفون
+- [STATUS](docs/STATUS.md): وضعیت واقعی پیاده‌سازی + نگاشت ۲۰ الزام به تست
+- [ISSUE_REGISTER](docs/ISSUE_REGISTER.md): دفترچهٔ ایرادها با ریشه، رفع و تست
+- [PC_VOICE](docs/PC_VOICE.md): نصب و اجرای صوت PC
+- [STREAMING_ARCHITECTURE](docs/STREAMING_ARCHITECTURE.md): utterance/generation، صف‌ها، ماشین حالت، لغو
+- [CONFIGURATION](docs/CONFIGURATION.md): مرجع کامل `PVAI_*`
+- [AEC](docs/AEC.md): SpeexDSP، تأخیر، چک‌لیست بلندگو/میکروفون
+- [PROTOCOL](docs/PROTOCOL.md): قرارداد WebSocket صوتی ESP32-S3 (design-only)
+- [BENCHMARKS](docs/BENCHMARKS.md): روش‌شناسی و نتایج برچسب‌دار
+- [TROUBLESHOOTING](docs/TROUBLESHOOTING.md): پیام‌ها و راه‌حل
+- [HARDWARE_VALIDATION](docs/HARDWARE_VALIDATION.md): چک‌لیست تست واقعی

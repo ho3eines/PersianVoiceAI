@@ -8,6 +8,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import wave
 from pathlib import Path
@@ -16,6 +17,9 @@ from typing import Any
 import httpx
 
 from .config import Settings
+
+SAMPLE_RATE = 16000
+""""""  # the ASR/TTS contract of this project is PCM16 mono @ 16 kHz
 
 
 class VoiceError(RuntimeError):
@@ -44,18 +48,65 @@ def dependency(name: str) -> Any:
 
 
 class LocalAudio:
-    def __init__(self, settings: Settings) -> None:
+    """Local Whisper (faster-whisper/CTranslate2) adapter, files only, no downloads."""
+
+    def __init__(self, settings: Settings, metrics: Any = None) -> None:
         self.settings = settings
+        self.metrics = metrics
         self.model: Any = None
+        self._lock = threading.Lock()
+        self.loaded_at: float | None = None
+        self.last_options: dict[str, Any] = {}
 
     def validate(self) -> None:
         path = Path(self.settings.asr_model_path)
         if not path.is_dir() or not (path / "model.bin").is_file():
             raise VoiceError("مدل Whisper محلی موجود نیست؛ PVAI_ASR_MODEL_PATH را تنظیم کنید.")
-        if not Path(self.settings.tts_model_path).is_file():
-            raise VoiceError("مدل Piper موجود نیست؛ PVAI_TTS_MODEL_PATH را تنظیم کنید.")
-        if not Path(self.settings.tts_model_path + ".json").is_file():
+        tts_path = Path(self.settings.tts_model_for(self.settings.tts_voice))
+        if not tts_path.is_file():
+            raise VoiceError(
+                "مدل Piper موجود نیست؛ PVAI_TTS_MODEL_PATH یا مسیر صدای انتخاب‌شده را تنظیم کنید."
+            )
+        if not Path(str(tts_path) + ".json").is_file():
             raise VoiceError("فایل تنظیمات مدل Piper (.onnx.json) موجود نیست.")
+
+    # ------------------------------------------------------------- model lifecycle
+    def warmup(self) -> None:
+        """Load the Whisper model once at startup instead of on the first utterance.
+
+        The old pipeline created the model lazily inside the first ASR call, so
+        the first user utterance paid the full model-load latency (seconds on a
+        two-core laptop) and looked like "the assistant did not hear me".
+        """
+        np = dependency("numpy")
+        silence = np.zeros(int(SAMPLE_RATE * 0.2), dtype=np.float32)
+        started = time.perf_counter()
+        self._transcribe(silence)
+        if self.metrics is not None:
+            self.metrics.observe("asr_model_load_ms", (time.perf_counter() - started) * 1000)
+
+    def _ensure_model(self) -> Any:
+        if self.model is not None:
+            return self.model
+        with self._lock:
+            if self.model is None:
+                whisper = dependency("faster_whisper")
+                options = {
+                    "device": self.settings.asr_device,
+                    "compute_type": self.settings.asr_compute_type,
+                    "local_files_only": True,
+                    "cpu_threads": self.settings.asr_threads,
+                }
+                self.last_options = options
+                try:
+                    self.model = whisper.WhisperModel(self.settings.asr_model_path, **options)
+                except Exception as exc:
+                    raise VoiceError(
+                        "بارگذاری مدل Whisper ناموفق بود؛ قالب CTranslate2 و "
+                        "PVAI_ASR_DEVICE/PVAI_ASR_COMPUTE_TYPE را بررسی کنید."
+                    ) from exc
+                self.loaded_at = time.time()
+            return self.model
 
     def record(self, destination: Path) -> None:
         sd = dependency("sounddevice")
@@ -77,21 +128,26 @@ class LocalAudio:
         return self._transcribe(str(source))
 
     def transcribe_pcm(self, pcm: bytes) -> str:
-        """Decode an in-memory PCM snapshot; never write live microphone audio to disk."""
+        """Decode an in-memory PCM window; never write live microphone audio to disk.
+
+        Partial windows are bounded by ``PVAI_ASR_PARTIAL_WINDOW_S`` in the
+        pipeline; the final decode receives the complete utterance audio, so
+        nothing is lost for accuracy while per-decode cost stays predictable.
+        """
         np = dependency("numpy")
         samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
         return self._transcribe(samples)
 
     def _transcribe(self, source: Any) -> str:
         try:
-            if self.model is None:
-                whisper = dependency("faster_whisper")
-                self.model = whisper.WhisperModel(
-                    self.settings.asr_model_path, device="cpu", compute_type="int8",
-                    local_files_only=True, cpu_threads=self.settings.n_threads or 4,
-                )
-            segments, _ = self.model.transcribe(source, language="fa", vad_filter=True,
-                                                 beam_size=1, condition_on_previous_text=False)
+            model = self._ensure_model()
+            segments, _ = model.transcribe(
+                source,
+                language="fa",
+                vad_filter=self.settings.asr_vad_filter,
+                beam_size=self.settings.asr_beam_size,
+                condition_on_previous_text=False,
+            )
             return " ".join(segment.text.strip() for segment in segments).strip()
         except VoiceError:
             raise
@@ -101,7 +157,8 @@ class LocalAudio:
     def speak(self, text: str, destination: Path) -> None:
         try:
             subprocess.run(
-                [sys.executable, "-m", "piper", "--model", self.settings.tts_model_path,
+                [sys.executable, "-m", "piper", "--model",
+                 self.settings.tts_model_for(self.settings.tts_voice),
                  "--output_file", str(destination)],
                 input=text, text=True, encoding="utf-8", capture_output=True,
                 timeout=self.settings.request_timeout_s, check=True,

@@ -1,89 +1,162 @@
-# معماری PC Streaming — جایگزین مسیر «ضبط، سپس پردازش»
+# معماری موتور مکالمهٔ PC — utterance، generation، صف‌ها و لغو
 
-تاریخ: ۷ نوامبر ۲۰۲۶. مبنا: درخواست صریح کاربر برای تغییر معماری در صورت نیاز به اجرای لایو.
+این سند رفتار **پیاده‌شده** در `server/streaming_voice.py` را توصیف می‌کند. هر ادعای اینجا با
+نام تست مشخص پشتیبانی می‌شود؛ اگر چیزی تست نشده، همان‌جا نوشته شده است.
 
-## تصمیم و گزینه‌ها
+## ۱. مسئله‌ای که حل شد
 
-- **حفظ مسیر قبلی:** ساده‌تر، ولی ASR تا پایان صحبت منتظر می‌ماند و لغو SSE همگام ممکن است تا توکن بعدی عقب بیفتد؛ برای نیاز فعلی کافی نبود.
-- **تصمیم اجراشده:** خط لولهٔ asynchronous و actorهای مستقل، adapter تشخیص افزایشی روی Whisper فارسی محلی.
-  دریافت صوت، ASR، دریافت توکن و پخش، چرخه‌های مستقل دارند.
-- **جایگزینی با ASR ذاتاً streaming:** در آینده ممکن است؛ بدون مدل فارسی ارزیابی‌شده و وزن/مجوز معتبر انتخاب قطعی نمی‌کنیم.
-  رابط `transcribe_pcm` امکان تعویض adapter را بدون تغییر LLM/TTS فراهم می‌کند.
-
-مزیت انتخاب فعلی: استفاده از مدل فارسی موجود و خروجی partial حین صحبت، عدم انتظار endpoint برای شروع ASR،
-لغو مستقل شبکه، عدم ذخیرهٔ صوت زنده روی دیسک. هزینه: Whisper بازشناسی تکراری انجام می‌دهد و از ASR ذاتاً streaming سنگین‌تر است.
-روی CPU قدیمی ممکن است تولید partial عقب بیفتد؛ «live» تضمین تأخیر hard realtime نیست.
-FastAPI/llama-server و API متنی حفظ شده‌اند؛ معماری PC تغییر کرده، نه قرارداد ESP32 یا Command Broker.
-
-## خط لوله
+پیاده‌سازی قبلی یک شمارندهٔ `generation` و یک صف یک‌تایی (`snapshots`) برای همهٔ کارها داشت.
+نتیجه: با شروع گفتار جدید، `interrupt()` صف را خالی می‌کرد و `recognize()` هم نتیجهٔ final را
+در صورت تغییر `generation` دور می‌ریخت. یعنی جملهٔ A می‌توانست بی‌صدا از مکالمه حذف شود:
 
 ```text
-PortAudio duplex callback — PCM16 mono / 16k / 20ms
-    ↓ paired microphone + actual render reference → SpeexDSP AEC
-    ↓ bounded queue (100 frames ≈ 2s)
-Async coordinator + energy endpoint detector
-    ├─ speech_start → generation++ → cancel previous HTTP/audio
-    ├─ every ~0.8s → newest overlapping PCM snapshot
-    └─ silence (~0.5s) or segment limit (15s) → final snapshot
-                    ↓ latest-only mailbox (1)
-Single ASR actor → Whisper CPU int8, in-memory float32
-    ├─ transcript_partial + two-pass agreed_prefix
-    └─ transcript_final → async LLM task
-                          ↓ HTTP/SSE (FastAPI → llama-server)
-                       response_delta → bounded phrase queue (8)
-                                             ↓
-                                      Single TTS actor
-                                      Piper → resample 16k mono → bounded render queue → duplex callback
+کاربر A را می‌گوید → سکوت → final(A) به صف میرود → Whisper در حال decode
+کاربر B را شروع می‌کند → onset → interrupt() → generation+1
+decode تمام میشود → «generation قدیمی» → final(A) دور ریخته میشود ← باگ P0-01
 ```
 
-## قرارداد رویدادها
+سه مسیر مستقل این از دست رفتن را می‌ساختند: خالی‌کردن صف در `interrupt()`، بررسی `generation`
+پس از decode، و mailbox مشترک partial/final. هر سه در طراحی جدید حذف شده‌اند.
 
-رویدادها JSON lines در ترمینال‌اند؛ هنوز WebSocket صوتی یا UI مرورگر پیاده نشده است.
-هر رویداد `type` و `generation` دارد:
+## ۲. چهار مفهوم مستقل
 
-- `speech_start`, `speech_end`, `interrupted`
-- `transcript_partial`: `text`, `agreed_prefix` (پیشوند مشترک دو decode؛ هنوز قابل اصلاح است)
-- `transcript_final`: `text` نهایی بخش، نه الزاماً کل مکالمه
-- `response_delta`: متن افزایشی مدل
-- `first_token`: `endpoint_ms` از پایان بخش گفتار تا اولین متن مدل
-- `llm_timings`: آمار برگشتی FastAPI
-- `tts_start`, `tts_end`: شروع/پایان فراخوانی و پخش جمله؛ زمان اولین صدای واقعی اندازه‌گیری نشده
-- `response_end`: بعد از مصرف صف پخش؛ تاریخچه در این نقطه ثبت می‌شود
-- `error`: پیام فارسی بدون متن exception خام
+| مفهوم | مالک | عمر | لغو می‌شود؟ |
+|---|---|---|---|
+| `Utterance` | VAD + Pipeline | onset تا commit متن | خیر (شناسهٔ یکتا و افزایشی) |
+| `FinalASR` (صف FIFO) | `AsrScheduler.finals` | submit تا decode و ثبت | **فقط** در shutdown، با اعلام |
+| `PartialASR` (mailbox یک‌جا) | `AsrScheduler.partial` | تا جایگزینی یا رسیدن final | بله، بدون اثر |
+| `AssistantTurn` | `Pipeline.pending_turn` | تا commit (complete/interrupted/failed) | بله، مستقل از ASR |
 
-تصمیم/فرمان از متن partial اجرا نمی‌شود. فقط final به LLM می‌رود. پاسخ‌دادن قبل از پایان صحبت کاربر
-می‌تواند باعث پاسخ نامرتبط شود؛ «تشخیص زنده» را با «پاسخ حدسی حین حرف‌زدن» یکی نمی‌گیریم.
+قاعدهٔ طلایی: **لغو پاسخ دستیار هیچ‌وقت به صف final دست نمی‌زند.** barge-in فقط
+`AssistantTurn`، task پاسخ و صف پخش را متوقف می‌کند.
 
-## لغو، فشار صف و طول عمر
+### شناسه‌ها
 
-- شروع گفتار جدید، token پاسخ قبلی را لغو و task مربوط به SSE را cancel می‌کند؛ context شبکه بسته می‌شود، حتی اگر توکن بعدی هنوز نرسیده باشد.
-- generation قدیمی اجازهٔ انتشار متن ASR، پخش جملهٔ صف‌شده یا ثبت تاریخچه ندارد.
-- تنها یک فراخوانی Whisper و یک فراخوانی Piper هم‌زمان مجاز است. محاسبهٔ native در thread درجا قابل کشتن نیست؛ نتیجهٔ قدیمی حذف می‌شود.
-- pending snapshot جدید جای قبلی را می‌گیرد؛ صف صوت ورودی/خروجی نامحدود نیست. پرشدن صف جمله‌ها دریافت متن را backpressure می‌کند.
-- overflow میکروفون کل نوبت و partialهای قدیمی را حذف می‌کند؛ صوت شکسته به‌عنوان نوبت سالم پردازش نمی‌شود.
-- خروج taskهای async را لغو می‌کند؛ خروج executor می‌تواند منتظر بازگشت native inference بماند. توقف قطعی مدل گیرکرده نیازمند process isolation در مرحلهٔ بعد است.
-- waveform فقط RAM است. حالت عیب‌یابی `--turn-based` هنوز فایل موقت می‌سازد.
+- `utterance_id`: ۱، ۲، ۳…؛ هرگز تکرار نمی‌شود. کلید dedupe در `Conversation.add_user`.
+- `turn_id`: هر تلاش پاسخ؛ کلید dedupe در `Conversation.finish_assistant`.
+- `generation`: شمارندهٔ barge-in برای بی‌اعتبار کردن taskهای async قدیمی (شبکه/TTS)،
+  و **ملاک اعتبار ASR نیست**.
 
-## مرز تکمیل
+## ۳. خط لوله
 
-**پیاده‌شده:** capture و تشخیص افزایشی، partial حین صحبت، SSE async قابل لغو، پخش تدریجی و قطع پاسخ منطقی، صف محدود و حذف دادهٔ قدیمی.
+```text
+PortAudio duplex callback  (PCM16 mono / 16 kHz / 20 ms)
+   │  capture+reference تازه، شماره‌گذاری‌شده
+   ▼
+Queue محدود  ──►  AEC (SpeexDSP)  ──►  EnergyVAD  ──►  Pipeline.feed()
+                                                       │
+                        ┌──────────────────────────────┼──────────────────────────────┐
+                        ▼                              ▼                              ▼
+                  onset: Utterance(id)         partial هر 0.8s               endpoint/max_segment
+                  barge-in فقط اگر            پنجرهٔ هم‌پوشان ۶s             audio کامل بخش
+                  THINKING/SPEAKING           → mailbox یک‌جا               → صف FIFO final
+                        │                              │                              │
+                        └──────────────► AsrScheduler ◄┘                              │
+                                             │                                        │
+                                     یک actor Whisper (thread)                        │
+                                             │                                        │
+                              partial → رویداد transcript_partial                      │
+                              final   → transcript_final → Conversation.add_user        │
+                                             │                                        │
+                                    AssistantTurn (SSE به llama-server) ◄──────────────┘
+                                             │
+                                    جمله‌های آماده → صف محدود (۸) → actor پخش
+                                             │
+                                     Piper → mono 16k → duplex → بلندگو
+```
 
-**AEC PC اضافه شده:** SpeexDSP با مرجع خروجی duplex پیش از VAD/ASR؛ بدون mute ورودی.
-قرارداد، وابستگی native و معیار سنجش در [AEC.md](AEC.md).
-**پیاده‌نشده/تأییدنشده:** VAD تخصصی، مدل ASR ذاتاً streaming، UI، ESP32 صوتی، تضمین تأخیر، کیفیت وزن‌ها و پایداری روی سخت‌افزار واقعی.
-بدون AEC هدفون لازم است؛ با AEC نیز استفادهٔ بلندگو نیازمند کالیبراسیون و تست echo-only/double-talk است.
+هر پایین‌دست **یک مالک** دارد: یک actor برای Whisper، یک actor برای پخش. این کار هم‌زمانی
+دو decode یا دو سنتز را حذف می‌کند و روی CPU دوهسته‌ای قابل پیش‌بینی است.
 
-## معیار پذیرش واقعی
+## ۴. ASR: چرا partial «ارزان» شد
 
-1. هنگام ادامهٔ صحبت، قبل از سکوت رویداد `transcript_partial` دیده شود.
-2. با ادامهٔ متن بلند مدل، جملهٔ اول پخش شود.
-3. با شروع صحبت جدید، پخش قبلی قطع شود و هیچ متن/صوت متعلق به generation قدیمی منتشر نشود.
-4. قطع SSE، خطای Piper و overflow ورودی تاریخچهٔ ناقص ثبت نکنند.
-5. پس از نصب اولیه و تهیهٔ وزن‌ها، با اینترنت قطع مسیر کامل کار کند.
-6. تأخیر و RAM/CPU روی لپ‌تاپ هدف ثبت شوند؛ اگر ASR از زمان واقعی عقب افتاد interval، اندازهٔ مدل یا adapter باید بر اساس اندازه‌گیری تغییر کند.
+پیاده‌سازی قدیم هر ۰٫۸ ثانیه **کل بخش در حال رشد** را به Whisper می‌داد؛ هزینه تا سقف ۱۵ ثانیه
+تقریباً درجه‌دوم رشد می‌کرد. اکنون:
 
-## وابستگی صوتی جدید
+- **final**: کل PCM بخش (بدون برش، فقط حذف سکوت پایانی اضافی) — دقت حفظ می‌شود.
+- **partial**: پنجرهٔ هم‌پوشان با سقف `PVAI_ASR_PARTIAL_WINDOW_S` (پیش‌فرض ۶ ثانیه)؛
+  هزینهٔ هر decode تقریباً ثابت است.
+- ترتیب اولویت: صف final **همیشه** قبل از partial سرو می‌شود؛ partial معلق با رسیدن final
+  همان utterance منسوخ می‌شود.
+- `agreed_prefix` فقط وقتی معنا دارد که پنجره جابه‌جا نشده باشد؛ در غیر این صورت رشتهٔ خالی
+  گزارش می‌شود تا «پیشوند پایدار» دروغ نباشد.
+- سنجه‌ها: `asr_ms`, `asr_rtf`, `asr_final_latency_ms`, `asr_partial_latency_ms`,
+  `asr_queue_depth`, `asr_dropped_partial_count`, `asr_final_job_count`, `asr_errors`.
+- **backpressure**: صف final بی‌کران نیست در معنا که هیچ‌وقت drop نمی‌کند؛ فقط از
+  `PVAI_ASR_MAX_FINAL_JOBS` عبور می‌کند و شمارندهٔ `backlog_warnings` بالا می‌رود. این انتخاب
+  آگاهانه است: گم‌کردن متن کاربر بدتر از تأخیر است.
 
-SpeexDSP DLL/SO لازم است و به‌صورت پیش‌فرض AEC فعال است. نبود آن خطا می‌دهد؛ bypass فقط با
-`PVAI_AEC_ENABLED=false` صریح انجام می‌شود. صف مرجع تأخیر و state فیلتر در overflow reset می‌شوند.
-فیلتر در callback اجرا نمی‌شود؛ DSP در هماهنگ‌کننده و پیش از detector قرار دارد.
+اصلاح مهم مرحلهٔ اخیر: در `AsrScheduler.next()` پرچم بیدارباش **بعد از** بررسی صف پاک می‌شد؛
+یک final که در همان پنجره submit می‌شد می‌توانست تا submit بعدی خواب بماند (lost wakeup).
+اکنون ابتدا `clear()` و سپس بررسی مجدد انجام می‌شود.
+تست: `tests/test_asr_scheduler.py::test_submit_landing_between_check_and_wait_is_not_lost`.
+
+## ۵. ماشین حالت
+
+| حالت | معنا |
+|---|---|
+| `IDLE` | نه گفتاری، نه پاسخی |
+| `LISTENING` | utterance باز است |
+| `TRANSCRIBING` | final صف شده و منتظر decode |
+| `THINKING` | پاسخ در حال دریافت از مدل |
+| `SPEAKING` | سنتز/پخش |
+
+گذار مجاز در `ALLOWED_TRANSITIONS`. هر گذار غیرمجاز **گزارش** می‌شود (`state_violation`) و
+شمارندهٔ `states.violations` بالا می‌رود؛ هرگز باعث crash نمی‌شود. تست:
+`tests/test_state_machine.py` (همهٔ ۲۵ جفت حالت + جریان واقعی یک نوبت + barge-in).
+
+اصلاح مرحلهٔ اخیر: پس از پایان پخش، حالت در `SPEAKING` گیر می‌کرد چون نشانگر commit
+(`SpeechItem` با متن خالی) آخرین آیتم صف است و شرط `reply.done()` در آن لحظه هنوز false بود.
+اکنون هنگام مصرف نشانگر، اگر صف خالی و `pending_turn` پاک شده باشد، گذار به
+`LISTENING`/`IDLE` انجام می‌شود. تست: `test_pipeline_walks_the_documented_states_for_one_exchange`.
+
+## ۶. barge-in و لغو
+
+| وضعیت هنگام شروع گفتار کاربر | رفتار |
+|---|---|
+| `IDLE` | utterance جدید؛ هیچ لغوی |
+| `LISTENING` | ادامهٔ همان utterance |
+| `TRANSCRIBING` | utterance جدید ساخته می‌شود؛ **صف final دست‌نخورده**؛ پاسخ قدیمی اگر فعال باشد لغو می‌شود |
+| `THINKING` | barge-in پس از `PVAI_VOICE_BARGE_IN_MS` گفتار: cancel task پاسخ، افزایش generation، پاک‌کردن صف جمله |
+| `SPEAKING` | همان + set کردن token پخش؛ Speaker بین دو بلوک ۲۰ms متوقف می‌شود |
+
+قواعد تکمیلی:
+
+- پاسخ قطع‌شده با وضعیت `interrupted` ثبت می‌شود و فقط **آنچه شنیده شد** (`turn.spoken`) در
+  تاریخچه می‌رود؛ جمله‌های صف‌شدهٔ پخش‌نشده وارد متن نمی‌شوند.
+- `Stale audio` ممکن نیست: هر آیتم صف، `token` و `generation` خود را حمل می‌کند و actor پخش
+  قبل از هر قطعه آن را بررسی می‌کند.
+- توقف قطعی inference native در حال اجرا **تضمین نمی‌شود** (thread درجا kill نمی‌شود)؛
+  نتیجهٔ دیررس با `generation`/`turn.token` دور ریخته می‌شود. رفع کامل = process isolation
+  (مورد باز OPEN-01).
+
+## ۷. صف‌ها و کرانه‌ها
+
+| صف | کرانه | سیاست |
+|---|---|---|
+| capture (DuplexAudio) | ۱۰۰ فریم ≈ ۲s | overflow → `Pipeline.overflow()` نوبت جاری را حذف می‌کند، finalها می‌مانند |
+| `AsrScheduler.finals` | بدون drop | FIFO؛ عمق فقط هشدار می‌دهد |
+| `AsrScheduler.partial` | ۱ | latest-only |
+| `Pipeline.speech` | `PVAI_VOICE_SPEECH_QUEUE` (۸) | پرشدن → backpressure روی SSE |
+| `Conversation.messages` | `PVAI_HISTORY_MAX_STORED` (۵۰۰) | پنجرهٔ RAM؛ فایل JSONL کامل می‌ماند |
+| `_finalized_ids` | ۵۱۲ | dedupe نتیجهٔ final تکراری |
+| `Metrics` | ثابت | count/last/min/max/mean بدون نگه‌داشتن نمونه‌ها |
+
+تست بار: `tests/test_long_run.py` با ۱۲۰ نوبت متوالی و بررسی همهٔ کرانه‌ها در هر نوبت.
+
+## ۸. رویدادها (JSON lines روی stdout)
+
+`speech_start`, `speech_end`, `transcript_partial`, `transcript_final`, `user_message`,
+`first_token`, `response_delta`, `tts_enqueue`, `tts_start`, `tts_end`, `first_audible`,
+`response_end`, `interrupted`, `response_skipped`, `state`, `state_violation`, `error`, `ready`,
+`llm_timings`, `metrics` (در صورت فعال بودن).
+
+هر رویداد `generation` و `state` دارد. `transcript_partial` هرگز فرمان اجرا نمی‌کند.
+
+## ۹. معیار پذیرش (قابل اجرا)
+
+1. `pytest -q` سبز (بدون مدل و بدون سخت‌افزار).
+2. `python tools/benchmark_voice.py` بدون استثنا اجرا شود؛ ردیف‌های واقعی `MEASURED` و
+   ردیف‌های بی‌مدل `SIMULATED`/`NOT MEASURED` باشند.
+3. در اجرای واقعی (چک‌لیست سخت‌افزار): final(A) بعد از شروع B در تاریخچه بماند؛
+   پیام تکراری ظاهر نشود؛ صدای کهنه پخش نشود؛ `barge_in_latency_ms` ثبت شود.

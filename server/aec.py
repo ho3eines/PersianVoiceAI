@@ -8,6 +8,7 @@ import ctypes
 import ctypes.util
 import queue
 import threading
+import time
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -17,11 +18,83 @@ from .voice import VoiceError
 FRAME_SAMPLES = 320
 FRAME_BYTES = 640
 RATE = 16000
+REQUIRED_SYMBOLS = (
+    "speex_echo_state_init",
+    "speex_echo_state_destroy",
+    "speex_echo_state_reset",
+    "speex_echo_ctl",
+    "speex_echo_cancellation",
+)
+
+
+def find_library(library: str = "") -> str | None:
+    """Resolve the configured SpeexDSP shared library, or ``None``."""
+    if library:
+        path = Path(library)
+        return str(path.resolve()) if path.is_file() else None
+    return ctypes.util.find_library("speexdsp")
+
+
+def probe_aec(library: str = "") -> dict[str, Any]:
+    """Check availability and exported symbols **without** allocating a filter.
+
+    Used by ``/ready`` and the startup report so a missing DLL is a clear,
+    actionable status instead of an unexplained crash when the live path starts.
+    """
+    location = find_library(library)
+    if not location:
+        return {
+            "enabled": None,
+            "available": False,
+            "library": library or "",
+            "detail": "کتابخانهٔ SpeexDSP پیدا نشد؛ PVAI_AEC_LIBRARY را تنظیم کنید یا AEC را خاموش کنید.",
+        }
+    try:
+        handle = ctypes.CDLL(location)
+    except OSError as exc:
+        return {
+            "enabled": None,
+            "available": False,
+            "library": location,
+            "detail": f"بارگذاری کتابخانهٔ SpeexDSP ناموفق بود: {exc}",
+        }
+    missing = [name for name in REQUIRED_SYMBOLS if not hasattr(handle, name)]
+    if missing:
+        return {
+            "enabled": None,
+            "available": False,
+            "library": location,
+            "detail": "نمادهای لازم در کتابخانهٔ SpeexDSP نیست: " + ", ".join(missing),
+        }
+    return {"enabled": None, "available": True, "library": location, "detail": "OK"}
+
+
+def aec_status(settings: Any) -> dict[str, Any]:
+    """Readiness view of AEC for the configured settings (never raises)."""
+    if not getattr(settings, "aec_enabled", False):
+        return {
+            "enabled": False,
+            "available": None,
+            "library": "",
+            "detail": "AEC خاموش است؛ برای تست بدون هدفون از آن استفاده نکنید.",
+        }
+    probe = probe_aec(getattr(settings, "aec_library", ""))
+    enabled = True
+    if getattr(settings, "audio_sample_rate", RATE) != RATE or getattr(
+        settings, "audio_block_ms", 20
+    ) != 20:
+        return {
+            "enabled": enabled,
+            "available": False,
+            "library": probe.get("library", ""),
+            "detail": "AEC فقط با 16kHz و فریم 20ms کار می‌کند؛ تنظیمات صوتی را اصلاح کنید.",
+        }
+    return {"enabled": enabled, **{k: v for k, v in probe.items() if k != "enabled"}}
 
 
 class SpeexAEC:
     def __init__(self, library: str = "", *, filter_ms: int = 250, delay_ms: int = 40) -> None:
-        location = str(Path(library).resolve()) if library else ctypes.util.find_library("speexdsp")
+        location = find_library(library)
         if not location:
             raise VoiceError("کتابخانهٔ SpeexDSP پیدا نشد؛ PVAI_AEC_LIBRARY را تنظیم کنید یا AEC را صریحاً خاموش کنید.")
         try:
@@ -75,15 +148,48 @@ class SpeexAEC:
 
 class DuplexAudio:
     """Callback only copies bounded PCM. Native AEC runs outside the callback."""
+
     def __init__(self) -> None:
         self.capture: queue.Queue[tuple[bytes, bytes]] = queue.Queue(maxsize=100)
         self.render: queue.Queue[tuple[bytes, threading.Event, threading.Event]] = queue.Queue(maxsize=50)
         self.overflow = threading.Event()
         self.closed = threading.Event()
+        # Diagnostics written from the audio callback (plain scalars only).
+        self.last_frame_at: float | None = None
+        self.callbacks = 0
+        self.jitter_ms = 0.0
+        self.max_jitter_ms = 0.0
+        self.frame_mismatch = 0
+        self.last_frames = FRAME_SAMPLES
+        self._last_callback_at: float | None = None
+
+    def _measure(self, frames: int) -> None:
+        now = time.perf_counter()
+        self.last_frame_at = now
+        if self._last_callback_at is not None:
+            expected = frames / RATE * 1000.0
+            deviation = abs((now - self._last_callback_at) * 1000.0 - expected)
+            self.jitter_ms = deviation
+            if deviation > self.max_jitter_ms:
+                self.max_jitter_ms = deviation
+        self._last_callback_at = now
+        self.callbacks += 1
+
+    def stats(self) -> dict[str, float | int | None]:
+        return {
+            "callbacks": self.callbacks,
+            "jitter_ms": round(self.jitter_ms, 3),
+            "max_jitter_ms": round(self.max_jitter_ms, 3),
+            "frame_mismatch": self.frame_mismatch,
+            "last_frames": self.last_frames,
+        }
 
     def callback(self, indata: Any, outdata: Any, frames: int, timing: Any, status: Any) -> None:
+        self._measure(frames)
+        self.last_frames = int(frames)
         if frames != FRAME_SAMPLES:
             outdata[:] = bytes(len(outdata))
+            self.frame_mismatch += 1
             self.overflow.set()
             return
         reference = bytes(FRAME_BYTES)

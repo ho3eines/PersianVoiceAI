@@ -264,3 +264,151 @@ def test_stream_backend_failure_is_sse_error(settings: Settings) -> None:
     assert response.status_code == 200
     assert 'LlamaServerUnavailable' in response.text
     assert '[DONE]' in response.text
+
+
+# ------------------------------------------------------------------ readiness
+def _fake_models(tmp_path) -> Settings:
+    asr = tmp_path / "whisper"
+    asr.mkdir()
+    (asr / "model.bin").write_bytes(b"x")
+    tts = tmp_path / "piper" / "fa.onnx"
+    tts.parent.mkdir()
+    tts.write_bytes(b"x")
+    (tts.parent / "fa.onnx.json").write_bytes(b"{}")
+    return Settings(
+        model_path="models/test-model.gguf",
+        system_prompt="سیستم تست",
+        asr_model_path=str(asr),
+        tts_model_path=str(tts),
+        aec_enabled=False,
+        history_persist=True,
+        data_dir=str(tmp_path / "data"),
+    )
+
+
+def test_ready_reports_each_check_and_fails_when_models_are_missing(monkeypatch, tmp_path) -> None:
+    from server.main import create_app
+
+    monkeypatch.setattr("server.readiness.VOICE_DEPENDENCIES", ())
+    settings = Settings(asr_model_path=str(tmp_path / "absent"),
+                        tts_model_path=str(tmp_path / "absent.onnx"),
+                        aec_enabled=False, data_dir=str(tmp_path))
+    with TestClient(create_app(settings=settings, llm=FakeLLM())) as client:
+        response = client.get("/ready")
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "not_ready"
+    assert body["checks"]["asr_model"]["ok"] is False
+    assert body["checks"]["tts_model"]["ok"] is False
+    assert body["checks"]["configuration"]["ok"] is True
+
+
+def test_ready_is_200_when_every_check_passes(monkeypatch, tmp_path) -> None:
+    from server.main import create_app
+
+    monkeypatch.setattr("server.readiness.VOICE_DEPENDENCIES", ())
+    settings = _fake_models(tmp_path)
+    with TestClient(create_app(settings=settings, llm=FakeLLM())) as client:
+        response = client.get("/ready")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ready"] is True
+    assert body["checks"]["llm_backend"]["ok"] is True
+    assert body["checks"]["aec"]["skipped"] is True
+
+
+def test_ready_reports_missing_backend(monkeypatch, tmp_path) -> None:
+    from server.main import create_app
+
+    monkeypatch.setattr("server.readiness.VOICE_DEPENDENCIES", ())
+    with TestClient(create_app(settings=_fake_models(tmp_path), llm=FakeLLM(unavailable=True))) as client:
+        body = client.get("/ready").json()
+    assert body["ready"] is False
+    assert body["checks"]["llm_backend"]["reachable"] is False
+
+
+def test_protocol_endpoint_is_design_only(client: TestClient) -> None:
+    body = client.get("/api/protocol").json()
+    assert body["implemented"] is False
+    assert body["audio"]["sample_rate"] == 16000
+
+
+# ------------------------------------------------------------------- sessions
+def test_stateless_chat_does_not_touch_disk(client: TestClient, tmp_path) -> None:
+    assert client.post("/api/chat", json={"message": "سلام"}).status_code == 200
+    assert not (tmp_path / "data").exists()
+
+
+def test_chat_with_session_id_persists_and_reuses_context(tmp_path) -> None:
+    from server.main import create_app
+
+    settings = Settings(model_path="models/test-model.gguf", data_dir=str(tmp_path),
+                        history_persist=True)
+    llm = FakeLLM()
+    with TestClient(create_app(settings=settings, llm=llm)) as client:
+        first = client.post("/api/chat", json={"message": "سلام", "session_id": "s-live"})
+        assert first.status_code == 200
+        assert first.json()["session"]["session_id"] == "s-live"
+        second = client.post("/api/chat", json={"message": "بعدی", "session_id": "s-live"})
+        assert second.status_code == 200
+        assert second.json()["session"]["messages"] == 4
+        # The second request carries the previous exchange as context.
+        assert [message["role"] for message in llm.last_messages] == [
+            "system",
+            "user",
+            "assistant",
+            "user",
+        ]
+        assert llm.last_messages[-2]["content"] == "سلام! من یک دستیار فارسی محلی هستم."
+
+        listing = client.get("/api/sessions").json()
+        assert listing["persistence"] is True
+        assert [entry["session_id"] for entry in listing["sessions"]] == ["s-live"]
+
+        detail = client.get("/api/sessions/s-live").json()
+        assert len(detail["messages"]) == 4
+        assert detail["messages"][0]["status"] == "complete"
+        assert detail["messages"][-1]["turn_id"] is not None
+
+        assert client.delete("/api/sessions/s-live").status_code == 200
+        assert client.get("/api/sessions/s-live").status_code == 404
+
+
+def test_session_endpoints_handle_invalid_ids(tmp_path) -> None:
+    from server.main import create_app
+
+    settings = Settings(model_path="models/test-model.gguf", data_dir=str(tmp_path),
+                        history_persist=True)
+    with TestClient(create_app(settings=settings, llm=FakeLLM())) as client:
+        assert client.get("/api/sessions/..%2Fetc").status_code in (400, 404)
+        assert client.delete("/api/sessions/..%2Fetc").status_code in (400, 404)
+
+
+def test_sessions_are_isolated_from_each_other(tmp_path) -> None:
+    """Two sessions must never see each other's context (LAN/ESP32 readiness)."""
+    from server.main import create_app
+
+    settings = Settings(
+        model_path="models/test-model.gguf", data_dir=str(tmp_path), history_persist=True
+    )
+    llm = FakeLLM()
+    with TestClient(create_app(settings=settings, llm=llm)) as client:
+        client.post("/api/chat", json={"message": "سلام", "session_id": "s-one"})
+        client.post("/api/chat", json={"message": "درود", "session_id": "s-two"})
+
+        # The second session's payload starts from its own first user message.
+        assert [m["role"] for m in llm.last_messages] == ["system", "user"]
+        assert llm.last_messages[-1]["content"] == "درود"
+
+        client.post("/api/chat", json={"message": "بعدی", "session_id": "s-one"})
+        assert [m["content"] for m in llm.last_messages[1:]] == [
+            "سلام",
+            "سلام! من یک دستیار فارسی محلی هستم.",
+            "بعدی",
+        ]
+
+        one = client.get("/api/sessions/s-one").json()
+        two = client.get("/api/sessions/s-two").json()
+        assert one["messages"][0]["content"] == "سلام"
+        assert two["messages"][0]["content"] == "درود"
+        assert one["conversation_id"] != two["conversation_id"]
