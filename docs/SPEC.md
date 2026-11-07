@@ -175,8 +175,10 @@ idf.py -p COM5 flash monitor
 
 ## ۸. مدل زبانی (LLM)
 
-- گزینهٔ اولیه: **Qwen3-4B** با کوانتایز **Q4_K_M** و اجرا از طریق **llama.cpp**؛ انتخاب نهایی
-  به CPU، RAM، GPU و VRAM سیستم وابسته است.
+- **بک‌اند اجرایی:** **llama.cpp** (بیلد محلی `D:\Lama.cpp\bin\llama-server.exe` نسخه 0.4.1-dev) با کتابخانه **llama-cpp-python** در FastAPI.
+- **فرمت مدل:** **GGUF** (کوانتایز Q8_0 / Q4_K_M) — کاملاً آفلاین، بدون نیاز به Ollama یا سرویس HTTP جداگانه.
+- **مدل پیش‌فرض درس ۱:** **MiniCPM5-1B-Q8_0** (≈ ۱.۰۷ GB) — سبک، سریع روی CPU (i7-6500U)، و با پوشش خوب فارسی.
+- **مدل مقیاس‌پذیر (مراحل بعد):** Qwen3-4B-Q4_K_M (≈ ۲.۵ GB) یا مدل‌های ۳–۷B پارامتری بر اساس بنچمارک سخت‌افزار.
 
 ### وظایف
 
@@ -312,6 +314,7 @@ ASR → LLM Intent → Structured Command → Command Broker
 - faster-whisper — <https://github.com/SYSTRAN/faster-whisper>
 - Qwen — <https://huggingface.co/Qwen>
 - llama.cpp — <https://github.com/ggml-org/llama.cpp>
+- llama-cpp-python — <https://github.com/abetlen/llama-cpp-python>
 - مخزن TTS فارسی مطرح‌شده — <https://github.com/nimaone/persian_tts>
 - ESP-SR — <https://github.com/espressif/esp-sr>
 - ESP-ADF — <https://github.com/espressif/esp-adf>

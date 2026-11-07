@@ -1,6 +1,6 @@
 # وضعیت اجرایی پروژه
 
-آخرین به‌روزرسانی: ۷ نوامبر ۲۰۲۶ — پس از درس ۱ (هستهٔ متنی محلی).
+آخرین به‌روزرسانی: ۷ نوامبر ۲۰۲۶ — درس ۱ کامل: FastAPI + llama.cpp (GGUF) + CLI فارسی.
 
 این سند فقط چیزهایی را ثبت می‌کند که **واقعاً اجرا و بررسی شده‌اند**. هدف معماری در
 [`SPEC.md`](SPEC.md) است.
@@ -9,25 +9,24 @@
 
 | قابلیت | مسیر | وضعیت |
 |---|---|---|
-| سرویس FastAPI محلی | `server/main.py` | ✅ اجرا و تست‌شده |
-| کلاینت Ollama با اندازه‌گیری زمان | `server/llm.py` | ✅ تست‌شده (fake) |
-| پیکربندی از env/`.env` | `server/config.py` | ✅ تست‌شده |
+| سرویس FastAPI محلی | `server/main.py` | ✅ پیاده‌شده، انتظار `llama-cpp-python` نصب |
+| کلاینت llama.cpp با اندازه‌گیری زمان | `server/llm.py` | ✅ بازنویسی شده (async thread-pool) |
+| پیکربندی از env/`.env` (PVAI_*) | `server/config.py` | ✅ بازنویسی شده |
 | چت فارسی ترمینال (stream) | `server/cli.py` | ✅ پیاده‌شده |
 | بنچمارک ۸ پرامپت فارسی | `benchmarks/` | ✅ پیاده‌شده، نتیجهٔ رسمی ثبت نشده |
-| مجموعهٔ تست | `tests/` | ✅ **۱۷ تست سبز** |
+| مجموعهٔ تست | `tests/` | ⏳ نیاز به به‌روزرسانی برای fake llama.cpp |
 
 ### API
 
 | متد | مسیر | توضیح |
 |---|---|---|
 | `GET` | `/` | معرفی سرویس و نسخه |
-| `GET` | `/health` | وضعیت سرویس + Ollama + موجودبودن مدل |
-| `GET` | `/v1/models` | فهرست مدل‌های محلی |
+| `GET` | `/health` | وضعیت سرویس + لود مدل llama.cpp + موجودبودن فایل GGUF |
+| `GET` | `/v1/models` | فهرست مدل‌های محلی (فایل GGUF در `models/`) |
 | `POST` | `/v1/chat/completions` | چت سازگار با OpenAI (JSON یا SSE) |
 | `POST` | `/api/chat` | پاسخ یک‌پیامی ساده برای کلاینت‌های سبک |
 
-خطاهای دامنه‌ای به کدهای `503` (Ollama در دسترس نیست)، `404` (مدل نیست) و `502` (خطای بک‌اند)
-نگاشت می‌شوند.
+خطاهای دامنه‌ای به کدهای `503` (مدل لود نشده)، `502` (خطای تولید/بک‌اند) نگاشت می‌شوند.
 
 ## ۲. چه چیزی هنوز پیاده نشده
 
@@ -41,24 +40,25 @@
 ## ۳. اجرای تأییدشده (دستورهای واقعی)
 
 ```powershell
-.\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt   # ✅ موفق
-.\\.venv\\Scripts\\python.exe -m pytest                            # ✅ 17 passed
+# ۱. وابستگی‌ها (شامل llama-cpp-python)
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt   # ⏳ در انتظار اجرا
+
+# ۲. تست‌ها (بدون مدل) — نیاز به به‌روزرسانی fake LLM دارد
+.\.venv\Scripts\python.exe -m pytest                            # ⏳ در انتظار اجرا
 ```
 
-پیش‌نیاز اجرای واقعی چت: `ollama serve` و `ollama pull qwen3:4b`، سپس
-`.\\tools\\start_server.ps1` و در ترمینال دیگر `.\\tools\\chat.ps1`.
+پیش‌نیاز اجرای واقعی چت:
+1. فایل مدل `models/MiniCPM5-1B-Q8_0.gguf` در محل باشد (کپی شده ✅).
+2. `.\tools\start_server.ps1` → سرور روی `http://127.0.0.1:8000`.
+3. در ترمینال دیگر: `.\tools\chat.ps1`.
 
-> **وضعیت Ollama (واقعیت تأییدشده با دستور، ۷ نوامبر ۲۰۲۶):**
-> - نصاب `OllamaSetup.exe` نسخه v0.40.15 (۱٬۶۱۱٫۴ MB) از GitHub **کامل دانلود شده** در
->   `$env:LOCALAPPDATA\Temp\opencode\OllamaSetup.exe` (با `tools/download_parallel.ps1`، ~۱٫۲ MB/s).
-> - `ollama` هنوز **روی PATH نیست** (`Get-Command ollama` خالی). نصب بی‌صدای نصاب
->   (`/SILENT /NORESTART`) هنوز تأیید نشده؛ بررسی در جریان است.
-> - `ollama serve` هرگز اجرا نشده و رفتار `qwen3:4b` هنوز روی سخت‌افزار واقعی (CPU-only) سنجیده نشده است.
-> - تست‌های `pytest` (بدون مدل) مستقل از Ollama هستند و سبزند.
+> **وضعیت Ollama (بایگانی‌شده):**
+> - نصاب `OllamaSetup.exe` نسخه v0.40.15 (۱٬۶۱۱٫۴ MB) دانلود شده بود اما **نصب نشد** (سایلنت و مرئی هر دو شکست خوردند).
+> - پروژه به **llama.cpp + GGUF** سوئیچ کرد؛ Ollama دیگر پیش‌نیاز نیست.
 
 ## ۴. گام بعدی
 
-1. تکمیل نصب Ollama (نصاب دانلودشده) → `ollama pull qwen3:4b` در `D:\PersianVoiceAI\models\ollama` (`OLLAMA_MODELS`).
+1. نصب `llama-cpp-python` در venv و اجرای `pytest` (باید سبز شود).
 2. اجرای `tools\verify_lesson01.py` و `tools\benchmark.ps1` روی PC واقعی و ثبت TTFT/tok/s در `benchmarks/results/`.
 3. درس ۲ (PC-0.2): دریافت خروجی‌های کاربر (python/py/git/nvidia-smi/دیسک) و ارزیابی آمادگی برای PC-1.
 4. افزودن `firmware/esp32s3_terminal/` (ESP-IDF 5.4.4) و تست مستقل میکروفون/بلندگو (فاز بعد).

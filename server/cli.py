@@ -1,4 +1,4 @@
-"""Interactive Persian chat client for the local API.
+"""Interactive Persian chat client for the local API (llama.cpp backend).
 
 Run the API first:
     python -m uvicorn server.main:app --host 127.0.0.1 --port 8000
@@ -177,12 +177,10 @@ def _print_health(client: httpx.Client, args: argparse.Namespace) -> bool:
     if health.get("status") != "ok":
         print(f"هشدار: سرویس در وضعیت «{health.get('status')}» است.", file=sys.stderr)
         if not backend.get("reachable"):
-            print(f"  Ollama در دسترس نیست: {backend.get('error', '')}", file=sys.stderr)
-            print("  اجرا کنید: ollama serve", file=sys.stderr)
+            print(f"  مدل لود نشده است: {backend.get('error', '')}", file=sys.stderr)
         elif not backend.get("model_available"):
             print(
-                f"  مدل «{health.get('model')}» دانلود نشده است. اجرا کنید: "
-                f"ollama pull {health.get('model')}",
+                f"  فایل مدل GGUF در دسترس نیست.",
                 file=sys.stderr,
             )
         return False
@@ -269,7 +267,7 @@ def _run_interactive(client: httpx.Client, args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Persian Voice AI - local Persian chat")
+    parser = argparse.ArgumentParser(description="Persian Voice AI - local Persian chat (llama.cpp)")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--model", default=None, help="override the server model")
     parser.add_argument("--temperature", type=float, default=None)

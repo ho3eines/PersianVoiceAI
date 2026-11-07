@@ -3,17 +3,11 @@ from __future__ import annotations
 import asyncio
 
 from server.config import Settings
-from server.llm import OllamaClient, _ms_from_ns
+from server.llm import LlamaServerClient
 
 
-def _client() -> OllamaClient:
-    return OllamaClient(Settings(model="test:model"))
-
-
-def test_ms_from_ns() -> None:
-    assert _ms_from_ns(1_500_000_000) == 1500.0
-    assert _ms_from_ns(None) == 0.0
-    assert _ms_from_ns("bad") == 0.0
+def _client() -> LlamaServerClient:
+    return LlamaServerClient(Settings(model_path="models/test.gguf"))
 
 
 def test_system_prompt_is_injected_once() -> None:
@@ -54,34 +48,40 @@ def test_payload_contains_runtime_options() -> None:
         )
         assert payload["model"] == "other:1b"
         assert payload["stream"] is False
-        assert payload["options"]["temperature"] == 0.2
-        assert payload["options"]["num_predict"] == 32
-        assert payload["options"]["num_ctx"] == Settings().num_ctx
-        assert payload["think"] is False
+        assert payload["temperature"] == 0.2
+        assert payload["max_tokens"] == 32
     finally:
         asyncio.run(client.aclose())
 
 
-def test_result_parses_ollama_timings() -> None:
+def test_result_parses_llama_server_timings() -> None:
     client = _client()
     try:
+        # Simulate llama-server/OpenAI-compatible response with usage and timings
         data = {
-            "model": "test:model",
-            "message": {"role": "assistant", "content": "پاسخ"},
-            "done_reason": "stop",
-            "total_duration": 2_000_000_000,
-            "load_duration": 100_000_000,
-            "prompt_eval_count": 12,
-            "prompt_eval_duration": 500_000_000,
-            "eval_count": 20,
-            "eval_duration": 1_400_000_000,
+            "model": "test-model.gguf",
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "پاسخ"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 12,
+                "completion_tokens": 20,
+            },
+            "timings": {
+                "prompt_ms": 500.0,
+                "predicted_ms": 1400.0,
+                "predicted_per_second": 14.29,
+            },
         }
         result = client._result(data, wall_ms=2100.0)
         assert result.content == "پاسخ"
-        assert result.timings.total_ms == 2000.0
-        assert result.timings.load_ms == 100.0
         assert result.timings.prompt_tokens == 12
         assert result.timings.completion_tokens == 20
+        assert result.timings.prompt_eval_ms == 500.0
+        assert result.timings.generation_ms == 1400.0
         assert result.timings.tokens_per_second == 14.29
         assert result.finish_reason == "stop"
     finally:

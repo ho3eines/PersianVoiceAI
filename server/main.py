@@ -1,4 +1,4 @@
-"""FastAPI service exposing the local Persian LLM.
+"""FastAPI service exposing the local Persian LLM (llama.cpp backend).
 
 Endpoints
 ---------
@@ -26,10 +26,11 @@ from . import __version__
 from .config import Settings
 from .llm import (
     ChatResult,
-    ModelNotFound,
-    OllamaClient,
-    OllamaError,
-    OllamaUnavailable,
+    GenerationError,
+    LlamaServerClient,
+    LlamaServerError,
+    LlamaServerUnavailable,
+    ModelNotLoaded,
     StreamDelta,
     StreamDone,
 )
@@ -80,7 +81,7 @@ def _sse(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def create_app(settings: Settings | None = None, llm: OllamaClient | Any | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, llm: LlamaServerClient | Any | None = None) -> FastAPI:
     """Application factory. ``llm`` is injectable so tests need no model."""
     resolved = settings or Settings.from_env()
 
@@ -92,40 +93,46 @@ def create_app(settings: Settings | None = None, llm: OllamaClient | Any | None 
         )
         app.state.settings = resolved
         app.state.started_at = time.time()
-        app.state.llm = llm or OllamaClient(resolved)
+        app.state.llm = llm or LlamaServerClient(resolved)
         logger.info(
-            "Persian Voice AI %s | model=%s | ollama=%s",
+            "Persian Voice AI %s | model=%s",
             __version__,
-            resolved.model,
-            resolved.ollama_base_url,
+            resolved.model_path,
         )
         yield
         await app.state.llm.aclose()
 
     app = FastAPI(
         title="Persian Voice AI",
-        description="Local Persian LLM core. Lesson 1: text chat + local API.",
+        description="Local Persian LLM core (llama.cpp). Lesson 1: text chat + local API.",
         version=__version__,
         lifespan=lifespan,
     )
 
     # ---------------------------------------------------------------- errors
-    @app.exception_handler(OllamaUnavailable)
-    async def _backend_unavailable(_: Request, exc: OllamaUnavailable) -> JSONResponse:
+    @app.exception_handler(ModelNotLoaded)
+    async def _model_not_loaded(_: Request, exc: ModelNotLoaded) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "model_not_loaded", "detail": str(exc)},
+        )
+
+    @app.exception_handler(GenerationError)
+    async def _generation_error(_: Request, exc: GenerationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=502,
+            content={"error": "generation_error", "detail": str(exc)},
+        )
+
+    @app.exception_handler(LlamaServerUnavailable)
+    async def _backend_unavailable(_: Request, exc: LlamaServerUnavailable) -> JSONResponse:
         return JSONResponse(
             status_code=503,
             content={"error": "backend_unavailable", "detail": str(exc)},
         )
 
-    @app.exception_handler(ModelNotFound)
-    async def _model_missing(_: Request, exc: ModelNotFound) -> JSONResponse:
-        return JSONResponse(
-            status_code=404,
-            content={"error": "model_not_found", "detail": str(exc)},
-        )
-
-    @app.exception_handler(OllamaError)
-    async def _backend_error(_: Request, exc: OllamaError) -> JSONResponse:
+    @app.exception_handler(LlamaServerError)
+    async def _backend_error(_: Request, exc: LlamaServerError) -> JSONResponse:
         return JSONResponse(
             status_code=502,
             content={"error": "backend_error", "detail": str(exc)},
@@ -144,17 +151,13 @@ def create_app(settings: Settings | None = None, llm: OllamaClient | Any | None 
 
     @app.get("/health", tags=["meta"])
     async def health(request: Request) -> dict[str, Any]:
-        backend, version = await asyncio.gather(
-            request.app.state.llm.health(),
-            request.app.state.llm.version(),
-        )
+        backend = await request.app.state.llm.health()
         healthy = bool(backend.get("reachable") and backend.get("model_available"))
         return {
             "status": "ok" if healthy else "degraded",
             "service": "persian-voice-ai",
             "version": __version__,
-            "model": resolved.model,
-            "ollama_version": version,
+            "model": resolved.model_path.split("\\")[-1].split("/")[-1],
             "uptime_s": round(time.time() - request.app.state.started_at, 1),
             "backend": backend,
         }
@@ -179,7 +182,7 @@ def create_app(settings: Settings | None = None, llm: OllamaClient | Any | None 
     @app.post("/v1/chat/completions", tags=["openai"])
     async def chat_completions(payload: ChatRequest, request: Request) -> Any:
         llm_client = request.app.state.llm
-        model_name = payload.model or resolved.model
+        model_name = payload.model or resolved.model_path.split("\\")[-1].split("/")[-1]
         completion_id = _completion_id()
         created = int(time.time())
 
@@ -191,11 +194,11 @@ def create_app(settings: Settings | None = None, llm: OllamaClient | Any | None 
                 max_tokens=payload.max_tokens,
             )
             logger.info(
-                "chat model=%s prompt_tokens=%s completion_tokens=%s total_ms=%s tps=%s",
+                "chat model=%s prompt_tokens=%s completion_tokens=%s wall_ms=%s tps=%s",
                 result.model,
                 result.timings.prompt_tokens,
                 result.timings.completion_tokens,
-                result.timings.total_ms,
+                result.timings.wall_ms,
                 result.timings.tokens_per_second,
             )
             return {
@@ -264,14 +267,14 @@ def create_app(settings: Settings | None = None, llm: OllamaClient | Any | None 
                     }
                     yield _sse(final_chunk)
                     logger.info(
-                        "stream model=%s ttft_ms=%s total_ms=%s tps=%s",
+                        "stream model=%s ttft_ms=%s wall_ms=%s tps=%s",
                         result.model,
                         timings["ttft_ms"],
-                        result.timings.total_ms,
+                        result.timings.wall_ms,
                         result.timings.tokens_per_second,
                     )
                 yield "data: [DONE]\n\n"
-            except OllamaError as exc:
+            except LlamaCppError as exc:
                 logger.error("stream failed: %s", exc)
                 yield _sse(
                     {

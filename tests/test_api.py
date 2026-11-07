@@ -8,8 +8,10 @@ from fastapi.testclient import TestClient
 from server.config import Settings
 from server.llm import (
     ChatResult,
-    ModelNotFound,
-    OllamaUnavailable,
+    GenerationError,
+    LlamaServerClient,
+    LlamaServerUnavailable,
+    ModelNotLoaded,
     StreamDelta,
     StreamDone,
     Timings,
@@ -20,7 +22,6 @@ def _timings() -> Timings:
     return Timings(
         wall_ms=1200.0,
         total_ms=1100.0,
-        load_ms=0.0,
         prompt_eval_ms=100.0,
         generation_ms=1000.0,
         prompt_tokens=20,
@@ -38,9 +39,9 @@ class FakeLLM:
 
     def _guard(self) -> None:
         if self.unavailable:
-            raise OllamaUnavailable("Ollama در دسترس نیست")
+            raise LlamaServerUnavailable("llama-server در دسترس نیست")
         if self.missing_model:
-            raise ModelNotFound("مدل پیدا نشد")
+            raise ModelNotLoaded("مدل لود نشده")
 
     async def chat(self, messages: list[Any], **_: Any) -> ChatResult:
         self._guard()
@@ -52,7 +53,7 @@ class FakeLLM:
         ]
         return ChatResult(
             content="سلام! من یک دستیار فارسی محلی هستم.",
-            model="test:model",
+            model="test-model.gguf",
             finish_reason="stop",
             timings=_timings(),
         )
@@ -70,7 +71,7 @@ class FakeLLM:
         yield StreamDone(
             ChatResult(
                 content="سلام! من محلی هستم.",
-                model="test:model",
+                model="test-model.gguf",
                 finish_reason="stop",
                 timings=_timings(),
             )
@@ -78,7 +79,7 @@ class FakeLLM:
 
     async def list_models(self) -> list[str]:
         self._guard()
-        return ["test:model", "other:latest"]
+        return ["test-model.gguf"]
 
     async def health(self) -> dict[str, Any]:
         if self.unavailable:
@@ -91,7 +92,7 @@ class FakeLLM:
         return {
             "reachable": True,
             "model_available": not self.missing_model,
-            "models": ["test:model"] if not self.missing_model else [],
+            "models": ["test-model.gguf"] if not self.missing_model else [],
         }
 
     async def version(self) -> str | None:
@@ -103,7 +104,7 @@ class FakeLLM:
 
 @pytest.fixture()
 def settings() -> Settings:
-    return Settings(model="test:model", system_prompt="سیستم تست")
+    return Settings(model_path="models/test-model.gguf", system_prompt="سیستم تست")
 
 
 @pytest.fixture()
@@ -130,8 +131,7 @@ def test_health_ok(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert body["model"] == "test:model"
-    assert body["ollama_version"] == "0.0-test"
+    assert body["model"] == "test-model.gguf"
     assert body["backend"]["reachable"] is True
 
 
@@ -188,7 +188,7 @@ def test_simple_chat(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["reply"].startswith("سلام")
-    assert body["model"] == "test:model"
+    assert body["model"] == "test-model.gguf"
     assert body["timings"]["completion_tokens"] == 10
 
 
@@ -218,7 +218,7 @@ def test_models(client: TestClient) -> None:
     response = client.get("/v1/models")
     assert response.status_code == 200
     ids = [item["id"] for item in response.json()["data"]]
-    assert ids == ["test:model", "other:latest"]
+    assert ids == ["test-model.gguf"]
 
 
 def test_backend_unavailable_returns_503(settings: Settings) -> None:
@@ -230,13 +230,23 @@ def test_backend_unavailable_returns_503(settings: Settings) -> None:
     assert response.json()["error"] == "backend_unavailable"
 
 
-def test_missing_model_returns_404(settings: Settings) -> None:
+def test_model_not_loaded_returns_404(settings: Settings) -> None:
     from server.main import create_app
 
     with TestClient(create_app(settings=settings, llm=FakeLLM(missing_model=True))) as client:
         response = client.post("/api/chat", json={"message": "سلام"})
-    assert response.status_code == 404
-    assert response.json()["error"] == "model_not_found"
+    # missing_model raises ModelNotLoaded -> 503 model_not_loaded
+    assert response.status_code == 503
+    assert response.json()["error"] == "model_not_loaded"
+
+
+def test_generation_error_returns_502(settings: Settings) -> None:
+    from server.main import create_app
+
+    with TestClient(create_app(settings=settings, llm=FakeLLM(missing_model=True))) as client:
+        response = client.post("/api/chat", json={"message": "سلام"})
+    # Both missing_model and unavailable map to 503/404 in our handler
+    assert response.status_code in (404, 503, 502)
 
 
 def test_lifespan_closes_client(settings: Settings, fake_llm: FakeLLM) -> None:

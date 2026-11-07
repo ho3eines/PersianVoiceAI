@@ -1,8 +1,8 @@
-"""End-to-end verification of the lesson-1 success criteria.
+"""End-to-end verification of the lesson-1 success criteria (llama.cpp backend).
 
 Checks, in order:
-  1. local API is up and Ollama is reachable
-  2. the configured model is available on the PC
+  1. local API is up and llama.cpp model is loaded
+  2. the configured GGUF model file is available
   3. the model answers a Persian prompt in Persian
   4. streaming works and time-to-first-token is measurable
   5. the OpenAI-compatible model endpoint responds
@@ -61,25 +61,25 @@ def main() -> int:
         results.append(api_ok)
         _line(
             api_ok,
-            "مدل روی PC بالا آمده است",
-            f"model={health.get('model')} ollama={health.get('ollama_version')}",
+            "مدل GGUF روی PC لود شده است",
+            f"model={health.get('model')}",
         )
         _line(
             bool(backend.get("reachable")),
-            "Ollama در دسترس است",
+            "بک‌اند llama.cpp در دسترس است",
             backend.get("error", "") if not backend.get("reachable") else "",
         )
         _line(
             bool(backend.get("model_available")),
-            "مدل دانلود شده است",
-            "" if backend.get("model_available") else "ollama pull <model>",
+            "فایل مدل GGUF موجود است",
+            "" if backend.get("model_available") else "فایل .gguf در models/ نیست",
         )
 
         # 2. non-streaming Persian answer
         started = time.perf_counter()
         try:
             chat_response = client.post(
-                "/v1/chat/completions",
+                f"{BASE_URL}/v1/chat/completions",
                 json={
                     "messages": [
                         {
@@ -124,7 +124,7 @@ def main() -> int:
             started = time.perf_counter()
             with client.stream(
                 "POST",
-                "/v1/chat/completions",
+                f"{BASE_URL}/v1/chat/completions",
                 json={
                     "messages": [{"role": "user", "content": "سلام! فقط بنویس: آماده‌ام."}],
                     "stream": True,
@@ -161,7 +161,7 @@ def main() -> int:
 
         # 4. models endpoint
         try:
-            models = client.get("/v1/models", timeout=10.0).json().get("data", [])
+            models = client.get(f"{BASE_URL}/v1/models", timeout=10.0).json().get("data", [])
             ids = [item.get("id") for item in models]
             models_ok = bool(ids)
         except (httpx.HTTPError, ValueError):
