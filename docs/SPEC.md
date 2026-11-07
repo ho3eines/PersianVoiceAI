@@ -359,7 +359,36 @@ ASR → LLM Intent → Structured Command → Command Broker
 - ESP-SR — <https://github.com/espressif/esp-sr>
 - ESP-ADF — <https://github.com/espressif/esp-adf>
 
-## ۱۷. وضعیت فعلی و گام بعدی
+## ۱۷. تکمیل قرارداد موتور مکالمه (نسخهٔ ۱.۱ — ۸ نوامبر ۲۰۲۶)
+
+این بخش، **تصمیم‌های تازه‌ای** است که در بازبینی موتور مکالمهٔ PC گرفته و پیاده شد؛ جای تصمیم‌های
+قبلی را نمی‌گیرد و فقط آن‌ها را دقیق‌تر می‌کند.
+
+1. **چهار مفهوم جدا:** `UserUtterance`، `AssistantTurn`، `PartialASR`، `FinalASR`.
+   لغو پاسخ دستیار (barge-in) اجازهٔ دست‌زدن به صف final ASR را ندارد. صف final بدون‌افت است؛
+   فقط shutdown می‌تواند آن را کنار بگذارد و باید اعلام کند. مرجع:
+   [`STREAMING_ARCHITECTURE.md`](STREAMING_ARCHITECTURE.md).
+2. **ماشین حالت صریح** `idle/listening/transcribing/thinking/speaking` با جدول گذار قابل‌تست؛
+   گذار غیرمجاز گزارش می‌شود و برنامه را نمی‌کشد. تست: `tests/test_state_machine.py`.
+3. **VAD انرژی با هیسترزیس، پیش‌رول و کف نویز تطبیقی** به‌عنوان پیش‌فرض؛ جایگزینی با VAD عصبی
+   فقط پس از اندازه‌گیری روی هدف و با معیار WER، نه بر اساس حدس.
+4. **AEC محلی SpeexDSP** پیش از VAD/ASR؛ نبود کتابخانهٔ native با AEC فعال = خطای صریح،
+   نه bypass خاموش. کالیبراسیون تأخیر روی دستگاه واقعی الزامی است.
+5. **مکالمهٔ محلی و ماندگار:** `session_id`/`conversation_id`، وضعیت `complete|interrupted|failed`،
+   برش توکنی، ذخیرهٔ JSONL محلی، قابل خاموش‌کردن و حذف. تبدیل مکالمه به حافظهٔ بلندمدت شخصی
+   **تصمیم نگرفته و پیاده نشده** است. جداسازی صریح: `Conversation` (پنجرهٔ کوتاه‌مدت که وارد
+   context مدل می‌شود) از `ConversationStore` (بایگانی JSONL محلی که **هرگز** خودکار بازیابی و
+   به مدل داده نمی‌شود) جدا است؛ بایگانی ≠ حافظهٔ بلندمدت. دسترسی به آن فقط با API/CLI بازبینی
+   یا `session_id` صریح است.
+6. **اندازه‌گیری بدون ادعا:** هر عدد `MEASURED`/`SIMULATED`/`NOT MEASURED` برچسب دارد؛ روش و
+   نتایج در [`BENCHMARKS.md`](BENCHMARKS.md).
+7. **PC-first:** firmware و WebSocket صوتی ESP32 تا پاس‌شدن تست پذیرش PC شروع نمی‌شود؛
+   قرارداد انتقال در [`PROTOCOL.md`](PROTOCOL.md) است و `implemented: false`.
+8. **warmup فقط برای مدلی که درون پروسه است:** Whisper با `PVAI_ASR_WARMUP` گرم می‌شود و
+   Piper هنگام ساخت `Speaker` لود می‌شود؛ LLM در llama-server جدا زندگی می‌کند، پس warmup
+   جداگانه در این پروسه معنا ندارد و وضعیت آن با `model_available` در `/ready` گزارش می‌شود.
+
+## ۱۸. وضعیت فعلی و گام بعدی
 
 - تصمیم‌های معماری کلان و قطعات نمونهٔ اولیه مشخص شده‌اند.
 - Firmware مرحلهٔ اول آمادهٔ بررسی است، اما هنوز روی برد واقعی کاربر آزمایش نشده است.

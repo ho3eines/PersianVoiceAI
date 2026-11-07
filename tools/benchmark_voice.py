@@ -466,7 +466,9 @@ async def _one_turn(
     return events, elapsed
 
 
-def scenario_combined(report: Report, settings: Settings, seconds: float) -> None:
+def scenario_combined(
+    report: Report, settings: Settings, seconds: float, label: str = "combined"
+) -> None:
     """One full turn through the real Pipeline with real or simulated parts."""
     asr_status, asr_note, asr = _maybe_real_asr(settings, report)
     tts_status, tts_note, speaker = _maybe_real_tts(settings, report)
@@ -491,22 +493,147 @@ def scenario_combined(report: Report, settings: Settings, seconds: float) -> Non
             else:  # VAD/endpointing always uses the real detector
                 status, note = MEASURED, ""
             report.add(
-                "combined",
+                label,
                 name,
                 value,
                 "ms",
                 status,
                 note,
             )
-        report.add("combined", "turn_total_ms", total_ms, "ms", _worst(asr_status, tts_status, llm_status))
+        report.add(label, "turn_total_ms", total_ms, "ms", _worst(asr_status, tts_status, llm_status))
         report.add(
-            "combined", "turn_completed", 1.0 if any(
+            label, "turn_completed", 1.0 if any(
                 event["type"] == "response_end" and event.get("status") == "complete"
                 for event in events
             ) else 0.0, "flag", MEASURED,
         )
-        report.add("combined", "speech_queue_depth", metrics.gauge("speech_queue_depth"), "",
+        report.add(label, "speech_queue_depth", metrics.gauge("speech_queue_depth"), "",
                    MEASURED, "must stay far below the configured bound")
+
+    asyncio.run(run())
+
+
+class NullSpeaker:
+    """Synthesis disabled: lets ASR+LLM be measured without TTS in the loop."""
+
+    def __init__(self) -> None:
+        self.spoken: list[str] = []
+
+    def speak(self, text, token, *, on_first_chunk=None, on_first_frame=None, on_complete=None):
+        if on_complete is not None:
+            on_complete(time.perf_counter(), 0.0)
+
+
+def scenario_asr_llm(report: Report, settings: Settings, seconds: float) -> None:
+    """ASR + LLM without TTS: transcription latency plus time to first token."""
+    asr_status, asr_note, asr = _maybe_real_asr(settings, report)
+    llm_status, llm_note, client_factory = _maybe_real_llm(settings, report)
+
+    async def run() -> None:
+        metrics = Metrics()
+        events, total_ms = await _one_turn(
+            settings,
+            asr=asr,
+            speaker=NullSpeaker(),
+            client=client_factory(),
+            metrics=metrics,
+        )
+        flat = metrics.flat()
+        report.add(
+            "asr_llm", "asr_ms", flat.get("asr_ms.last", flat.get("asr_ms")), "ms",
+            asr_status, asr_note,
+        )
+        report.add(
+            "asr_llm", "llm_ttft_ms", flat.get("llm_ttft_ms.last", flat.get("llm_ttft_ms")),
+            "ms", llm_status, llm_note,
+        )
+        report.add(
+            "asr_llm", "turn_total_ms", total_ms, "ms", _worst(asr_status, llm_status),
+            "endpoint to committed reply, TTS excluded",
+        )
+        report.add(
+            "asr_llm", "turn_completed",
+            1.0 if any(event["type"] == "response_end" for event in events) else 0.0,
+            "flag", MEASURED,
+        )
+
+    asyncio.run(run())
+
+
+def scenario_duplex(report: Report, settings: Settings, seconds: float) -> None:
+    """Full-duplex conversation: several turns, one of them interrupted."""
+    asr_status, asr_note, asr = _maybe_real_asr(settings, report)
+    tts_status, tts_note, speaker = _maybe_real_tts(settings, report)
+    llm_status, llm_note, client_factory = _maybe_real_llm(settings, report)
+    status = _worst(asr_status, tts_status, llm_status)
+    note = asr_note or tts_note or llm_note
+    turns = max(2, int(round(seconds)))  # --seconds also scales the turn count
+
+    async def one_turn(pipeline: Pipeline, metrics: Metrics, events: list[dict[str, Any]]) -> float:
+        mark = len(events)
+        started = time.perf_counter()
+        for _ in range(24):
+            pipeline.feed(frame())
+        for _ in range(32):
+            pipeline.feed(silence())
+        deadline = time.perf_counter() + 60
+        while time.perf_counter() < deadline:
+            if any(
+                event["type"] == "response_end" for event in events[mark:]
+            ) or pipeline.state.value == "speaking":
+                break
+            await asyncio.sleep(0.01)
+        return (time.perf_counter() - started) * 1000
+
+    async def run() -> None:
+        metrics = Metrics()
+        events: list[dict[str, Any]] = []
+        pipeline = Pipeline(settings, asr, speaker, client_factory(), events.append, metrics=metrics)
+        pipeline.start()
+        latencies: list[float] = []
+        try:
+            for index in range(turns):
+                latencies.append(await one_turn(pipeline, metrics, events))
+                if index == 0:
+                    # Interrupt the first reply while it is still playing/streaming.
+                    pipeline.barge_in(reason="benchmark")
+                    for _ in range(32):
+                        pipeline.feed(silence())
+                    await asyncio.sleep(0.05)
+                    pipeline.detector.reset()
+        finally:
+            await pipeline.close()
+            await pipeline.client.aclose()
+
+        report.add("duplex", "turns", float(turns), "count", MEASURED)
+        report.add(
+            "duplex", "turn_latency_mean_ms",
+            statistics.fmean(latencies) if latencies else None, "ms", status, note,
+        )
+        report.add(
+            "duplex", "turn_latency_max_ms", max(latencies) if latencies else None, "ms",
+            status, note,
+        )
+        report.add(
+            "duplex", "interrupted_turns",
+            float(sum(1 for e in events if e["type"] == "interrupted")), "count", MEASURED,
+        )
+        report.add(
+            "duplex", "stale_completions_after_interrupt",
+            float(
+                sum(
+                    1
+                    for e in events
+                    if e["type"] == "response_end" and e.get("status") == "complete"
+                )
+            ),
+            "count", MEASURED, "completed replies; compare with the number of turns asked",
+        )
+        report.add(
+            "duplex", "messages_recorded",
+            float(len(getattr(pipeline.conversation, "messages", []))), "count", MEASURED,
+            "no user utterance should be lost across turns",
+        )
 
     asyncio.run(run())
 
@@ -627,12 +754,23 @@ def _maybe_real_llm(settings: Settings, report: Report) -> tuple[str, str, Any]:
     )
 
 
+def scenario_asr_llm_tts(
+    report: Report, settings: Settings, seconds: float
+) -> None:
+    """ASR + LLM + TTS, i.e. one complete spoken turn."""
+    scenario_combined(report, settings, seconds, label="asr_llm_tts")
+
+
 SCENARIOS = {
+    # The seven measurement groups required by the audit.
     "idle": scenario_idle_measured,
     "asr": scenario_asr,
     "llm": scenario_llm,
     "tts": scenario_tts,
-    "combined": scenario_combined,
+    "asr_llm": scenario_asr_llm,
+    "asr_llm_tts": scenario_asr_llm_tts,
+    "combined": scenario_combined,  # historical name, same measurement
+    "duplex": scenario_duplex,
     "bargein": scenario_bargein,
 }
 
@@ -651,8 +789,19 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = Settings.from_env()
     report = Report(environment=environment())
+    default_order = [
+        "idle",
+        "asr",
+        "llm",
+        "tts",
+        "asr_llm",
+        "asr_llm_tts",
+        "duplex",
+        "bargein",
+    ]
     requested = (
-        list(SCENARIOS) if args.scenarios.strip().lower() == "all"
+        default_order
+        if args.scenarios.strip().lower() == "all"
         else [name.strip() for name in args.scenarios.split(",") if name.strip()]
     )
     unknown = [name for name in requested if name not in SCENARIOS]

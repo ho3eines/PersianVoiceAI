@@ -221,3 +221,58 @@ def test_callback_measures_jitter_and_frame_mismatch() -> None:
     duplex.callback(b"\x00" * 642, output, 321, None, False)
     assert duplex.stats()["frame_mismatch"] == 1  # device ignored blocksize
     assert duplex.overflow.is_set()
+
+
+def test_pump_publishes_system_and_queue_metrics() -> None:
+    """Live sessions must expose jitter/backlog/CPU/RAM, not only the benchmark.
+
+    Mapping requirement: ``audio_callback_jitter_ms``, ``queue_depth``,
+    ``cpu_usage_percent`` and ``ram_usage_mb`` were declared metric names but
+    nothing in the live path ever recorded them.
+    """
+
+    async def scenario() -> None:
+        from server.metrics import Metrics
+        from server.resources import create_sampler, sample_process_usage
+
+        duplex = DuplexAudio()
+        metrics = Metrics()
+
+        class Pipeline:
+            def feed(self, pcm: bytes) -> None:
+                pass
+
+            def overflow(self) -> None:
+                pass
+
+        task = asyncio.create_task(
+            audio_io.pump(
+                duplex,
+                Pipeline(),
+                Settings(),
+                metrics=metrics,
+                metrics_interval_s=0.05,
+            )
+        )
+        try:
+            for _ in range(2):
+                duplex.callback(b"\x01\x00" * 320, bytearray(640), 320, None, False)
+                await asyncio.sleep(0.03)
+            async with asyncio.timeout(2):
+                while "queue_depth" not in metrics.snapshot()["gauges"]:
+                    await asyncio.sleep(0.01)
+            snapshot = metrics.snapshot()
+            assert "queue_depth" in snapshot["gauges"]
+            assert metrics.summary("audio_callback_jitter_ms").count >= 1
+            assert metrics.counter("audio_callback_count") >= 1
+
+            probe = sample_process_usage(create_sampler())
+            if probe.cpu_percent is not None:
+                assert "cpu_usage_percent" in snapshot["gauges"]
+            if probe.ram_mb is not None:
+                assert "ram_usage_mb" in snapshot["gauges"]
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())

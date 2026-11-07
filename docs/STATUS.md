@@ -27,7 +27,7 @@
 | AEC SpeexDSP duplex پیش از VAD/ASR | پیاده‌شده + تست مصنوعی؛ اتاق واقعی **تست نشده** | `server/aec.py`, `docs/AEC.md` |
 | تاریخچه: نشست، وضعیت interrupted، برش توکنی، JSONL محلی | پیاده‌شده + تست | `server/conversation.py`, `server/sessions.py` |
 | readiness و health (`/ready`, `/health`) | پیاده‌شده + تست | `server/readiness.py`, `tests/test_api.py` |
-| سنجه‌های کامل خط لوله | پیاده‌شده + تست | `server/metrics.py` |
+| سنجه‌های کامل خط لوله (شامل jitter callback، صف، CPU/RAM در اجرای زنده) | پیاده‌شده + تست | `server/metrics.py`, `server/audio_io.py` |
 | بنچمارک کل زنجیرهٔ صوت | ابزار آماده (`tools/benchmark_voice.py`)؛ اعداد واقعی هدف **NOT MEASURED** | `docs/BENCHMARKS.md` |
 | ارزیابی فارسی WER/CER | مجموعهٔ ۴۰ جمله + ابزار؛ اعداد واقعی **NOT MEASURED** | `benchmarks/persian_eval.py` |
 | پروتکل WebSocket صوتی ESP32-S3 | فقط قرارداد + تست واحد؛ **transport و firmware پیاده نشده** | `server/protocol.py`, `docs/PROTOCOL.md` |
@@ -37,7 +37,7 @@
 
 ```text
 $ python -m pytest
-231 passed, 2 skipped in 4.3s
+237 passed, 2 skipped in 4.6s
 ```
 
 - دو تست skip فقط تست‌های native SpeexDSP هستند: در sandbox کتابخانهٔ native ساخته نشده و تست
@@ -57,7 +57,8 @@ $ python -m pytest
 | ۴ | گفتار بلند (>15s) همهٔ بخش‌ها را حفظ می‌کند | `…::test_long_speech_beyond_segment_limit_keeps_every_segment` + `test_vad.py::test_long_speech_is_segmented_without_losing_audio` |
 | ۵ | barge-in تولید LLM را لغو می‌کند | `test_streaming_voice.py::test_async_sse_stream_cancelled_without_waiting_for_next_token` |
 | ۶ | barge-in پخش TTS را متوقف می‌کند | `test_tts.py::test_playback_stops_within_one_block_and_aborts_the_stream` |
-| ۷ | هیچ صدای کهنه‌ای بعد از قطع پخش نمی‌شود | `test_streaming_voice.py::test_incremental_playback_before_remaining_tokens` + `test_long_run.py` |
+| ۶ب | اکوی پخش، VAD را مکرر فعال نمی‌کند | `test_bargein.py::test_moderate_playback_echo_does_not_retrigger_vad_but_real_speech_does` |
+| ۷ | هیچ صدای کهنه‌ای بعد از قطع پخش نمی‌شود | `test_bargein.py::test_sentences_queued_behind_the_spoken_one_never_play_after_barge_in` + `test_streaming_voice.py::test_incremental_playback_before_remaining_tokens` |
 | ۸ | پیام کاربر تکراری ثبت نمی‌شود | `test_utterance_lifecycle.py::test_duplicate_final_result_is_not_committed_twice` |
 | ۹ | پاسخ دستیار تکراری ثبت نمی‌شود | `test_conversation.py::test_assistant_turn_is_committed_once` |
 | ۱۰ | وضعیت صریح interrupted/failed | `test_conversation.py::test_interrupted_reply_has_explicit_status_and_is_excluded_by_default` |
@@ -65,7 +66,7 @@ $ python -m pytest
 | ۱۲ | حالت AEC خاموش | `test_aec.py::test_aec_config` |
 | ۱۳ | قطع دستگاه | `test_audio_io.py::test_pump_detects_a_stalled_device` |
 | ۱۴ | وصل دوباره/بازگشایی دستگاه | `test_audio_io.py::test_stream_forever_reopens_after_portaudio_failure_then_gives_up` |
-| ۱۵ | قطع llama-server | `test_api.py::test_backend_unavailable_returns_503`, `test_stream_backend_failure_is_sse_error` |
+| ۱۵ | قطع llama-server و بازیابی نوبت بعد | `test_api.py::test_backend_unavailable_returns_503`, `test_stream_backend_failure_is_sse_error`, `test_streaming_voice.py::test_llm_failure_releases_the_state_and_the_next_turn_recovers` |
 | ۱۶ | خطای init مدل به‌صورت پیام | `test_voice.py::test_module_startup_missing_model_has_no_traceback`, `test_tts.py::test_missing_piper_model_is_a_user_facing_error` |
 | ۱۷ | ماندگاری context پس از restart | `test_conversation.py::test_session_is_persisted_and_reloaded`, `test_api.py::test_chat_with_session_id_persists_and_reuses_context` |
 | ۱۸ | برش توکنی | `test_conversation.py::test_context_is_truncated_by_tokens_not_only_message_count` |
@@ -80,6 +81,7 @@ $ python -m pytest
 | RAM پروسه در حالت idle | ۲۹٫۵ MB | بدون مدل لود شده |
 | CPU حالت idle | ~۰٪ | بدون مدل لود شده |
 | VAD false positive روی سکوت | ۰ | باورپذیر برای آستانهٔ انرژی |
+| سنجه‌های زنده: jitter/صف/CPU/RAM | ثبت می‌شوند | `audio_io.pump` هر ۱ ثانیه (`test_pump_publishes_system_and_queue_metrics`) |
 
 هیچ عدد ASR/LLM/TTS روی این sandbox تولید نشد: مدل‌ها نصب نیستند و llama-server اجرا نبود.
 جدول کامل با برچسب `MEASURED`/`SIMULATED`/`NOT MEASURED` در [BENCHMARKS.md](BENCHMARKS.md).
@@ -95,7 +97,12 @@ $ python -m pytest
 
 چک‌لیست اجرای این موارد: [HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md).
 
-## ۵. اولویت بعدی
+## ۵. گزارش کامل بازبینی
+
+خروجی A تا F (دفترچهٔ ایراد، فایل‌ها، تست، کارایی، موارد باز، چک‌لیست پذیرش) در
+[AUDIT_REPORT.md](AUDIT_REPORT.md) است.
+
+## ۶. اولویت بعدی
 
 1. تهیهٔ وزن‌ها و اجرای `tools/benchmark_voice.py` روی هدف؛ ثبت اعداد در BENCHMARKS.
 2. اجرای چک‌لیست سخت‌افزاری، مخصوصاً barge-in و بدون هدفون.

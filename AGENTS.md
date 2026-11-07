@@ -116,7 +116,7 @@ Copy-Item .env.example .env
 .\tools\chat.ps1
 .\tools\chat.ps1 --once "سلام! خودت را معرفی کن"
 
-# تست‌ها (بدون مدل) — باید همیشه سبز باشد: ۲۳۱ passed، ۲ skipped
+# تست‌ها (بدون مدل) — باید همیشه سبز باشد: ۲۳۷ passed، ۲ skipped
 .\.venv\Scripts\python.exe -m pytest
 
 # آمادگی سرویس و بنچمارک زنجیرهٔ صوت (برچسب MEASURED/SIMULATED/NOT MEASURED)

@@ -5,7 +5,7 @@
 
 مبنا: commit `9654a68` (پایه)، شاخهٔ `arena/31347dde-persianvoiceai`.
 تست پایه پیش از تغییر: `53 passed, 2 skipped` (تست‌های native AEC skip می‌شوند).
-تست پس از مرحلهٔ تکمیلی: `231 passed, 2 skipped` (۲ skip فقط native AEC در sandbox بدون کتابخانه).
+تست پس از مرحلهٔ تکمیلی: `237 passed, 2 skipped` (۲ skip فقط native AEC در sandbox بدون کتابخانه).
 
 ---
 
@@ -271,6 +271,53 @@
   `test_utterance_dedupe_window_is_bounded`، `tests/test_long_run.py` (۱۲۰ نوبت، بررسی کرانه‌ها در هر نوبت).
 - **وضعیت:** رفع‌شده + تست
 
+### P1-14 — پاسخ قطع‌شده در جملهٔ اول، کل متن تولیدشده را «شنیده‌شده» ثبت می‌کرد
+
+- **فایل:** `server/streaming_voice.py` → `_commit_turn`, `play`
+- **ریشه:** شرط `if status == INTERRUPTED and turn.spoken:` وقتی هیچ جمله‌ای کامل نشده بود
+  (قطع در جملهٔ اول — رایج‌ترین حالت barge-in) به متن کامل `turn.text` برمی‌گشت؛ یعنی جمله‌هایی
+  که هرگز پخش نشدند وارد تاریخچه و (در صورت `PVAI_HISTORY_INCLUDE_INTERRUPTED`) وارد context
+  مدل می‌شدند. کامنت کد خلاف این را ادعا می‌کرد.
+- **رفع:** `AssistantTurn.current` جملهٔ در حال پخش را نگه می‌دارد؛ ثبت سه‌حالته شد:
+  جمله‌های کامل‌شده → همان‌ها؛ جملهٔ آغازشده → همان؛ هیچ صدایی نبود (قطع حین thinking) →
+  متن تولیدشده فقط برای بازبینی (خارج از context).
+- **تست:** `tests/test_bargein.py::test_sentences_queued_behind_the_spoken_one_never_play_after_barge_in`
+  (همچنین ثابت می‌کند جمله‌های صف‌شده بعد از barge-in هرگز سنتز نمی‌شوند).
+- **وضعیت:** رفع‌شده + تست
+
+### P1-15 — سنجه‌های سیستمی در مسیر زنده هرگز ثبت نمی‌شدند
+
+- **فایل:** `server/audio_io.py` → `pump`
+- **ریشه:** `audio_callback_jitter_ms`, `queue_depth`, `cpu_usage_percent`, `ram_usage_mb` فقط
+  نام‌های اعلام‌شده در `METRIC_NAMES` بودند؛ در اجرای واقعی هیچ‌جا مقدار نمی‌گرفتند، پس سؤال
+  «آیا ماشین اشباع شده؟» بدون اجرای بنچمارک آفلاین پاسخ نداشت.
+- **رفع:** انتشار دوره‌ای (پیش‌فرض ۱ ثانیه) از `duplex.stats()`، عمق صف capture+speech و
+  نمونهٔ CPU/RAM با یک sampler پایدار؛ شمارش تضاعفی `audio_callback_count`.
+- **تست:** `tests/test_audio_io.py::test_pump_publishes_system_and_queue_metrics`.
+- **وضعیت:** رفع‌شده + تست (اعداد واقعی دستگاه: NOT MEASURED)
+
+### P1-16 — خطای LLM، ماشین حالت را در `THINKING` رها می‌کرد
+
+- **فایل:** `server/streaming_voice.py` → `Pipeline.respond` (شاخهٔ exception)
+- **ریشه:** پاسخ ناموفق نشانگر commit در صف پخش نمی‌گذارد؛ هیچ مسیری هم حالت را عوض نمی‌کرد.
+  نتیجه: `state=THINKING` بدون هیچ `pending_turn`، و گفتار بعدی کاربر به‌عنوان barge-in
+  «نجات» می‌داد — با یک رویداد `interrupted` گمراه‌کننده و شمارندهٔ generation اضافی.
+- **رفع:** پس از commit با وضعیت `failed`، اگر نوبتی معلق نمانده و صف پخش خالی است، گذار به
+  `LISTENING`/`IDLE` با دلیل `llm_error` انجام می‌شود؛ نوبت بعدی مستقیماً پاسخ می‌گیرد.
+- **تست:** `tests/test_streaming_voice.py::test_llm_failure_releases_the_state_and_the_next_turn_recovers`
+  (پاسخ ۵۰۰ → `error`، وضعیت آزاد، نوبت بعدی موفق و بدون `state_violation`).
+- **وضعیت:** رفع‌شده + تست
+
+### P2-09 — بنچمارک، هفت گروه الزامی را پوشش نمی‌داد
+
+- **فایل:** `tools/benchmark_voice.py`
+- **ریشه:** فقط idle/asr/llm/tts/combined/bargein وجود داشت؛ «ASR+LLM» و «مکالمهٔ کامل دوطرفه»
+  جدا اندازه‌گیری نمی‌شدند.
+- **رفع:** سناریوهای `asr_llm`، `asr_llm_tts` و `duplex` (چند نوبت + یک قطع، با شمارش پیام‌های
+  گم‌نشده)؛ `combined` به‌عنوان نام تاریخی حفظ شد.
+- **تست:** `tests/test_benchmark_tools.py::test_benchmark_scenarios_are_declared`.
+- **وضعیت:** رفع‌شده + تست؛ اعداد واقعی هدف NOT MEASURED
+
 ### P3-04 — `describe()` آستانهٔ مؤثر را گزارش نمی‌کرد
 
 - **فایل:** `server/vad.py` → `describe`
@@ -294,3 +341,6 @@
 | `benchmarks/persian_eval.py` + `persian_eval_set.json` | افزوده شد (ادعای قبلی بدون فایل بود) |
 | `tools/benchmark_voice.py` | افزوده شد (ادعای قبلی بدون فایل بود) |
 | `.env.example` | تکمیل شد تا هر متغیر پیکربندی واقعی را نشان دهد |
+| `docs/SPEC.md` | بخش ۱۷ افزوده شد (قرارداد موتور مکالمه ۱.۱)؛ قبلاً در این مرحله به‌روز نشده بود |
+| `docs/AUDIT_REPORT.md` | گزارش نهایی A–F داخل مخزن (قبلاً فقط در پاسخ چت بود) |
+| `tests/test_bargein.py` | تست‌های اختصاصی صدای کهنه و اکوی پخش |

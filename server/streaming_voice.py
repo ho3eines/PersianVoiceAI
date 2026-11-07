@@ -166,6 +166,8 @@ class AssistantTurn:
     status: str = "streaming"  # streaming | speaking | complete | interrupted | failed
     first_token_at: float | None = None
     spoken: list[str] = field(default_factory=list)
+    current: str | None = None
+    """Sentence currently handed to synthesis/playback (not yet completed)."""
     committed: bool = False
     token: threading.Event = field(default_factory=threading.Event)
 
@@ -784,6 +786,16 @@ class Pipeline:
                     detail="پاسخ استریم ناموفق بود؛ اتصال مدل و llama-server را بررسی کنید.",
                     turn_id=turn.turn_id,
                 )
+            # A failed reply produces no commit marker in the play queue, so
+            # nothing else would leave THINKING: without this the next user
+            # utterance was treated as a barge-in and the reported state lied
+            # about a turn that no longer existed.
+            if self.pending_turn is None and self.speech.empty():
+                self._set_vad_margin(1.0)
+                target = (
+                    VoiceState.LISTENING if self.utterance is not None else VoiceState.IDLE
+                )
+                self.states.transition(target, reason="llm_error", force=True)
 
     async def _enqueue_speech(
         self, turn: AssistantTurn, text: str, token: threading.Event
@@ -864,6 +876,7 @@ class Pipeline:
 
             self.states.transition(VoiceState.SPEAKING, reason="tts_start", force=True)
             self._set_vad_margin(self.settings.voice_barge_in_margin)
+            turn.current = text  # a barge-in now records the sentence that was heard
             self.event("tts_start", turn_id=turn.turn_id, text=text)
             try:
                 await asyncio.to_thread(
@@ -876,6 +889,7 @@ class Pipeline:
                 )
                 if not token.is_set() and not turn.token.is_set():
                     turn.spoken.append(text)
+                turn.current = None
             except Exception:
                 self.metrics.increment("tts_failures")
                 token.set()
@@ -915,10 +929,19 @@ class Pipeline:
         if self.pending_turn is turn:
             self.pending_turn = None
         text = turn.text.strip()
-        if status == STATUS_INTERRUPTED and turn.spoken:
-            # Only what the user actually heard: queued-but-dropped sentences are
-            # not part of what the assistant "said".
-            text = " ".join(turn.spoken).strip()
+        if status == STATUS_INTERRUPTED:
+            # Record what the user actually heard, not what the model produced.
+            # Three distinct cases:
+            #   * at least one sentence finished -> those sentences;
+            #   * the first sentence was started but not finished -> that
+            #     sentence (the user heard part of it);
+            #   * nothing was audible yet (interrupted while thinking) -> keep
+            #     the generated text for inspection only; it stays out of the
+            #     model context unless PVAI_HISTORY_INCLUDE_INTERRUPTED=true.
+            if turn.spoken:
+                text = " ".join(turn.spoken).strip()
+            elif turn.current:
+                text = turn.current.strip()
         message = None
         if text:
             message = self.conversation.finish_assistant(

@@ -194,6 +194,10 @@ def drain_capture(duplex: Any) -> int:
             return dropped
 
 
+SYSTEM_METRICS_INTERVAL_S = 1.0
+"""How often the live coordinator publishes system/queue gauges."""
+
+
 async def pump(
     duplex: Any,
     pipeline: Any,
@@ -202,13 +206,31 @@ async def pump(
     aec: Any = None,
     metrics: Any = None,
     sleep: Callable[[float], Any] | None = None,
+    sampler: Any = None,
+    metrics_interval_s: float = SYSTEM_METRICS_INTERVAL_S,
 ) -> None:
-    """Feed captured frames through AEC into the pipeline (single owner)."""
+    """Feed captured frames through AEC into the pipeline (single owner).
+
+    Besides the audio path, this is where the *system* metrics required by the
+    audit are published while the assistant actually runs: callback jitter
+    (measured by the audio callback itself), capture/speech backlog, and
+    process CPU/RAM.  Before this, ``audio_callback_jitter_ms``,
+    ``queue_depth``, ``cpu_usage_percent`` and ``ram_usage_mb`` existed only as
+    declared names, so a live session could not answer "is the machine
+    saturated?" without running the offline benchmark.
+    """
     import asyncio
+
+    from .resources import create_sampler, sample_process_usage
 
     pause = sleep or asyncio.sleep
     blocks = max(1, int(settings.audio_block_ms))
     stall_limit = float(settings.audio_stall_s)
+    usage_sampler = sampler
+    if metrics is not None and usage_sampler is None:
+        usage_sampler = create_sampler()
+    next_system_sample = 0.0
+    callbacks_seen = 0
     while True:
         now = time.monotonic()
         last = getattr(duplex, "last_frame_at", None)
@@ -224,6 +246,32 @@ async def pump(
                 aec.reset()
             drain_capture(duplex)
             duplex.overflow.clear()
+        now_monotonic = time.monotonic()
+        if metrics is not None and now_monotonic >= next_system_sample:
+            next_system_sample = now_monotonic + max(0.05, float(metrics_interval_s))
+            stats = getattr(duplex, "stats", None)
+            if callable(stats):
+                try:
+                    snapshot = stats()
+                    metrics.observe(
+                        "audio_callback_jitter_ms", float(snapshot["jitter_ms"])
+                    )
+                    total = int(snapshot.get("callbacks") or 0)
+                    if total > callbacks_seen:
+                        metrics.increment("audio_callback_count", total - callbacks_seen)
+                        callbacks_seen = total
+                except (KeyError, TypeError, ValueError):
+                    pass
+            backlog = duplex.capture.qsize() if hasattr(duplex, "capture") else 0
+            speech = getattr(pipeline, "speech", None)
+            if speech is not None and hasattr(speech, "qsize"):
+                backlog += speech.qsize()
+            metrics.set("queue_depth", backlog)
+            usage = sample_process_usage(usage_sampler)
+            if usage.cpu_percent is not None:
+                metrics.set("cpu_usage_percent", usage.cpu_percent)
+            if usage.ram_mb is not None:
+                metrics.set("ram_usage_mb", usage.ram_mb)
         try:
             microphone, reference = duplex.capture.get_nowait()
         except queue.Empty:

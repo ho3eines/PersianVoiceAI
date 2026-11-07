@@ -333,3 +333,53 @@ def test_state_machine_reports_violations_without_crashing() -> None:
     violation = next(e for e in seen if e["type"] == "state_violation")
     assert violation["target"] == "speaking"
     assert violation["state"] == "listening"
+
+
+def test_llm_failure_releases_the_state_and_the_next_turn_recovers() -> None:
+    """Generation errors must not wedge the conversation (audit §8 and §15-15)."""
+    from server.streaming_voice import VoiceState
+
+    async def scenario() -> None:
+        state = {"calls": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            state["calls"] += 1
+            if state["calls"] == 1:
+                return httpx.Response(500, text="llama-server exploded")
+            return httpx.Response(200, text=sse("بازیابی شد. "))
+
+        events: list[dict] = []
+        async with httpx.AsyncClient(
+            base_url="http://127.0.0.1", transport=httpx.MockTransport(handler)
+        ) as client:
+            pipeline, _ = make_pipeline(client=client, events=events)
+            pipeline.start()
+            try:
+                for _ in range(20):
+                    pipeline.feed(frame())
+                for _ in range(32):
+                    pipeline.feed(frame(0))
+                await until(lambda: any(e["type"] == "error" for e in events))
+                assert pipeline.pending_turn is None
+                # The pipeline is listening again instead of claiming THINKING.
+                assert pipeline.state in (VoiceState.IDLE, VoiceState.LISTENING)
+                assert pipeline.states.violations == 0
+
+                for _ in range(20):
+                    pipeline.feed(frame())
+                for _ in range(32):
+                    pipeline.feed(frame(0))
+                await until(
+                    lambda: any(
+                        e["type"] == "response_end" and e["status"] == "complete"
+                        for e in events
+                    )
+                )
+                assert state["calls"] == 2
+                assistant = [m for m in pipeline.conversation.messages if m.role == "assistant"]
+                assert [m.status for m in assistant] == ["complete"]
+                assert "بازیابی" in assistant[0].content
+            finally:
+                await pipeline.close()
+
+    asyncio.run(scenario())

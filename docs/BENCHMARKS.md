@@ -26,14 +26,21 @@
 .\.venv\Scripts\python.exe tools\benchmark_voice.py --json-out benchmarks\results\voice-pc.json
 ```
 
-| سناریو | چه چیزی اندازه می‌گیرد | پیش‌نیاز واقعی |
+هفت گروه اندازه‌گیری که بازبینی الزام کرده است، به‌همراه دو سناریوی تکمیلی:
+
+| گروه/سناریو | چه چیزی اندازه می‌گیرد | پیش‌نیاز واقعی |
 |---|---|---|
 | `idle` | pacing هماهنگ‌کننده (jitter p95/max)، CPU، RAM، VAD false positive | — (همیشه MEASURED) |
-| `asr` | `asr_ms` و `asr_rtf` روی بافر ۱/۳/۶ ثانیه | مدل Whisper محلی |
-| `llm` | `llm_ttft_ms`، `llm_tokens_per_second`، زمان کل استریم | llama-server در `PVAI_LLAMA_SERVER_URL` |
-| `tts` | `tts_first_chunk_ms`، `tts_first_frame_ms`، مدت پخش | مدل Piper + `.onnx.json` |
-| `combined` | یک نوبت کامل: VAD → final ASR → SSE → جمله → TTS → commit | هر سه |
+| `asr` (ASR only) | `asr_ms` و `asr_rtf` روی بافر ۱/۳/۶ ثانیه | مدل Whisper محلی |
+| `llm` (LLM only) | `llm_ttft_ms`، `llm_tokens_per_second`، زمان کل استریم | llama-server |
+| `tts` (TTS only) | `tts_first_chunk_ms`، `tts_first_frame_ms`، مدت پخش | مدل Piper + `.onnx.json` |
+| `asr_llm` (ASR+LLM) | `asr_ms` + `llm_ttft_ms` + `turn_total_ms` بدون TTS | Whisper + llama-server |
+| `asr_llm_tts` (ASR+LLM+TTS) | یک نوبت کامل گفتاری: VAD → final ASR → SSE → جمله → TTS → commit | هر سه |
+| `duplex` (مکالمهٔ کامل دوطرفه) | چند نوبت پشت‌سرهم، یک قطع، `turn_latency_mean/max_ms`، پیام‌های ثبت‌شده | هر سه |
 | `bargein` | `barge_in_latency_ms`، شمارش پاسخ کهنه | همان |
+| `combined` | نام تاریخی همان `asr_llm_tts` | هر سه |
+
+سناریوهای چندنوبتی (`duplex`) با `--seconds` تعداد نوبت را هم تعیین می‌کنند (حداقل ۲).
 
 ### قواعد اندازه‌گیری
 
@@ -57,15 +64,20 @@
 |---|---|---|---|---|
 | idle | `audio_loop_jitter_p95_ms` | ۰٫۳۹ | ms | MEASURED |
 | idle | `audio_loop_jitter_max_ms` | ۰٫۴۲ | ms | MEASURED |
-| idle | `cpu_usage_percent` | ~۰ | % | MEASURED (بدون مدل) |
-| idle | `ram_usage_mb` | ۲۹٫۵ | MB | MEASURED |
+| idle | `cpu_usage_percent` | ~۱ | % | MEASURED (بدون مدل) |
+| idle | `ram_usage_mb` | ~۳۰ | MB | MEASURED |
 | idle | `vad_false_positives` | ۰ | count | MEASURED |
 | asr | `asr_ms`, `asr_rtf` | — | — | NOT MEASURED (مدل Whisper موجود نیست) |
 | llm | `llm_ttft_ms`, `llm_tokens_per_second` | — | — | NOT MEASURED (llama-server در دسترس نبود) |
 | tts | `tts_first_chunk_ms` | — | — | NOT MEASURED (مدل Piper موجود نیست) |
-| combined | `turn_total_ms` و بقیه | ~۶۶۳ | ms | SIMULATED (ASR ۲۰۰ms / LLM ۳۰۰ms / TTS ۵۰ms ساختگی) |
-| combined | `vad_start_ms` / `vad_end_ms` | ۶۰ / ۶۰۰ | ms | MEASURED (هم‌خوان با تنظیمات) |
-| combined | `turn_completed` | ۱ | flag | MEASURED |
+| asr_llm | `asr_ms` + `llm_ttft_ms` + `turn_total_ms` | ~۲۰۵ | ms | SIMULATED (ASR/LLM ساختگی) |
+| asr_llm | `turn_completed` | ۱ | flag | MEASURED |
+| asr_llm_tts | `first_audible_ms` / `turn_total_ms` | ~۲۵۳ / ~۶۶۴ | ms | SIMULATED |
+| asr_llm_tts | `vad_start_ms` / `vad_end_ms` | ۶۰ / ۶۰۰ | ms | MEASURED (هم‌خوان با تنظیمات) |
+| duplex | `turn_latency_mean_ms` (۲ نوبت) | ~۲۰۶ | ms | SIMULATED |
+| duplex | `interrupted_turns` | ۱ | count | MEASURED |
+| duplex | `stale_completions_after_interrupt` | ۰ | count | MEASURED |
+| duplex | `messages_recorded` | ۴ | count | MEASURED (هیچ utterance گم نشد) |
 | bargein | `barge_in_latency_ms` | <۱ | ms | SIMULATED (کامپوننت‌ها ساختگی) |
 | bargein | `stale_completions_after_interrupt` | ۰ | count | MEASURED |
 

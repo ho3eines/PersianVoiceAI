@@ -158,14 +158,21 @@ def test_cli_strict_fails_on_missing_ids(persian_eval, tmp_path: Path, capsys) -
 
 # ------------------------------------------------------------------ benchmark
 def test_benchmark_scenarios_are_declared(benchmark_voice) -> None:
+    # The seven measurement groups the audit asks to report separately, plus
+    # the historical "combined" alias.
     assert set(benchmark_voice.SCENARIOS) == {
         "idle",
         "asr",
         "llm",
         "tts",
+        "asr_llm",
+        "asr_llm_tts",
         "combined",
+        "duplex",
         "bargein",
     }
+    # Both labels exist; the default run measures the turn once, as asr_llm_tts.
+    assert "combined" in benchmark_voice.SCENARIOS
     report = benchmark_voice.Report()
     report.add("idle", "x", 1.0, "ms", benchmark_voice.MEASURED)
     assert "MEASURED" in report.table()
