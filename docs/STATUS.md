@@ -41,19 +41,25 @@
 ## ۳. اجرای تأییدشده (دستورهای واقعی)
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt   # ✅ موفق
-.\.venv\Scripts\python.exe -m pytest                            # ✅ 17 passed
+.\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt   # ✅ موفق
+.\\.venv\\Scripts\\python.exe -m pytest                            # ✅ 17 passed
 ```
 
 پیش‌نیاز اجرای واقعی چت: `ollama serve` و `ollama pull qwen3:4b`، سپس
-`.\tools\start_server.ps1` و در ترمینال دیگر `.\tools\chat.ps1`.
+`.\\tools\\start_server.ps1` و در ترمینال دیگر `.\\tools\\chat.ps1`.
 
-> در زمان آخرین بررسی (۷ نوامبر ۲۰۲۶) سرویس Ollama روی `127.0.0.1:11434` در حال اجرا نبود.
-> تست‌های `pytest` و ساخت مستقیم سرویس به آن وابسته نیستند، اما تماس واقعی با مدل تا اجرای
-> `ollama serve` قابل تأیید نیست.
+> **وضعیت Ollama (واقعیت تأییدشده با دستور، ۷ نوامبر ۲۰۲۶):**
+> - نصاب `OllamaSetup.exe` نسخه v0.40.15 (۱٬۶۱۱٫۴ MB) از GitHub **کامل دانلود شده** در
+>   `$env:LOCALAPPDATA\Temp\opencode\OllamaSetup.exe` (با `tools/download_parallel.ps1`، ~۱٫۲ MB/s).
+> - `ollama` هنوز **روی PATH نیست** (`Get-Command ollama` خالی). نصب بی‌صدای نصاب
+>   (`/SILENT /NORESTART`) هنوز تأیید نشده؛ بررسی در جریان است.
+> - `ollama serve` هرگز اجرا نشده و رفتار `qwen3:4b` هنوز روی سخت‌افزار واقعی (CPU-only) سنجیده نشده است.
+> - تست‌های `pytest` (بدون مدل) مستقل از Ollama هستند و سبزند.
 
 ## ۴. گام بعدی
 
-1. اجرای `tools\verify_lesson01.py` روی PC واقعی و ثبت TTFT/توکن‌بر‌ثانیه در `benchmarks/results/`.
-2. افزودن `firmware/esp32s3_terminal/` (ESP-IDF 5.4.4) و تست مستقل میکروفون/بلندگو.
-3. شروع V1.1: WebSocket + فریم‌های PCM 20–40ms و پیام‌های کنترلی `SPEC.md` §۶.
+1. تکمیل نصب Ollama (نصاب دانلودشده) → `ollama pull qwen3:4b` در `D:\PersianVoiceAI\models\ollama` (`OLLAMA_MODELS`).
+2. اجرای `tools\verify_lesson01.py` و `tools\benchmark.ps1` روی PC واقعی و ثبت TTFT/tok/s در `benchmarks/results/`.
+3. درس ۲ (PC-0.2): دریافت خروجی‌های کاربر (python/py/git/nvidia-smi/دیسک) و ارزیابی آمادگی برای PC-1.
+4. افزودن `firmware/esp32s3_terminal/` (ESP-IDF 5.4.4) و تست مستقل میکروفون/بلندگو (فاز بعد).
+5. شروع V1.1: WebSocket + فریم‌های PCM 20–40ms و پیام‌های کنترلی `SPEC.md` §۶.
