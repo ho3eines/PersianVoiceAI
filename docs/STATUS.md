@@ -68,6 +68,31 @@ D:\\Lama.cpp\\bin\\llama-server.exe -m models\\MiniCPM5-1B-Q8_0.gguf -c 4096 --h
 
 > **نکته مهم:** مدل MiniCPM5-1B-Q8_0 یک مدل «تفکرکننده» (thinking) است و خروجی اصلی را در فیلد `reasoning_content` برمی‌گرداند. پاسخ‌های مستقیم فارسی تولید نمی‌کند. برای تولید فارسی، مدل Qwen3-4B-Q4_K_M یا مشابه پیشنهاد می‌شود. این بنچمارک لایهٔ **زیرساخت** (FastAPI ↔ llama-server ↔ GGUF) را تأیید می‌کند.
 
+### محیط PC-0.2 (درس ۲) — بررسی‌شده
+
+| بررسی | نتیجه |
+|---|---|
+| پایتون سیستم | ۳.۱۲.۱۰ در `C:\Users\Ho3ein\AppData\Local\Programs\Python\Python312` |
+| `py --list` | `No installed Pythons found!` — launcher نسخه‌ها را ثبت نکرده؛ از `python` استفاده می‌شود |
+| `git --version` | 2.51.0.windows.1 |
+| `nvidia-smi` | GeForce 940MX، compute 5.0، 2048 MiB، درایور 581.29 |
+| فضای دیسک | `C:` ۴۶.۸۳ — `D:` ۱۲۶.۶۵ — `E:` ۳۴.۱۸ — `F:` ۱۸۶.۶۷ گیگابایت آزاد |
+| `.venv` | Python 3.12.10، pip 25.0.1 |
+| ساختار پوشه | `data`, `models`, `docs`, `scripts`, `logs` موجود |
+| تست‌ها | ۱۷ تست سبز |
+
+### آزمایش GPU (Vulkan، b12186)
+
+`--list-devices` کارت را شناسایی می‌کند: `Vulkan0: NVIDIA GeForce 940MX (2215 MiB, 1913 MiB free)`.
+روی MiniCPM5-1B-Q8_0 با `llama-bench -p 512 -n 128`:
+
+| حالت | pp512 | tg128 |
+|---|---|---|
+| CPU (`-ngl 0`) | ۸۰.۶۸ t/s | ۱۷.۴۹ t/s |
+| GPU (`-ngl 99`، Vulkan0) | ۵۹.۹۱ t/s | ۱۲.۳۲ t/s |
+
+GPU کار می‌کند اما کندتر از CPU است (Maxwell بدون `fp16`، ۲ گیگابایت VRAM). تصمیم: اجرا روی CPU می‌ماند.
+
 ## ۳. چه چیزی هنوز پیاده نشده
 
 - **Firmware ESP32-S3** (`firmware/esp32s3_terminal/`): در این مخزن وجود ندارد. کد V1-A
@@ -79,7 +104,7 @@ D:\\Lama.cpp\\bin\\llama-server.exe -m models\\MiniCPM5-1B-Q8_0.gguf -c 4096 --h
 
 ## ۴. گام بعدی
 
-1. درس ۲ (PC-0.2): دریافت خروجی‌های کاربر (python/py/git/nvidia-smi/دیسک) و ارزیابی آمادگی برای PC-1.
+1. درس ۲ (PC-0.2): انجام شد — محیط بررسی و آمادگی برای PC-1 اعلام شد.
 2. افزودن `firmware/esp32s3_terminal/` (ESP-IDF 5.4.4) و تست مستقل میکروفون/بلندگو (فاز بعد).
 3. شروع V1.1: WebSocket + فریم‌های PCM 20–40ms و پیام‌های کنترلی `SPEC.md` §۶.
 4. انتخاب و تست مدل فارسی‌زبان (Qwen3-4B-Q4_K_M) برای جایگزینی MiniCPM.
