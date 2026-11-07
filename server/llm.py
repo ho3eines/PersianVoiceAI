@@ -126,6 +126,7 @@ class LlamaServerClient:
             "model": model or self.settings.model_path.split("\\")[-1].split("/")[-1],
             "messages": self._messages_with_system(messages, system_prompt),
             "stream": stream,
+            "chat_template_kwargs": {"enable_thinking": self.settings.llm_enable_thinking},
             "temperature": (
                 self.settings.temperature if temperature is None else temperature
             ),
@@ -170,8 +171,8 @@ class LlamaServerClient:
             completion_tokens=completion_tokens,
             tokens_per_second=tokens_per_second,
         )
-        # Support reasoning_content for thinking models (e.g., MiniCPM)
-        content = message.get("content") or message.get("reasoning_content") or ""
+        # Only user-facing content is returned, never reasoning.
+        content = message.get("content") or ""
         return ChatResult(
             content=str(content),
             model=str(data.get("model") or self.settings.model_path.split("\\")[-1].split("/")[-1]),
@@ -259,8 +260,8 @@ class LlamaServerClient:
                         raise GenerationError(str(data["error"]))
                     choice = (data.get("choices") or [{}])[0]
                     delta = choice.get("delta") or {}
-                    # Support both content and reasoning_content (for thinking models)
-                    piece = str(delta.get("content") or delta.get("reasoning_content") or "")
+                    # Only speak user-facing content, not reasoning deltas.
+                    piece = str(delta.get("content") or "")
                     if piece:
                         chunks.append(piece)
                         yield StreamDelta(piece)

@@ -19,9 +19,11 @@
 | بخش | وضعیت |
 |---|---|
 | هستهٔ متنی محلی: FastAPI + llama.cpp (GGUF) + CLI فارسی | **پیاده‌شده و تست‌شده** (درس ۱) |
-| بنچمارک فارسی (TTFT، tok/s، زمان کل) | پیاده‌شده؛ اجرای رسمی نتیجه هنوز ثبت نشده |
+| بنچمارک فارسی (TTFT، tok/s، زمان کل) | اجراشده روی MiniCPM؛ جزئیات در STATUS |
 | ESP32-S3 (I2S، پخش، RMS) | کد V1-A **در این مخزن نیست** (خارج از مخزن نگه داشته می‌شود) و روی سخت‌افزار واقعی build/تست نشده |
-| Wi-Fi/WebSocket صوتی، ASR، TTS، VAD/AEC، Barge-in | پیاده‌نشده |
+| صوت PC | ورودی پیوسته، energy endpointing، Whisper افزایشی حین گفتار، async SSE و Piper تدریجی؛ تست واقعی لازم است |
+| AEC روی PC | SpeexDSP با مرجع duplex؛ تست مصنوعی موفق، تست دستگاه واقعی لازم |
+| Wi-Fi/WebSocket صوتی ESP32 | پیاده‌نشده |
 | IoT Command Broker، احراز هویت دستگاه، OTA | پیاده‌نشده |
 
 جزئیات و فهرست فایل‌ها: [`docs/STATUS.md`](docs/STATUS.md).
@@ -58,6 +60,9 @@ PersianVoiceAI/
 │  ├─ main.py             ← اپ FastAPI و endpointها
 │  ├─ llm.py              ← کلاینت async llama.cpp + اندازه‌گیری زمان
 │  ├─ config.py           ← تنظیمات از env / .env (PVAI_*)
+│  ├─ voice.py           ← ورودی CLI صوت PC (پیش‌فرض زنده)
+│  ├─ live_voice.py      ← endpoint، جمله‌بندی و پخش لغوپذیر
+│  ├─ streaming_voice.py ← actorهای async، ASR partial/final و لغو SSE
 │  ├─ cli.py              ← کلاینت چت فارسی ترمینال
 │  ├─ __main__.py         ← اجرای `python -m server`
 │  └─ __init__.py         ← نسخهٔ سرویس
@@ -148,3 +153,11 @@ Copy-Item .env.example .env
 - پیش از روشن‌کردن، پین‌آوت برد واقعی (ESP32-S3 N16R8) بررسی شود؛ پین‌های پیشنهادی:
   INMP441 → `SCK=4, WS=5, SD=6`، MAX98357A → `BCLK=7, LRC=15, DIN=16`.
 - در تست اول میکروفون از بلندگو فاصله داشته باشد تا فیدبک/نویز تست را خراب نکند.
+## معماری PC Streaming (جایگزین مسیر قبلی)
+
+با درخواست صریح کاربر معماری async actor-based شد. مرجع: `docs/STREAMING_ARCHITECTURE.md`.
+Partial ASR نباید فرمان اجرا کند؛ generation قدیمی حق انتشار/پخش/ثبت تاریخچه ندارد.
+Whisper افزایشی با snapshot را با مدل ذاتاً streaming یکسان توصیف نکنید.
+
+AEC مرجع `docs/AEC.md`: مرجع فقط از PCM ارسال‌شده در callback duplex گرفته شود؛
+نبود کتابخانهٔ native نباید باعث bypass خاموش شود. AEC قبل از VAD/ASR اعمال می‌شود.

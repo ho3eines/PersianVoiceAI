@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_MODEL_PATH = str(Path(__file__).resolve().parents[2] / "models" / "MiniCPM5-1B-Q8_0.gguf")
+DEFAULT_MODEL_PATH = str(Path(__file__).resolve().parents[1] / "models" / "Qwen3-4B-Q4_K_M.gguf")
 DEFAULT_LLAMA_SERVER_URL = "http://127.0.0.1:8080"
 DEFAULT_API_HOST = "127.0.0.1"
 DEFAULT_API_PORT = 8000
@@ -106,6 +106,16 @@ class Settings:
     api_host: str = DEFAULT_API_HOST
     api_port: int = DEFAULT_API_PORT
     log_level: str = "INFO"
+    asr_model_path: str = "models/whisper-small"
+    tts_model_path: str = "models/piper/fa_IR.onnx"
+    llm_enable_thinking: bool = False
+    aec_enabled: bool = True
+    aec_library: str = ""
+    aec_filter_ms: int = 250
+    aec_delay_ms: int = 40
+    voice_asr_interval_s: float = 0.8
+    voice_vad_threshold: float = 0.015
+    voice_record_seconds: float = 5.0
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -123,5 +133,15 @@ class Settings:
             request_timeout_s=_env_float("PVAI_TIMEOUT", 180.0, minimum=5.0, maximum=1800.0),
             api_host=_env_str("PVAI_HOST", DEFAULT_API_HOST),
             api_port=_env_int("PVAI_PORT", DEFAULT_API_PORT, minimum=1, maximum=65535),
+            asr_model_path=_env_str("PVAI_ASR_MODEL_PATH", "models/whisper-small"),
+            tts_model_path=_env_str("PVAI_TTS_MODEL_PATH", "models/piper/fa_IR.onnx"),
+            llm_enable_thinking=bool(_env_optional_bool("PVAI_LLM_ENABLE_THINKING", False)),
+            aec_enabled=bool(_env_optional_bool("PVAI_AEC_ENABLED", True)),
+            aec_library=_env_str("PVAI_AEC_LIBRARY", ""),
+            aec_filter_ms=_env_int("PVAI_AEC_FILTER_MS", 250, minimum=100, maximum=1000),
+            aec_delay_ms=_env_int("PVAI_AEC_DELAY_MS", 40, minimum=0, maximum=500),
+            voice_asr_interval_s=_env_float("PVAI_VOICE_ASR_INTERVAL", 0.8, minimum=0.3, maximum=5.0),
+            voice_vad_threshold=_env_float("PVAI_VOICE_VAD_THRESHOLD", 0.015, minimum=0.001, maximum=0.5),
+            voice_record_seconds=_env_float("PVAI_VOICE_RECORD_SECONDS", 5.0, minimum=1.0, maximum=30.0),
             log_level=_env_str("PVAI_LOG_LEVEL", "INFO").upper(),
         )

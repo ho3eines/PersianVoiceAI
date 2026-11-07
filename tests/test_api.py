@@ -255,3 +255,12 @@ def test_lifespan_closes_client(settings: Settings, fake_llm: FakeLLM) -> None:
     with TestClient(create_app(settings=settings, llm=fake_llm)):
         pass
     assert fake_llm.closed is True
+
+def test_stream_backend_failure_is_sse_error(settings: Settings) -> None:
+    from server.main import create_app
+    with TestClient(create_app(settings=settings, llm=FakeLLM(unavailable=True))) as client:
+        response = client.post('/v1/chat/completions', json={
+            'messages': [{'role': 'user', 'content': 'سلام'}], 'stream': True})
+    assert response.status_code == 200
+    assert 'LlamaServerUnavailable' in response.text
+    assert '[DONE]' in response.text

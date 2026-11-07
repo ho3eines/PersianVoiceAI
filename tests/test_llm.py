@@ -86,3 +86,14 @@ def test_result_parses_llama_server_timings() -> None:
         assert result.finish_reason == "stop"
     finally:
         asyncio.run(client.aclose())
+
+def test_reasoning_is_not_a_spoken_reply() -> None:
+    client = _client()
+    try:
+        result = client._result({'choices': [{'message': {'reasoning_content': 'internal'}}]}, 1)
+        assert result.content == ''
+        payload = client._payload([], model=None, temperature=None, max_tokens=None,
+                                  stream=True, system_prompt=None)
+        assert payload['chat_template_kwargs'] == {'enable_thinking': False}
+    finally:
+        asyncio.run(client.aclose())
