@@ -170,8 +170,10 @@ class LlamaServerClient:
             completion_tokens=completion_tokens,
             tokens_per_second=tokens_per_second,
         )
+        # Support reasoning_content for thinking models (e.g., MiniCPM)
+        content = message.get("content") or message.get("reasoning_content") or ""
         return ChatResult(
-            content=str(message.get("content") or ""),
+            content=str(content),
             model=str(data.get("model") or self.settings.model_path.split("\\")[-1].split("/")[-1]),
             finish_reason=str(choice.get("finish_reason") or "stop"),
             timings=timings,
@@ -256,7 +258,9 @@ class LlamaServerClient:
                     if data.get("error"):
                         raise GenerationError(str(data["error"]))
                     choice = (data.get("choices") or [{}])[0]
-                    piece = str((choice.get("delta") or {}).get("content") or "")
+                    delta = choice.get("delta") or {}
+                    # Support both content and reasoning_content (for thinking models)
+                    piece = str(delta.get("content") or delta.get("reasoning_content") or "")
                     if piece:
                         chunks.append(piece)
                         yield StreamDelta(piece)
@@ -298,8 +302,10 @@ class LlamaServerClient:
             response.raise_for_status()
             data = response.json()
             models = await self.list_models()
+            # llama-server returns full paths as IDs; extract basenames for comparison
+            model_basenames = [m.split("\\")[-1].split("/")[-1] for m in models]
             wanted = self.settings.model_path.split("\\")[-1].split("/")[-1]
-            available = wanted in models
+            available = wanted in model_basenames
             return {
                 "reachable": True,
                 "model_available": available,

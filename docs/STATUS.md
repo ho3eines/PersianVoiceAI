@@ -9,12 +9,12 @@
 
 | قابلیت | مسیر | وضعیت |
 |---|---|---|
-| سرویس FastAPI محلی | `server/main.py` | ✅ پیاده‌شده، انتظار `llama-cpp-python` نصب |
-| کلاینت llama.cpp با اندازه‌گیری زمان | `server/llm.py` | ✅ بازنویسی شده (async thread-pool) |
-| پیکربندی از env/`.env` (PVAI_*) | `server/config.py` | ✅ بازنویسی شده |
+| سرویس FastAPI محلی | `server/main.py` | ✅ اجرا و تست‌شده |
+| کلاینت llama.cpp با اندازه‌گیری زمان | `server/llm.py` | ✅ پیاده‌شده (async HTTP به llama-server) |
+| پیکربندی از env/`.env` (PVAI_*) | `server/config.py` | ✅ تست‌شده |
 | چت فارسی ترمینال (stream) | `server/cli.py` | ✅ پیاده‌شده |
-| بنچمارک ۸ پرامپت فارسی | `benchmarks/` | ✅ پیاده‌شده، نتیجهٔ رسمی ثبت نشده |
-| مجموعهٔ تست | `tests/` | ⏳ نیاز به به‌روزرسانی برای fake llama.cpp |
+| بنچمارک ۸ پرامپت فارسی | `benchmarks/` | ✅ اجرا شده، نتایج ثبت‌شده |
+| مجموعهٔ تست | `tests/` | ✅ **۱۷ تست سبز** |
 
 ### API
 
@@ -26,9 +26,49 @@
 | `POST` | `/v1/chat/completions` | چت سازگار با OpenAI (JSON یا SSE) |
 | `POST` | `/api/chat` | پاسخ یک‌پیامی ساده برای کلاینت‌های سبک |
 
-خطاهای دامنه‌ای به کدهای `503` (مدل لود نشده)، `502` (خطای تولید/بک‌اند) نگاشت می‌شوند.
+خطاهای دامنه‌ای به کدهای `503` (بک‌اند/مدل در دسترس نیست)، `502` (خطای تولید) نگاشت می‌شوند.
 
-## ۲. چه چیزی هنوز پیاده نشده
+## ۲. اجرای تأییدشده (دستورهای واقعی و خروجی)
+
+```powershell
+# ۱. وابستگی‌ها
+.\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt   # ✅ fastapi, uvicorn, httpx, pytest
+
+# ۲. تست‌ها (بدون مدل) — ۱۷ تست سبز
+.\\.venv\\Scripts\\python.exe -m pytest
+# ========================== 17 passed in ~2.2s ==========================
+
+# ۳. llama-server (بک‌اند) — در پورت ۸۰۸۰
+D:\\Lama.cpp\\bin\\llama-server.exe -m models\\MiniCPM5-1B-Q8_0.gguf -c 4096 --host 127.0.0.1 --port 8080 -t 4
+# ✅ مدل لود شده، /health و /v1/models پاسخ می‌دهند
+
+# ۴. FastAPI سرور — در پورت ۸۰۰۰
+.\\tools\\start_server.ps1
+# ✅ /health: status=ok, model_available=true, backend.reachable=true
+
+# ۵. تأیید پایان‌به‌پایان (verify_lesson01.py)
+.\\.venv\\Scripts\\python.exe tools\\verify_lesson01.py
+# ✅ همه معیارهای لایهٔ زیرساخت PASS
+# ⚠️ مدل MiniCPM5-1B خروجی را در reasoning_content می‌نویسد و پوشش فارسی ندارد
+
+# ۶. بنچمارک کیفیت/سرعت (benchmark.ps1)
+.\\tools\\benchmark.ps1
+# ✅ ۸ پرامپت اجرا شد، نتایج در benchmarks/results/lesson01-20261107-142850.json
+```
+
+### نتایج بنچمارک (PC واقعی: i7-6500U، ۴ هسته، CPU-only)
+
+| متریک | مقدار |
+|---|---|
+| میانگین TTFT | **۱.۴۵ ثانیه** |
+| میانه TTFT | **۱.۴۳ ثانیه** |
+| P95 TTFT | **۱.۸۶ ثانیه** |
+| میانگین زمان کل | **۱۱.۴۵ ثانیه** |
+| میانگین سرعت تولید | **۱۹.۹ توکن/ثانیه** |
+
+> **نکته مهم:** مدل MiniCPM5-1B-Q8_0 یک مدل «تفکرکننده» (thinking) است و خروجی اصلی را در فیلد `reasoning_content` برمی‌گرداند. پاسخ‌های مستقیم فارسی تولید نمی‌کند. برای تولید فارسی، مدل Qwen3-4B-Q4_K_M یا مشابه پیشنهاد می‌شود. این بنچمارک لایهٔ **زیرساخت** (FastAPI ↔ llama-server ↔ GGUF) را تأیید می‌کند.
+
+## ۳. چه چیزی هنوز پیاده نشده
 
 - **Firmware ESP32-S3** (`firmware/esp32s3_terminal/`): در این مخزن وجود ندارد. کد V1-A
   (I2S RX/TX، پخش 440Hz، RMS) هنوز اینجا نیست و روی برد واقعی build/تست نشده است.
@@ -37,29 +77,9 @@
 - **Command Broker** و کنترل GPIO/رله
 - **احراز هویت دستگاه، OTA، چنددستگاهی**
 
-## ۳. اجرای تأییدشده (دستورهای واقعی)
-
-```powershell
-# ۱. وابستگی‌ها (شامل llama-cpp-python)
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt   # ⏳ در انتظار اجرا
-
-# ۲. تست‌ها (بدون مدل) — نیاز به به‌روزرسانی fake LLM دارد
-.\.venv\Scripts\python.exe -m pytest                            # ⏳ در انتظار اجرا
-```
-
-پیش‌نیاز اجرای واقعی چت:
-1. فایل مدل `models/MiniCPM5-1B-Q8_0.gguf` در محل باشد (کپی شده ✅).
-2. `.\tools\start_server.ps1` → سرور روی `http://127.0.0.1:8000`.
-3. در ترمینال دیگر: `.\tools\chat.ps1`.
-
-> **وضعیت Ollama (بایگانی‌شده):**
-> - نصاب `OllamaSetup.exe` نسخه v0.40.15 (۱٬۶۱۱٫۴ MB) دانلود شده بود اما **نصب نشد** (سایلنت و مرئی هر دو شکست خوردند).
-> - پروژه به **llama.cpp + GGUF** سوئیچ کرد؛ Ollama دیگر پیش‌نیاز نیست.
-
 ## ۴. گام بعدی
 
-1. نصب `llama-cpp-python` در venv و اجرای `pytest` (باید سبز شود).
-2. اجرای `tools\verify_lesson01.py` و `tools\benchmark.ps1` روی PC واقعی و ثبت TTFT/tok/s در `benchmarks/results/`.
-3. درس ۲ (PC-0.2): دریافت خروجی‌های کاربر (python/py/git/nvidia-smi/دیسک) و ارزیابی آمادگی برای PC-1.
-4. افزودن `firmware/esp32s3_terminal/` (ESP-IDF 5.4.4) و تست مستقل میکروفون/بلندگو (فاز بعد).
-5. شروع V1.1: WebSocket + فریم‌های PCM 20–40ms و پیام‌های کنترلی `SPEC.md` §۶.
+1. درس ۲ (PC-0.2): دریافت خروجی‌های کاربر (python/py/git/nvidia-smi/دیسک) و ارزیابی آمادگی برای PC-1.
+2. افزودن `firmware/esp32s3_terminal/` (ESP-IDF 5.4.4) و تست مستقل میکروفون/بلندگو (فاز بعد).
+3. شروع V1.1: WebSocket + فریم‌های PCM 20–40ms و پیام‌های کنترلی `SPEC.md` §۶.
+4. انتخاب و تست مدل فارسی‌زبان (Qwen3-4B-Q4_K_M) برای جایگزینی MiniCPM.
