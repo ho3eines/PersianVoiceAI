@@ -20,7 +20,7 @@
 |---|---|
 | هستهٔ متنی محلی: FastAPI + Ollama + CLI فارسی | **پیاده‌شده و تست‌شده** (درس ۱) |
 | بنچمارک فارسی (TTFT، tok/s، زمان کل) | پیاده‌شده؛ اجرای رسمی نتیجه هنوز ثبت نشده |
-| ESP32-S3 (I2S، پخش، RMS) | کد نوشته شده اما **روی سخت‌افزار واقعی build/تست نشده** |
+| ESP32-S3 (I2S، پخش، RMS) | کد V1-A **در این مخزن نیست** (خارج از مخزن نگه داشته می‌شود) و روی سخت‌افزار واقعی build/تست نشده |
 | Wi-Fi/WebSocket صوتی، ASR، TTS، VAD/AEC، Barge-in | پیاده‌نشده |
 | IoT Command Broker، احراز هویت دستگاه، OTA | پیاده‌نشده |
 
@@ -65,7 +65,7 @@ PersianVoiceAI/
 ├─ tools/                 ← اسکریپت‌های PowerShell و ابزار بررسی
 ├─ models/                ← مدل‌های محلی (خارج از git)
 ├─ data/                  ← مکالمه/بازخورد/دانش محلی (خارج از git)
-└─ firmware/              ← (هدف) ESP-IDF پروژهٔ esp32s3_terminal
+└─ firmware/              ← (ساخته نشده) هدف: پروژهٔ ESP-IDF esp32s3_terminal
 ```
 
 پوشه‌های `server/audio`، `vad`، `aec`، `asr`، `tts`، `conversation`، `playback`، `iot`، `devices`
