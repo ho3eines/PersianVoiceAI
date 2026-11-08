@@ -10,7 +10,12 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_MODEL_PATH = str(Path(__file__).resolve().parents[2] / "models" / "MiniCPM5-1B-Q8_0.gguf")
+DEFAULT_MODEL_PATH = str(
+    Path(__file__).resolve().parents[1]
+    / "models"
+    / "qwen3.5-4b"
+    / "Qwen3.5-4B-Q4_K_M.gguf"
+)
 DEFAULT_LLAMA_SERVER_URL = "http://127.0.0.1:8080"
 DEFAULT_API_HOST = "127.0.0.1"
 DEFAULT_API_PORT = 8000
@@ -96,9 +101,6 @@ class Settings:
 
     model_path: str = DEFAULT_MODEL_PATH
     llama_server_url: str = DEFAULT_LLAMA_SERVER_URL
-    n_ctx: int = 4096
-    n_threads: int = 0  # 0 = auto
-    n_gpu_layers: int = 0  # CPU-only on this laptop
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     temperature: float = 0.7
     max_tokens: int = 512
@@ -114,9 +116,6 @@ class Settings:
         return cls(
             model_path=_env_str("PVAI_MODEL_PATH", DEFAULT_MODEL_PATH),
             llama_server_url=_env_str("PVAI_LLAMA_SERVER_URL", DEFAULT_LLAMA_SERVER_URL).rstrip("/"),
-            n_ctx=_env_int("PVAI_N_CTX", 4096, minimum=512, maximum=32768),
-            n_threads=_env_int("PVAI_N_THREADS", 0, minimum=0, maximum=64),
-            n_gpu_layers=_env_int("PVAI_N_GPU_LAYERS", 0, minimum=0, maximum=999),
             system_prompt=_env_str("PVAI_SYSTEM_PROMPT", DEFAULT_SYSTEM_PROMPT),
             temperature=_env_float("PVAI_TEMPERATURE", 0.7, minimum=0.0, maximum=2.0),
             max_tokens=_env_int("PVAI_MAX_TOKENS", 512, minimum=1, maximum=4096),

@@ -274,7 +274,7 @@ def create_app(settings: Settings | None = None, llm: LlamaServerClient | Any | 
                         result.timings.tokens_per_second,
                     )
                 yield "data: [DONE]\n\n"
-            except LlamaCppError as exc:
+            except LlamaServerError as exc:
                 logger.error("stream failed: %s", exc)
                 yield _sse(
                     {

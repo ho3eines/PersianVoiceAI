@@ -1,0 +1,65 @@
+{
+  "reviewed_at": "2026-11-07",
+  "prompt_file": "benchmarks/prompts_fa.json",
+  "reviewer_count": 1,
+  "scale": {
+    "0": "failed",
+    "0.5": "partially met the listed checks",
+    "1": "met the listed checks"
+  },
+  "limitation": "Manual, single-reviewer screening; not a validated Persian benchmark or statistical comparison.",
+  "models": {
+    "MiniCPM5-1B-Q8_0": {
+      "scores": {
+        "salam": 0,
+        "local_ai": 0,
+        "math": 0,
+        "instruction": 0,
+        "code": 0,
+        "grammar": 0,
+        "windows": 0,
+        "honesty": 0
+      },
+      "total_out_of_8": 0
+    },
+    "Qwen3-4B-Q4_K_M": {
+      "scores": {
+        "salam": 0.5,
+        "local_ai": 0.5,
+        "math": 1,
+        "instruction": 0,
+        "code": 1,
+        "grammar": 0,
+        "windows": 0.5,
+        "honesty": 1
+      },
+      "total_out_of_8": 4.5
+    },
+    "Qwen3.5-4B-Q4_K_M": {
+      "scores": {
+        "salam": 0.5,
+        "local_ai": 0.5,
+        "math": 1,
+        "instruction": 1,
+        "code": 0.5,
+        "grammar": 0.5,
+        "windows": 0.5,
+        "honesty": 0.5
+      },
+      "total_out_of_8": 5.0
+    },
+    "gemma-3-4b-persian-v0.Q4_K_M": {
+      "scores": {
+        "salam": 1,
+        "local_ai": 0.5,
+        "math": 0,
+        "instruction": 1,
+        "code": 1,
+        "grammar": 0,
+        "windows": 0,
+        "honesty": 0
+      },
+      "total_out_of_8": 3.5
+    }
+  }
+}

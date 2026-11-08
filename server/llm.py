@@ -7,6 +7,7 @@ We use the same client structure as before but target llama-server endpoints.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import asdict, dataclass
 from typing import Any, AsyncIterator, Mapping, Sequence
@@ -14,6 +15,8 @@ from typing import Any, AsyncIterator, Mapping, Sequence
 import httpx
 
 from .config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 class LlamaServerError(RuntimeError):
@@ -76,6 +79,69 @@ def _ms_from_ns(value: Any) -> float:
         return 0.0
 
 
+class _ThinkingFilter:
+    """Remove inline <think> blocks, including markers split across stream chunks."""
+
+    _start = "<think>"
+    _end = "</think>"
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._inside_thinking = False
+
+    @staticmethod
+    def _possible_marker_suffix_length(text: str, marker: str) -> int:
+        for length in range(min(len(text), len(marker) - 1), 0, -1):
+            if text.endswith(marker[:length]):
+                return length
+        return 0
+
+    def feed(self, text: str) -> str:
+        self._buffer += text
+        visible: list[str] = []
+
+        while self._buffer:
+            if self._inside_thinking:
+                end_index = self._buffer.find(self._end)
+                if end_index >= 0:
+                    self._buffer = self._buffer[end_index + len(self._end) :]
+                    self._inside_thinking = False
+                    continue
+                keep = self._possible_marker_suffix_length(self._buffer, self._end)
+                self._buffer = self._buffer[-keep:] if keep else ""
+                break
+
+            start_index = self._buffer.find(self._start)
+            if start_index >= 0:
+                visible.append(self._buffer[:start_index])
+                self._buffer = self._buffer[start_index + len(self._start) :]
+                self._inside_thinking = True
+                continue
+
+            keep = self._possible_marker_suffix_length(self._buffer, self._start)
+            if keep:
+                visible.append(self._buffer[:-keep])
+                self._buffer = self._buffer[-keep:]
+            else:
+                visible.append(self._buffer)
+                self._buffer = ""
+            break
+
+        return "".join(visible)
+
+    def finish(self) -> str:
+        if self._inside_thinking:
+            self._buffer = ""
+            return ""
+        tail, self._buffer = self._buffer, ""
+        return tail
+
+
+def _strip_thinking_blocks(text: str) -> str:
+    content_filter = _ThinkingFilter()
+    return content_filter.feed(text) + content_filter.finish()
+
+
 class LlamaServerClient:
     """Small wrapper around llama-server's OpenAI-compatible API.
 
@@ -134,14 +200,15 @@ class LlamaServerClient:
         return payload
 
     @staticmethod
-    def _raise_for_response(response: httpx.Response, body: str = "") -> None:
+    def _raise_for_response(response: httpx.Response) -> None:
         if response.status_code == 404:
             raise ModelNotLoaded(
                 "مدل در llama-server لود نشده است. مطمئن شوید llama-server با فایل مدل صحیح اجرا شده."
             )
         if response.status_code >= 400:
-            detail = body.strip() or response.text.strip()
-            raise GenerationError(f"llama-server error {response.status_code}: {detail[:500]}")
+            raise GenerationError(
+                f"llama-server خطای HTTP {response.status_code} داد. لاگ سرویس را بررسی کنید."
+            )
 
     def _result(self, data: Mapping[str, Any], wall_ms: float) -> ChatResult:
         choice = (data.get("choices") or [{}])[0]
@@ -170,10 +237,10 @@ class LlamaServerClient:
             completion_tokens=completion_tokens,
             tokens_per_second=tokens_per_second,
         )
-        # Support reasoning_content for thinking models (e.g., MiniCPM)
-        content = message.get("content") or message.get("reasoning_content") or ""
+        # Never expose a model's private reasoning as the user-facing answer.
+        content = _strip_thinking_blocks(str(message.get("content") or ""))
         return ChatResult(
-            content=str(content),
+            content=content,
             model=str(data.get("model") or self.settings.model_path.split("\\")[-1].split("/")[-1]),
             finish_reason=str(choice.get("finish_reason") or "stop"),
             timings=timings,
@@ -206,7 +273,8 @@ class LlamaServerClient:
         except httpx.TimeoutException as exc:
             raise LlamaServerUnavailable("پاسخ llama-server در زمان مجاز دریافت نشد.") from exc
         except httpx.HTTPError as exc:
-            raise LlamaServerUnavailable(f"خطای ارتباط با llama-server: {exc}") from exc
+            logger.warning("llama-server request failed: %s", exc)
+            raise LlamaServerUnavailable("خطای ارتباط با llama-server رخ داد.") from exc
 
         self._raise_for_response(response)
         wall_ms = (time.perf_counter() - started) * 1000
@@ -236,12 +304,12 @@ class LlamaServerClient:
         started = time.perf_counter()
         chunks: list[str] = []
         final: dict[str, Any] = {}
+        content_filter = _ThinkingFilter()
 
         try:
             async with self._client.stream("POST", "/v1/chat/completions", json=payload) as response:
                 if response.status_code >= 400:
-                    body = (await response.aread()).decode("utf-8", errors="replace")
-                    self._raise_for_response(response, body)
+                    self._raise_for_response(response)
 
                 async for line in response.aiter_lines():
                     if not line.strip():
@@ -256,11 +324,11 @@ class LlamaServerClient:
                     except json.JSONDecodeError:
                         continue
                     if data.get("error"):
-                        raise GenerationError(str(data["error"]))
+                        raise GenerationError("llama-server هنگام تولید پاسخ خطا داد.")
                     choice = (data.get("choices") or [{}])[0]
                     delta = choice.get("delta") or {}
-                    # Support both content and reasoning_content (for thinking models)
-                    piece = str(delta.get("content") or delta.get("reasoning_content") or "")
+                    # Only user-facing content is sent to clients; reasoning stays internal.
+                    piece = content_filter.feed(str(delta.get("content") or ""))
                     if piece:
                         chunks.append(piece)
                         yield StreamDelta(piece)
@@ -274,7 +342,13 @@ class LlamaServerClient:
         except httpx.TimeoutException as exc:
             raise LlamaServerUnavailable("پاسخ llama-server در زمان مجاز دریافت نشد.") from exc
         except httpx.HTTPError as exc:
-            raise LlamaServerUnavailable(f"خطای ارتباط با llama-server: {exc}") from exc
+            logger.warning("llama-server streaming request failed: %s", exc)
+            raise LlamaServerUnavailable("خطای ارتباط با llama-server رخ داد.") from exc
+
+        tail = content_filter.finish()
+        if tail:
+            chunks.append(tail)
+            yield StreamDelta(tail)
 
         wall_ms = (time.perf_counter() - started) * 1000
         result = self._result(final, wall_ms)
@@ -288,6 +362,11 @@ class LlamaServerClient:
             raise LlamaServerUnavailable(
                 "به llama-server وصل نشدم. مطمئن شوید llama-server در حال اجراست."
             ) from exc
+        except httpx.TimeoutException as exc:
+            raise LlamaServerUnavailable("پاسخ llama-server در زمان مجاز دریافت نشد.") from exc
+        except httpx.HTTPError as exc:
+            logger.warning("llama-server model-list request failed: %s", exc)
+            raise LlamaServerUnavailable("خطای ارتباط با llama-server رخ داد.") from exc
         self._raise_for_response(response)
         try:
             data = response.json()
@@ -313,11 +392,12 @@ class LlamaServerClient:
                 "llama_server": data,
             }
         except Exception as exc:  # health endpoint must never crash
+            logger.warning("llama-server health check failed: %s", exc)
             return {
                 "reachable": False,
                 "model_available": False,
                 "models": [],
-                "error": f"{type(exc).__name__}: {exc}",
+                "error": "llama-server در دسترس نیست یا پاسخ معتبری نداد.",
             }
 
     async def version(self) -> str | None:

@@ -31,9 +31,18 @@ def _timings() -> Timings:
 
 
 class FakeLLM:
-    def __init__(self, *, unavailable: bool = False, missing_model: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        unavailable: bool = False,
+        missing_model: bool = False,
+        generation_error: bool = False,
+        stream_error: bool = False,
+    ) -> None:
         self.unavailable = unavailable
         self.missing_model = missing_model
+        self.generation_error = generation_error
+        self.stream_error = stream_error
         self.last_messages: list[dict[str, str]] | None = None
         self.closed = False
 
@@ -42,6 +51,8 @@ class FakeLLM:
             raise LlamaServerUnavailable("llama-server در دسترس نیست")
         if self.missing_model:
             raise ModelNotLoaded("مدل لود نشده")
+        if self.generation_error:
+            raise GenerationError("پاسخ تولید نشد")
 
     async def chat(self, messages: list[Any], **_: Any) -> ChatResult:
         self._guard()
@@ -60,6 +71,8 @@ class FakeLLM:
 
     async def stream_chat(self, messages: list[Any], **_: Any):
         self._guard()
+        if self.stream_error:
+            raise GenerationError("خطای داخلی شبیه‌سازی‌شده")
         self.last_messages = [
             {"role": message["role"], "content": message["content"]}
             if isinstance(message, dict)
@@ -230,12 +243,11 @@ def test_backend_unavailable_returns_503(settings: Settings) -> None:
     assert response.json()["error"] == "backend_unavailable"
 
 
-def test_model_not_loaded_returns_404(settings: Settings) -> None:
+def test_model_not_loaded_returns_503(settings: Settings) -> None:
     from server.main import create_app
 
     with TestClient(create_app(settings=settings, llm=FakeLLM(missing_model=True))) as client:
         response = client.post("/api/chat", json={"message": "سلام"})
-    # missing_model raises ModelNotLoaded -> 503 model_not_loaded
     assert response.status_code == 503
     assert response.json()["error"] == "model_not_loaded"
 
@@ -243,10 +255,25 @@ def test_model_not_loaded_returns_404(settings: Settings) -> None:
 def test_generation_error_returns_502(settings: Settings) -> None:
     from server.main import create_app
 
-    with TestClient(create_app(settings=settings, llm=FakeLLM(missing_model=True))) as client:
+    with TestClient(create_app(settings=settings, llm=FakeLLM(generation_error=True))) as client:
         response = client.post("/api/chat", json={"message": "سلام"})
-    # Both missing_model and unavailable map to 503/404 in our handler
-    assert response.status_code in (404, 503, 502)
+    assert response.status_code == 502
+    assert response.json()["error"] == "generation_error"
+    assert response.json()["detail"] == "پاسخ تولید نشد"
+
+
+def test_stream_generation_error_is_returned_as_sse(settings: Settings) -> None:
+    from server.main import create_app
+
+    with TestClient(create_app(settings=settings, llm=FakeLLM(stream_error=True))) as client:
+        response = client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": "سلام"}], "stream": True},
+        )
+
+    assert response.status_code == 200
+    assert '"message": "خطای داخلی شبیه‌سازی‌شده"' in response.text
+    assert response.text.rstrip().endswith("data: [DONE]")
 
 
 def test_lifespan_closes_client(settings: Settings, fake_llm: FakeLLM) -> None:

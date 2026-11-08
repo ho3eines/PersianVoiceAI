@@ -12,18 +12,18 @@
 | [`docs/SPEC.md`](docs/SPEC.md) | مستند جامع v1.0: معماری، سخت‌افزار، صوت و شبکه، ASR/LLM/TTS، امنیت، نقشهٔ راه |
 | [`docs/STATUS.md`](docs/STATUS.md) | وضعیت واقعی پیاده‌سازی، تست‌ها و گام بعدی |
 
-## وضعیت فعلی — درس ۱
+## وضعیت فعلی — پایان PC-0.2 / آماده‌سازی PC-1
 
-هستهٔ متنی محلی پیاده‌شده است: یک مدل زبانی **GGUF** روی PC با **llama.cpp** اجرا می‌شود، کاربر به فارسی با آن گفت‌وگو می‌کند و همان مدل از طریق یک API محلی (`127.0.0.1:8000`) در دسترس است. حافظهٔ ماندگار، RAG، ASR، TTS و ESP32 در درس‌های بعد اضافه می‌شوند.
+هستهٔ API محلی با FastAPI و کلاینت `llama-server` پیاده‌سازی شده و با Qwen3.5-4B Q4_K_M روی لپ‌تاپ هدف به‌صورت پایان‌به‌پایان بررسی شده است. این مدل فعلاً انتخاب پایهٔ PC-1 است؛ امتیاز کیفیت آن مقدماتی است و RAG، ASR، TTS و ESP32 هنوز پیاده‌سازی نشده‌اند.
 
 | معیار موفقیت | وضعیت |
 |---|---|
-| مدل GGUF روی PC لود می‌شود | ⏳ در انتظار `llama-cpp-python` |
-| پاسخ فارسی متنی می‌دهد | ⏳ در انتظار تست واقعی |
-| API محلی پاسخ می‌دهد | ✅ کد آماده (OpenAI-compatible) |
-| زمان پاسخ قابل اندازه‌گیری است | ✅ TTFT / tok/s در کد پیاده‌شده |
+| API محلی و CLI | ✅ پیاده‌سازی شده؛ تست‌های خودکار با بک‌اند ساختگی اجرا می‌شوند |
+| اتصال به llama-server | ✅ کلاینت HTTP محلی پیاده‌سازی شده |
+| اجرای مدل GGUF و کیفیت پاسخ فارسی | ✅ Qwen3.5 اجرا شد؛ ارزیابی کیفی مقایسه‌ای مقدماتی در `docs/STATUS.md` ثبت شده |
+| زمان پاسخ | ✅ TTFT / tok/s در API اندازه‌گیری می‌شود |
 
-> **تغییر معماری:** Ollama حذف شد. بک‌اند اکنون **llama.cpp** (بیلد محلی `D:\Lama.cpp\bin`) + **llama-cpp-python** در FastAPI است. مدل پیش‌فرض: `models/MiniCPM5-1B-Q8_0.gguf` (۱.۰۷ GB).
+> **معماری فعلی:** FastAPI از طریق HTTP محلی به فرایند جداگانهٔ `llama-server` وصل می‌شود. موتور `llama.cpp` مدل GGUF را بارگذاری می‌کند. آزمون‌های خودکار API به مدل واقعی نیاز ندارند.
 
 جزئیات وضعیت واقعی و تست‌های اجراشده: [`docs/STATUS.md`](docs/STATUS.md)
 
@@ -37,20 +37,19 @@
                                               │
                                               ▼
                                      ┌──────────────────┐
-                                     │ llama-cpp-python │
-                                     │ (thread-pool)    │
+                                     │ HTTP محلی        │
+                                     │ 127.0.0.1:8080   │
                                      └────────┬─────────┘
                                               │
                                               ▼
                                      ┌──────────────────┐
+                                     │ llama-server     │
                                      │ llama.cpp engine │
-                                     │ MiniCPM5-1B-Q8_0 │
                                      │ models/*.gguf    │
                                      └──────────────────┘
 ```
 
-- **llama.cpp** موتور استنتاج است؛ باینری بیلدشده در `D:\Lama.cpp\bin\llama-server.exe` موجود است.
-- **llama-cpp-python** بایندینگ پایتون برای فراخوانی async از FastAPI (با thread-pool).
+- **llama-server** فرایند جداگانهٔ موتور استنتاج llama.cpp است؛ FastAPI با HTTP روی loopback به آن وصل می‌شود.
 - **FastAPI** لایهٔ پروژه: پرامپت سیستمی فارسی، نرمال‌سازی ورودی، اندازه‌گیری زمان (TTFT، tok/s)، خطاهای فارسی و endpoint ساده برای دستگاه‌های آینده.
 - **CLI** فقط با API پروژه حرف می‌زند؛ یعنی همان مسیری که فردا ESP32 یا رابط وب استفاده می‌کند.
 
@@ -58,28 +57,39 @@
 
 - ویندوز ۱۰/۱۱
 - Python 3.12
-- **llama.cpp بیلدشده** (روی این سیستم در `D:\Lama.cpp\bin` موجود)
-- مدل **GGUF** در `models/` (پیش‌فرض: `MiniCPM5-1B-Q8_0.gguf` ≈ ۱.۰۷ GB)
-- حداقل ~۴ گیگابایت RAM خالی (مدل ۱.۰۷ GB + کانتکست)
-- اتصال اینترنت فقط برای دانلود اولیهٔ وابستگی‌های پایتون (`llama-cpp-python`)
+- یک بیلد محلی `llama-server.exe` از پروژهٔ llama.cpp
+- مدل **GGUF** در `models/` (پیش‌فرض: `qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf`، حدود ۲.۵۵ GiB)
+- رم ۱۶ گیگابایت برای پیکربندی آزموده‌شده؛ اوج working set مدل حدود ۵ GiB ثبت شد
+- اتصال اینترنت برای دریافت وابستگی‌های کوچک Python و انتخاب/دریافت فایل GGUF؛ متن مکالمه به اینترنت فرستاده نمی‌شود
 
 ## راه‌اندازی سریع
 
 ### ۱) محیط پایتون و وابستگی‌ها
 
 ```powershell
-py -3.12 -m venv .venv
+python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-`requirements.txt` شامل `llama-cpp-python==0.2.90` است.
+`requirements.txt` شامل FastAPI، Uvicorn، HTTPX و pytest است؛ خود llama.cpp جداگانه به‌صورت `llama-server.exe` اجرا می‌شود.
 
 ### ۲) مدل GGUF
 
-مدل پیش‌فرض در `models/MiniCPM5-1B-Q8_0.gguf` کپی شده است. برای مدل دیگر، فایل `.gguf` را در `models/` قرار دهید و `PVAI_MODEL_PATH` در `.env` را تنظیم کنید.
+فایل مدل باید به‌صورت محلی در `models/` قرار گیرد. مسیر یکسان فایل را هم به گزینهٔ `-m` در `llama-server` و هم به `PVAI_MODEL_PATH` در `.env` بدهید.
 
-### ۳) اجرای API
+### ۳) اجرای llama-server
+
+در ترمینال اول، از ریشهٔ مخزن اجرا کنید:
+
+```powershell
+D:\Lama.cpp\vulkan-b12186\bin\llama-server.exe -m models\qwen3.5-4b\Qwen3.5-4B-Q4_K_M.gguf -c 4096 --host 127.0.0.1 --port 8080 -t 4 --reasoning-format deepseek --reasoning off -ngl 0 --device none
+```
+
+مسیر و تعداد رشته‌ها را متناسب با فایل GGUF و سخت‌افزار عوض کنید. `PVAI_N_CTX`، `PVAI_N_THREADS` و `PVAI_N_GPU_LAYERS` تنظیمات llama-server نیستند و از `.env` حذف شده‌اند.
+روی 940MX اجرای Vulkan با `--device Vulkan0 --fit on` ممکن است؛ در آزمون محلی سرعت تولید را افزایش نداد، ولی حدود ۰.۹ GiB از RAM پردازه کم کرد.
+
+### ۴) اجرای API
 
 ```powershell
 .\tools\start_server.ps1
@@ -93,7 +103,7 @@ Copy-Item .env.example .env
 
 مستندات تعاملی: <http://127.0.0.1:8000/docs>
 
-### ۴) گفت‌وگوی فارسی
+### ۵) گفت‌وگوی فارسی
 
 در یک ترمینال دیگر:
 
@@ -189,10 +199,7 @@ print(data["timings"]["tokens_per_second"], "tok/s")
 
 | متغیر | پیش‌فرض | توضیح |
 |---|---|---|
-| `PVAI_MODEL_PATH` | `models/MiniCPM5-1B-Q8_0.gguf` | مسیر فایل مدل GGUF |
-| `PVAI_N_CTX` | `4096` | سایز کانتکست توکن |
-| `PVAI_N_THREADS` | `0` (auto) | تعداد ترد CPU (۰ = خودکار) |
-| `PVAI_N_GPU_LAYERS` | `0` | لایه‌های GPU (۰ = CPU-only) |
+| `PVAI_MODEL_PATH` | `models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf` | مسیر فایل مدل GGUF |
 | `PVAI_TEMPERATURE` | `0.7` | خلاقیت پاسخ |
 | `PVAI_MAX_TOKENS` | `512` | سقف توکن پاسخ |
 | `PVAI_HOST` | `127.0.0.1` | آدرس bind سرویس |
@@ -203,10 +210,10 @@ print(data["timings"]["tokens_per_second"], "tok/s")
 
 | نشانه | راه‌حل |
 |---|---|
-| `503 model_not_loaded` | فایل GGUF در `models/` نیست یا `llama-cpp-python` نصب نشده. |
+| `503 model_not_loaded` | `llama-server` مدل را لود نکرده یا نام مدل با `PVAI_MODEL_PATH` هم‌خوان نیست. |
 | `502 generation_error` | خطای llama.cpp (معمولاً OOM یا مدل خراب). لاگ سرور را ببینید. |
-| پاسخ بسیار کند | روی CPU طبیعی است؛ `PVAI_MAX_TOKENS` را کم کنید یا مدل کوچک‌تر بگیرید. `PVAI_N_THREADS` را روی تعداد هسته‌ها تنظیم کنید. |
-| اجرای اسکریپت مسدود است | `powershell -ExecutionPolicy Bypass -File .\tools\start_server.ps1` |
+| پاسخ بسیار کند | `PVAI_MAX_TOKENS` را کم کنید یا مدل کوچک‌تر بگیرید؛ تعداد رشته‌ها را در فرمان اجرای `llama-server` تنظیم کنید. |
+| اجرای اسکریپت خطای Execution Policy می‌دهد | سیاست امنیتی را تغییر ندهید؛ متن کامل خطا را برای بررسی ثبت کنید. |
 | متن فارسی در ترمینال به‌هم‌ریخته است | از Windows Terminal استفاده کنید و `chcp 65001` را اجرا کنید. |
 | پورت ۸۰۰۰ اشغال است | `PVAI_PORT=8001` را تنظیم کنید یا `--port` را عوض کنید. |
 

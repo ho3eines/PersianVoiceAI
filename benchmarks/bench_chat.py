@@ -3,7 +3,7 @@
 Measures, for every prompt:
   * TTFT  - time to first streamed token (wall clock)
   * wall  - total request time (wall clock)
-  * tok/s - generation speed reported by Ollama
+  * tok/s - generation speed reported by the local project API
   * token counts
 
 Results are written to benchmarks/results/ as JSON so the lesson report is

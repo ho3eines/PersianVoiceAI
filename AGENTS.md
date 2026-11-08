@@ -18,8 +18,9 @@
 
 | بخش | وضعیت |
 |---|---|
-| هستهٔ متنی محلی: FastAPI + llama.cpp (GGUF) + CLI فارسی | **پیاده‌شده و تست‌شده** (درس ۱) |
-| بنچمارک فارسی (TTFT، tok/s، زمان کل) | پیاده‌شده؛ اجرای رسمی نتیجه هنوز ثبت نشده |
+| هستهٔ API متنی محلی: FastAPI + کلاینت HTTP llama-server + CLI فارسی | **پیاده‌سازی شده؛ آزمون خودکار با fake انجام می‌شود** (درس ۱) |
+| اجرای مدل GGUF و کیفیت پاسخ فارسی روی لپ‌تاپ | Qwen3.5-4B-Q4_K_M پس از آزمون محلی به‌عنوان پیش‌فرض CPU انتخاب شد؛ جزئیات در `docs/STATUS.md` |
+| بنچمارک فارسی (TTFT، tok/s، زمان کل) | چهار مدل با هشت prompt یکسان سنجیده شدند؛ ارزیابی کیفی تک‌داور و مقدماتی است؛ جزئیات در `docs/STATUS.md` |
 | ESP32-S3 (I2S، پخش، RMS) | کد V1-A **در این مخزن نیست** (خارج از مخزن نگه داشته می‌شود) و روی سخت‌افزار واقعی build/تست نشده |
 | Wi-Fi/WebSocket صوتی، ASR، TTS، VAD/AEC، Barge-in | پیاده‌نشده |
 | IoT Command Broker، احراز هویت دستگاه، OTA | پیاده‌نشده |
@@ -78,7 +79,7 @@ PersianVoiceAI/
 
 ```powershell
 # یک‌بار: محیط
-py -3.12 -m venv .venv
+python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env
 
