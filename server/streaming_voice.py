@@ -1439,6 +1439,31 @@ class Pipeline:
         self.scheduler.drop_partial()
         self.event("error", detail=detail)
 
+    def reset(self, *, reason: str = "audio_stream_reopened") -> None:
+        """Forget device-local state after the capture stream was reopened.
+
+        Called by ``server.audio_io.reset_stream_state`` on every reopen.  The
+        detector is reset so a half-recorded utterance from before the gap is
+        never completed with post-gap audio (the same reason ``overflow`` does
+        it), and an announcement is emitted so a transcript that suddenly stops
+        is explainable instead of mysterious.
+
+        A *final* transcript is never touched: like overflow, this only drops an
+        unfinished utterance, and the ASR queue is left intact.
+        """
+        abandoned = self.utterance
+        self.detector.reset()
+        self.utterance = None
+        self._last_partial_frames = 0
+        self.scheduler.drop_partial()
+        self.metrics.increment("audio_reopen_reset_count")
+        self.event(
+            "input_reset",
+            reason=reason,
+            abandoned_utterance_id=abandoned.id if abandoned is not None else 0,
+        )
+        self._settle_after_utterance(reason=reason)
+
     def metrics_snapshot(self) -> dict[str, Any]:
         return self.metrics.snapshot()
 

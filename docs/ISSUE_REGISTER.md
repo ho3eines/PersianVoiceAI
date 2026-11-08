@@ -472,3 +472,80 @@
 - **تست:** `tests/test_asr_preemption.py` (۵ تست). عدد SIMULATED در sandbox: با partial
   ۲ ثانیه‌ای، پاسخ از **۱۹۶۵ms به ۳ms** رسید. عدد دستگاه واقعی **NOT MEASURED**.
 - **وضعیت:** رفع‌شده + تست (SIMULATED)
+
+---
+
+## مرحلهٔ چهارم — بازتولید و رفع چهار باگ مسیر صوتی (۸ نوامبر ۲۰۲۶)
+
+فایل‌ها: `server/audio_io.py` (`stream_forever`, `pump`)، `server/aec.py` (`DuplexAudio`)،
+`server/streaming_voice.py` (`Pipeline.reset`). هر چهار مورد **اول بازتولید شد** (خروجی در متن)،
+بعد رفع و تست شد. تست‌ها: `tests/test_audio_io.py` (+۱۱ تست جدید).
+
+### A1-01 — حلقهٔ بازگشایی بی‌پایان برای دستگاهی که باز می‌شود ولی فریم نمی‌دهد
+
+- **فایل:** `server/audio_io.py` → `stream_forever`
+- **ریشه:** `attempts = 0` بلافاصله داخل `with sd.RawStream(...)` اجرا می‌شد، یعنی به‌محض
+  موفقیت `__enter__` و **قبل** از آنکه معلوم شود دستگاه واقعاً صدا می‌دهد. میکروفون mute،
+  دستگاه exclusive یا هدست بلوتوثی که کانال ورودی را واگذار کرده، هر بار `AudioStalled`
+  می‌داد و هر بار شمارنده صفر می‌شد؛ پس `PVAI_AUDIO_REOPEN_ATTEMPTS` هرگز پر نمی‌شد.
+- **بازتولید:** fake sd که باز می‌شود و ۳ فریم می‌دهد و بعد ساکت می‌شود، با سقف ۲ →
+  در ۳ ثانیه **۱۲ بار** باز شد و همچنان ادامه داشت (اجرای مقایسه‌ای old/new هم همین را نشان داد:
+  `old: STILL LOOPING (12 opens, cap 2)` در برابر `new: VoiceError after 3 opens`).
+- **رفع:** سهمیهٔ تلاش‌ها فقط وقتی ریست می‌شود که همان تلاش دست‌کم
+  `PVAI_AUDIO_REOPEN_STABLE_FRAMES` فریم **واقعی** تحویل داده باشد (پیش‌فرض ۵۰ = ۱ ثانیه).
+  بعد از سقف، `VoiceError` فارسی و عملی می‌آید که دقیقاً همین سه علت را نام می‌برد
+  (mute / exclusive / هدست) و به `PVAI_AUDIO_INPUT_DEVICE` ارجاع می‌دهد. تابع `_retry()`
+  این تفکیک را انجام می‌دهد: «دستگاهی که کار می‌کرد و مرد» یک بازگشایی می‌گیرد،
+  «دستگاهی که هرگز یک فریم هم نداد» سهمیه را مصرف می‌کند.
+- **تست:** `test_silent_device_exhausts_the_reopen_budget_instead_of_looping_forever`,
+  `test_a_short_burst_of_frames_does_not_refund_the_reopen_budget`,
+  `test_a_device_that_delivered_real_frames_earns_a_fresh_budget`,
+  `test_stable_frames_threshold_is_configurable`
+- **وضعیت:** رفع‌شده + تست (hardware: NOT TESTED)
+
+### A2-01 — دو ساعت متفاوت در سنجش stall (`monotonic` در برابر `perf_counter`)
+
+- **فایل:** `server/audio_io.py` → `pump`، `server/aec.py` → `DuplexAudio._measure`
+- **ریشه:** watchdog با `time.monotonic() - last_frame_at` حساب می‌کرد ولی
+  `_measure` مقدار `last_frame_at` را با `time.perf_counter()` می‌نوشت. مبدأ `perf_counter`
+  تعریف‌نشده است و روی Windows (سیستم هدف) با `monotonic` هم‌مبدأ نیست؛ نتیجه بسته به علامت
+  اختلاف می‌تواند «stall کاذب روی stream سالم» یا «پذیرش بی‌صدای دستگاه مرده» باشد.
+- **رفع:** همهٔ مُهرهای زمانی این مسیر از `time.monotonic` می‌آیند (`DuplexAudio._measure`,
+  `opened()`, `pump`). `_stall_baseline()` تنها جایی است که watchdog ساعت می‌خواند.
+- **تست:** `test_callback_timestamps_share_the_watchdogs_clock` (با `perf_counter` جابه‌جاشده،
+  مهر زمانی باید داخل بازهٔ `monotonic` قبل/بعد بماند)
+  و `test_healthy_stream_is_not_stalled_when_perf_counter_has_another_origin`.
+- **وضعیت:** رفع‌شده + تست
+
+### A3-01 — دستگاهی که هرگز callback نمی‌دهد هیچ‌وقت stall تشخیص داده نمی‌شد
+
+- **فایل:** `server/audio_io.py` → `pump`، `server/aec.py` → `DuplexAudio.opened`
+- **ریشه:** شرط `if last is not None and ...` باعث می‌شد تا اولین callback، `last_frame_at`
+  همیشه `None` باشد؛ پس «میکروفونی که stream باز می‌کند و هیچ فریمی نمی‌دهد» و
+  «دستگاه سالم» از نظر watchdog یکسان بودند. باگ A1-01 هم دقیقاً به همین دلیل بی‌پایان می‌شد.
+- **بازتولید:** fake sd بدون هیچ callback با سقف ۳ → فقط ۱ بار باز شد و تا ابد منتظر ماند.
+- **رفع:** دو مبنا: `DuplexAudio.opened()` لحظهٔ باز شدن stream را ثبت می‌کند و
+  `stall_baseline()` بین «آخرین فریم» و «لحظهٔ باز شدن» انتخاب می‌کند؛ در `pump` هم اگر
+  هیچ مبنایی نبود، لحظهٔ شروع خود watchdog مبنا می‌شود (هرگز بررسی غیرفعال نمی‌شود).
+- **تست:** `test_pump_detects_a_stream_that_never_delivered_a_frame`,
+  `test_stall_is_measured_from_stream_open_not_only_from_the_first_frame`
+- **وضعیت:** رفع‌شده + تست
+
+### A4-01 — بازگشایی stream، حالت VAD/Pipeline و AEC را ریست نمی‌کرد
+
+- **فایل:** `server/audio_io.py` → `stream_forever`/`reset_stream_state`،
+  `server/aec.py` → `DuplexAudio.reset_state`، `server/streaming_voice.py` → `Pipeline.reset`
+- **ریشه:** فقط مسیر overflow ریست می‌کرد. بعد از reopen، detector ممکن بود نیمهٔ یک utterance
+  را از قبل از قطعی نگه دارد و با صدای بعد از gap کاملش کند (ترنسکریپت ساختگی)، و فیلتر AEC
+  مسیر پژواکِ دستگاهی را که دیگر وجود ندارد نگه می‌داشت.
+- **بازتولید:** fake sd که یک فریم می‌دهد و می‌میرد → `detector.reset: 0 | aec.reset: 0`.
+- **رفع:** `reset_stream_state()` روی هر reopen صدا زده می‌شود: `DuplexAudio.reset_state()`
+  (خالی‌کردن صف capture و پاک‌کردن مهرهای زمانی)، `aec.reset()`، و `Pipeline.reset()`
+  که utterance ناتمام و partial را رها می‌کند، رویداد `input_reset` می‌دهد، به `IDLE`
+  برمی‌گردد — و **به صف final دست نمی‌زند** (همان قرارداد `overflow`).
+- **تست:** `test_reopen_resets_detector_aec_and_buffered_audio`,
+  `test_reset_stream_state_handles_plain_fakes`,
+  `test_pipeline_reset_abandons_the_unfinished_utterance_but_keeps_finals`
+- **وضعیت:** رفع‌شده + تست
+
+سنجه‌های تازه: `audio_reopen_count`, `audio_reopen_attempts`, `audio_reopen_reset_count`.

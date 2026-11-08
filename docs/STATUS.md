@@ -18,6 +18,9 @@
 | هستهٔ متنی: FastAPI + llama.cpp + CLI فارسی | پیاده‌شده + تست (fake مدل) | `server/main.py`, `server/llm.py` |
 | API سازگار OpenAI، JSON و SSE، لغو استریم | پیاده‌شده + تست | `tests/test_api.py` |
 | ورودی میکروفون پیوستهٔ ۲۰ms، انتخاب دستگاه، recovery | پیاده‌شده + تست fake؛ دستگاه واقعی **تست نشده** | `server/audio_io.py` |
+| watchdog ضد‌گیر و سهمیهٔ بازگشایی محدود (بدون حلقهٔ بی‌پایان) | پیاده‌شده + تست fake | `tests/test_audio_io.py` |
+| ساعت یکسان (`monotonic`) برای watchdog و مهر فریم | پیاده‌شده + تست (اختلاف مبدأ شبیه‌سازی‌شده) | `server/aec.py`, `server/audio_io.py` |
+| ریست VAD/pipeline و AEC روی هر بازگشایی stream | پیاده‌شده + تست | `reset_stream_state` + `Pipeline.reset` |
 | VAD انرژی با هیسترزیس، پیش‌رول، کف نویز تطبیقی | پیاده‌شده + تست؛ صدای واقعی **تست نشده** | `server/vad.py` |
 | ASR افزایشی: صف final بدون‌افت + partial قابل‌جایگزینی | پیاده‌شده + تست کامل P0 | `server/streaming_voice.py` |
 | تأخیر final پشت partial: سنجهٔ تفکیک‌شده + لغو partial در حال decode | پیاده‌شده + تست SIMULATED؛ عدد دستگاه **NOT MEASURED** | `tests/test_asr_preemption.py` |
@@ -41,15 +44,16 @@
 
 ```text
 $ python -m pytest
-269 passed, 5 skipped in 4.9s
+281 passed, 5 skipped in 5.3s
 ```
 
-- دو تست skip فقط تست‌های native SpeexDSP هستند: در sandbox کتابخانهٔ native ساخته نشده و تست
-  به‌جای شکست، صریحاً skip می‌شود. اگر `libspeexdsp` نصب باشد اجرا می‌شوند (در اجرای قبلی همین
-  محیط: ۵۴ تست موفق با کتابخانهٔ ساخته‌شده).
-- تست پایه پیش از این مرحله: `53 passed, 2 skipped`. یعنی ۲۱۶ تست جدید یا گسترش‌یافته؛
+- تست‌های native SpeexDSP در sandbox بدون کتابخانهٔ ساخته‌شده صریحاً skip می‌شوند؛ اگر
+  `libspeexdsp` نصب باشد اجرا می‌شوند (در اجرای قبلی همین محیط: ۵۴ تست موفق با کتابخانه).
+- تست پایه پیش از این مرحله: `53 passed, 2 skipped`. یعنی ۲۲۸ تست جدید یا گسترش‌یافته؛
   آخرین افزوده: ۱۴ تست transport وب‌سوکت + ۱ تست قطع کلاینت SSE + ۲ تست پیکربندی/readiness +
-  ۱۶ تست مرحلهٔ سوم (۴ باگ: نویز کوتاه/utterance ردشده، شکست TTS، context خالی، preemption partial).
+  ۲۷ تست در دو مرحلهٔ اخیر: ۱۶ تست موتور مکالمه (نویز کوتاه/utterance ردشده، شکست TTS،
+  context خالی، preemption partial) + ۱۱ تست مسیر صوتی (حلقهٔ بازگشایی، ساعت مشترک، stall
+  دستگاهی که فریم نمی‌دهد، ریست VAD/AEC روی reopen).
 - ۵ skip این محیط: ۳ تست native SpeexDSP (کتابخانهٔ native ساخته نشده) + ۲ تستی که به numpy نیاز
   دارند و در sandbox نصب نیست. هیچ‌کدام به منطق موتور مکالمه مربوط نیست.
 - **همهٔ تست‌ها fake/ساختگی‌اند**: بدون مدل Whisper/Piper/Qwen، بدون میکروفون و بلندگو، بدون شبکهٔ

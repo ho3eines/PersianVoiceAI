@@ -157,6 +157,13 @@ class Settings:
     audio_block_ms: int = 20
     audio_stall_s: float = 2.0
     audio_reopen_attempts: int = 3
+    audio_reopen_stable_frames: int = 50
+    """Frames a reopened stream must deliver before it counts as healthy.
+
+    Without this a device that opens and never produces audio (mute, exclusive
+    mode, a Bluetooth endpoint that moved) refunds the reopen budget on every
+    attempt and the recovery loop never terminates.
+    """
 
     # ---- AEC ----
     aec_enabled: bool = True
@@ -275,6 +282,9 @@ class Settings:
             audio_block_ms=_env_int("PVAI_AUDIO_BLOCK_MS", 20, minimum=10, maximum=80),
             audio_stall_s=_env_float("PVAI_AUDIO_STALL_S", 2.0, minimum=0.2, maximum=30.0),
             audio_reopen_attempts=_env_int("PVAI_AUDIO_REOPEN_ATTEMPTS", 3, minimum=0, maximum=10),
+            audio_reopen_stable_frames=_env_int(
+                "PVAI_AUDIO_REOPEN_STABLE_FRAMES", 50, minimum=1, maximum=10000
+            ),
             history_persist=bool(_env_optional_bool("PVAI_HISTORY_PERSIST", True)),
             data_dir=_env_str("PVAI_DATA_DIR", "data"),
             history_max_messages=_env_int("PVAI_HISTORY_MAX_MESSAGES", 24, minimum=2, maximum=200),
