@@ -45,7 +45,7 @@ D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 1
 
 ## وضعیت صادقانه
 
-- تست خودکار: **۲۳۷ passed، ۲ skipped** (بدون مدل/میکروفون/شبکه؛ ۲ skip فقط native SpeexDSP).
+- تست خودکار: **۲۶۹ passed، ۵ skipped** (بدون مدل/میکروفون/شبکه؛ skipها فقط native SpeexDSP و numpy).
   این تست‌ها منطق و کنترل جریان را ثابت می‌کنند، نه کیفیت صدا.
 - مدل‌های واقعی (Whisper/Piper/Qwen) در مخزن نیستند؛ در sandbox نصب هم نبودند، پس
   ASR/TTS/LLM واقعی **NOT MEASURED** است.

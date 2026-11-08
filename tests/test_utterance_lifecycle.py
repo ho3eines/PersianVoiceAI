@@ -2,7 +2,8 @@
 
 Each test encodes one mandatory scenario from the audit:
 
-1. a final ASR decode in flight survives a new user speech onset;
+1. a final ASR decode in flight survives a new user speech onset (and the
+   answer it owes is not thrown away just because a new utterance *started*);
 2. multiple consecutive utterances are all preserved, in order;
 3. replacing a partial never loses the final;
 4. speech longer than the 15 s segment limit keeps every segment;
@@ -45,7 +46,8 @@ def test_final_asr_in_flight_survives_new_speech_onset() -> None:
         asr = FakeAsr(texts=["جمله اول"])
         asr.block()
         speaker = FakeSpeaker()
-        pipeline, events = build(asr=asr, speaker=speaker)
+        client = StreamClient(body=sse("باشه. "))
+        pipeline, events = build(asr=asr, speaker=speaker, client=client)
         pipeline.start()
         try:
             feed_utterance(pipeline)                     # utterance 1 → final queued
@@ -60,9 +62,12 @@ def test_final_asr_in_flight_survives_new_speech_onset() -> None:
             await until(lambda: pipeline.conversation.messages != [])
             assert user_messages(pipeline) == ["جمله اول"]
             assert finals(events)[0]["utterance_id"] == 1
-            # A newer utterance started, so no reply is generated for the stale one.
-            assert any(e["type"] == "response_skipped" for e in events)
-            assert speaker.spoken == []
+            # Utterance 2 only *started*: it has no transcript and no reply.
+            # Skipping the answer for A on that basis is what silently dropped
+            # replies (the user is still waiting for A), so A must be answered.
+            assert not any(e["type"] == "response_skipped" for e in events)
+            await until(lambda: bool(speaker.spoken))
+            assert speaker.spoken == ["باشه."]
         finally:
             asr.release()
             await pipeline.close()

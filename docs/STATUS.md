@@ -20,6 +20,9 @@
 | ورودی میکروفون پیوستهٔ ۲۰ms، انتخاب دستگاه، recovery | پیاده‌شده + تست fake؛ دستگاه واقعی **تست نشده** | `server/audio_io.py` |
 | VAD انرژی با هیسترزیس، پیش‌رول، کف نویز تطبیقی | پیاده‌شده + تست؛ صدای واقعی **تست نشده** | `server/vad.py` |
 | ASR افزایشی: صف final بدون‌افت + partial قابل‌جایگزینی | پیاده‌شده + تست کامل P0 | `server/streaming_voice.py` |
+| تأخیر final پشت partial: سنجهٔ تفکیک‌شده + لغو partial در حال decode | پیاده‌شده + تست SIMULATED؛ عدد دستگاه **NOT MEASURED** | `tests/test_asr_preemption.py` |
+| utterance ردشدهٔ VAD: رویداد صریح، حالت درست، پاسخ نوبت قبلی حفظ می‌شود | پیاده‌شده + تست | `tests/test_short_noise_utterance.py` |
+| شکست TTS/LLM/context: `failed` + خروج از `THINKING`/`SPEAKING` | پیاده‌شده + تست | `tests/test_turn_failures.py` |
 | جدا شدن طول عمر utterance و generation دستیار | پیاده‌شده + تست (۶ سناریوی الزامی) | `tests/test_utterance_lifecycle.py` |
 | ماشین حالت صریح `idle/listening/transcribing/thinking/speaking` | پیاده‌شده + تست جدول گذار | `tests/test_state_machine.py` |
 | barge-in: توقف LLM/TTS/پخش، بدون آسیب به صف final | پیاده‌شده + تست fake؛ تأخیر دستگاه **تست نشده** | `tests/test_tts.py`, `tests/test_long_run.py` |
@@ -38,14 +41,17 @@
 
 ```text
 $ python -m pytest
-254 passed, 2 skipped in 8.3s
+269 passed, 5 skipped in 4.9s
 ```
 
 - دو تست skip فقط تست‌های native SpeexDSP هستند: در sandbox کتابخانهٔ native ساخته نشده و تست
   به‌جای شکست، صریحاً skip می‌شود. اگر `libspeexdsp` نصب باشد اجرا می‌شوند (در اجرای قبلی همین
   محیط: ۵۴ تست موفق با کتابخانهٔ ساخته‌شده).
-- تست پایه پیش از این مرحله: `53 passed, 2 skipped`. یعنی ۱۹۹ تست جدید یا گسترش‌یافته؛
-  آخرین افزوده: ۱۴ تست transport وب‌سوکت + ۱ تست قطع کلاینت SSE + ۲ تست پیکربندی/readiness.
+- تست پایه پیش از این مرحله: `53 passed, 2 skipped`. یعنی ۲۱۶ تست جدید یا گسترش‌یافته؛
+  آخرین افزوده: ۱۴ تست transport وب‌سوکت + ۱ تست قطع کلاینت SSE + ۲ تست پیکربندی/readiness +
+  ۱۶ تست مرحلهٔ سوم (۴ باگ: نویز کوتاه/utterance ردشده، شکست TTS، context خالی، preemption partial).
+- ۵ skip این محیط: ۳ تست native SpeexDSP (کتابخانهٔ native ساخته نشده) + ۲ تستی که به numpy نیاز
+  دارند و در sandbox نصب نیست. هیچ‌کدام به منطق موتور مکالمه مربوط نیست.
 - **همهٔ تست‌ها fake/ساختگی‌اند**: بدون مدل Whisper/Piper/Qwen، بدون میکروفون و بلندگو، بدون شبکهٔ
   واقعی. این تست‌ها «صحت منطق و کنترل جریان» را ثابت می‌کنند، نه کیفیت صوتی.
 
@@ -54,6 +60,9 @@ $ python -m pytest
 | # | الزام | تست |
 |---|---|---|
 | ۱ | final ASR با شروع گفتار جدید زنده می‌ماند | `test_utterance_lifecycle.py::test_final_asr_in_flight_survives_new_speech_onset` |
+| ۱ب | utterance ردشده (نویز کوتاه) پاسخ نوبت قبلی را حذف نمی‌کند و state را رها می‌کند | `test_short_noise_utterance.py` (۳ سناریو) |
+| ۱پ | شکست TTS/LLM/context نوبت را `failed` می‌کند و از `THINKING`/`SPEAKING` خارج می‌شود | `test_turn_failures.py` |
+| ۱ت | final پشت partial در حال decode معطل نمی‌ماند و تأخیرش اندازه‌گیری می‌شود | `test_asr_preemption.py` |
 | ۲ | چند utterance پشت‌سرهم حفظ می‌شوند | `…::test_multiple_consecutive_utterances_are_all_preserved` |
 | ۳ | جایگزینی partial، final را از بین نمی‌برد | `…::test_partial_replacement_never_loses_the_final` |
 | ۴ | گفتار بلند (>15s) همهٔ بخش‌ها را حفظ می‌کند | `…::test_long_speech_beyond_segment_limit_keeps_every_segment` + `test_vad.py::test_long_speech_is_segmented_without_losing_audio` |

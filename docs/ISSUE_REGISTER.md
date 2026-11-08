@@ -382,3 +382,93 @@
 
 - **رفع:** تست ASGI سطح‌پایین `tests/test_api.py::test_sse_client_disconnect_cancels_upstream_generation`
   پس از `http.disconnect` بررسی می‌کند که generator بالادست بسته و تولید متوقف شود.
+
+---
+
+## مرحلهٔ سوم — بازتولید و رفع چهار باگ (۸ نوامبر ۲۰۲۶)
+
+هر چهار مورد **ابتدا با اجرای واقعی بازتولید شد** (اسکریپت بازتولید، خروجی ثبت‌شده)، بعد رفع و
+تست شد. فایل‌های تغییر‌یافته: `server/vad.py`, `server/streaming_voice.py`, `server/metrics.py`.
+
+### B1-01 — پاسخ دستیار بی‌صدا گم می‌شد (نویز کوتاه، utterance ردشده)
+
+- **فایل:** `server/vad.py` (`EnergyVAD._finish`), `server/streaming_voice.py` (`feed`, `_on_final`)
+- **ریشه:** `_finish` گفتار کوتاه‌تر از `min_voiced_frames` (پیش‌فرض ۸ فریم = ۱۶۰ms) را دور
+  می‌ریخت و فقط `(False, None)` برمی‌گرداند — همان چیزی که «هیچ اتفاقی نیفتاد» را هم نشان
+  می‌داد. ولی onset از ۳ فریم فعال شده بود و `_begin_utterance` یک utterance ساخته،
+  `_latest_utterance_id` را بالا برده و state را `LISTENING` کرده بود. نتیجهٔ بازتولید‌شده:
+  صدا زدن `feed_utterance(speech=20, silence=32)` سپس `feed_utterance(speech=4, silence=32)`
+  با ASR مسدود → فقط `response_skipped`، بدون `tts_start`، `state=listening` و
+  `utterance.id=2` که هرگز بسته نمی‌شد.
+- **رفع:**
+  - `EnergyVAD.feed_event()` مرز صریح برمی‌گرداند: `onset` / `segment` / `rejected`
+    (‏`feed()` قدیمی سازگار ماند). `rejected_utterances` هم شمرده می‌شود.
+  - `Pipeline._reject_utterance()`: utterance لغو، partial دور ریخته، رویداد
+    `utterance_rejected` منتشر، و `_settle_after_utterance()` به `IDLE` (یا `TRANSCRIBING`
+    اگر final در صف است) برمی‌گردد.
+  - `_latest_utterance_id` فقط در `_on_final` با متن معتبر جلو می‌رود؛ onset دیگر آن را
+    بالا نمی‌برد. skip فقط وقتی رخ می‌دهد که نوبت جدیدتر **پاسخ گرفته باشد**
+    (`response_skipped` با `reason=newer_final_answered`).
+  - utterance بعدی که خالی/ناموفق بود در `_pending_answers` می‌ماند (کران‌دار) و
+    `start_next_pending()` پاسخ آخرین پیام بی‌پاسخ را می‌دهد (`response_recovered`)،
+    با تشخیص «قبلاً پاسخ گرفته» از خود `Conversation` تا پاسخ تکراری ساخته نشود.
+- **تست:** `tests/test_short_noise_utterance.py` (۳ سناریوی الزامی: نویز کوتاه، نویز با ASR
+  خالی، نویز بعد از final + دو حالت تکمیلی)، `tests/test_vad.py` (دو تست مرز صریح)،
+  و به‌روزرسانی `test_final_asr_in_flight_survives_new_speech_onset` (که قبلاً رفتار باگ‌دار
+  را assert می‌کرد).
+- **وضعیت:** رفع‌شده + تست
+
+### B2-01 — مسیر exception در `Pipeline.play` نوبت را در `SPEAKING` رها می‌کرد
+
+- **فایل:** `server/streaming_voice.py` → `Pipeline.play`
+- **ریشه:** شاخهٔ exception فقط `_commit_turn(..., failed)` می‌کرد، `token.set()` می‌زد و
+  `continue` می‌کرد؛ state در `SPEAKING` می‌ماند و `turn.current` هم (اگر جمله نیمه‌کاره بود)
+  پاک نمی‌شد. بازتولید: `state=speaking`، و گفتار بعدی رویداد `interrupted` با `turn_id=0`
+  تولید می‌کرد.
+- **ریشهٔ دوم (همان اجرا پیدا شد):** توکن سراسری `self.cancel` set می‌شد و جایگزین نمی‌شد؛
+  هر پاسخ بعدی در اولین `token.is_set()` بی‌صدا abort می‌شد — یعنی یک خطای TTS دستیار را
+  برای بقیهٔ نشست لال می‌کرد.
+- **رفع:** مسیر TTS و مسیر LLM هر دو از `_fail_turn()` می‌گذرند: commit یک‌بار با وضعیت
+  `failed`، پاک‌کردن `turn.current`، `turn.token.set()`، جایگزینی `self.cancel` اگر set باشد،
+  حذف نشانگرهای مردهٔ همان نوبت از صف پخش، و `_release_after_failure()` برای گذار به
+  `LISTENING`/`IDLE` وقتی صف خالی و `pending_turn is None` است.
+- **تست:** `tests/test_turn_failures.py::test_tts_failure_leaves_speaking_and_is_not_a_barge_in`,
+  `::test_conversation_recovers_after_a_tts_failure`
+- **وضعیت:** رفع‌شده + تست
+
+### B3-01 — `respond` با پیام‌های خالی: نه commit، نه خروج از `THINKING`
+
+- **فایل:** `server/streaming_voice.py` → `Pipeline.respond`
+- **ریشه:** `if not messages: return` قبل از هر commit/گذار. `pending_turn` می‌ماند، state روی
+  `THINKING` قفل می‌شد و هیچ `response_end` برای نوبتی که `start_reply` اعلام کرده بود منتشر
+  نمی‌شد. (مسیر `context_with_system` که exception بدهد هم چون خارج از `try` بود، task را با
+  استثنای خام می‌کشت.)
+- **رفع:** هر دو حالت (context خالی، خطای ساخت تاریخچه) به `_fail_turn()` با دلیل صریح
+  (`empty_context` / `history_error`) می‌روند: `response_end` با وضعیت `failed`، پاک‌شدن
+  `pending_turn`، خروج از `THINKING`، و رویداد `error` قابل‌فهم. هیچ درخواستی به مدل نمی‌رود.
+- **تست:** `tests/test_turn_failures.py::test_empty_context_fails_the_turn_instead_of_wedging_thinking`,
+  `::test_history_failure_is_a_failed_turn_not_a_stuck_state`,
+  `::test_empty_context_turn_does_not_block_the_next_utterance`
+- **وضعیت:** رفع‌شده + تست
+
+### P0-04 — final پشت partial در حال decode معطل می‌ماند (بدون سنجه و بدون راه فرار)
+
+- **فایل:** `server/streaming_voice.py` → `AsrScheduler`, `Pipeline.recognize`
+- **ریشه:** یک actor تنها برای Whisper (الزام CPU دوهسته‌ای) یعنی partialی که شروع شده تا پایان
+  decode خودش (تا `PVAI_ASR_PARTIAL_WINDOW_S` = ۶ ثانیه صوت) قابل توقف نبود؛ final پشت آن
+  می‌ماند. تأخیر هم قابل انتساب نبود: `asr_final_latency_ms` انتظار صف، انتظار پشت partial و
+  خود decode را در یک عدد جمع می‌کرد.
+- **رفع:**
+  - `AsrJob.started_at` + سه سنجه: `asr_final_dispatch_wait_ms`،
+    `asr_final_wait_behind_partial_ms`، `asr_final_decode_ms` (به‌علاوهٔ
+    `asr_partial_decode_ms`, `asr_partial_wasted_ms`).
+  - `AsrScheduler.preempt()`/`begin()`/`end()`: به‌محض صف‌شدن final، توکن partial در حال اجرا
+    set می‌شود؛ backendی که `transcribe_pcm(pcm, token, job)` را می‌پذیرد همان‌جا متوقف
+    می‌شود (`asr_partial_preempted`/`asr_partial_cancelled`). backend قدیمی
+    `transcribe_pcm(pcm)` سازگار می‌ماند: نتیجه‌اش دور ریخته می‌شود و همان تأخیر ثبت می‌شود.
+  - partial منسوخ (final همان utterance یا جدیدتر در صف) در `submit_partial` رد می‌شود.
+  - flag فقط با «همان jobی که preempt شده» تفسیر می‌شود، پس یک partial سالم که هم‌زمان با
+    رسیدن partial جدید تمام شده، دور ریخته نمی‌شود.
+- **تست:** `tests/test_asr_preemption.py` (۵ تست). عدد SIMULATED در sandbox: با partial
+  ۲ ثانیه‌ای، پاسخ از **۱۹۶۵ms به ۳ms** رسید. عدد دستگاه واقعی **NOT MEASURED**.
+- **وضعیت:** رفع‌شده + تست (SIMULATED)

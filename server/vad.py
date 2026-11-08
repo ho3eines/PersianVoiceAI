@@ -37,6 +37,21 @@ from dataclasses import dataclass
 FRAME_SECONDS = 0.02
 """Audio block duration assumed by the detector (20 ms, 320 samples @ 16 kHz)."""
 
+ONSET = "onset"
+"""A speech onset was claimed: an utterance is now open."""
+
+SEGMENT = "segment"
+"""The open utterance ended and produced audio for ASR."""
+
+REJECTED = "rejected"
+"""The open utterance ended *without* audio: shorter than ``min_voiced_frames``.
+
+The caller opened an utterance on ``ONSET`` and must close/cancel it on
+``REJECTED``: a cough or a keyboard click is not a sentence, but it did start
+one, and leaving that start unacknowledged is what made the conversation
+engine drop the reply that an earlier sentence still deserved.
+"""
+
 
 def block_rms(pcm: bytes) -> float:
     """Root-mean-square level of a PCM16 little-endian mono block in ``0..1``."""
@@ -67,15 +82,17 @@ class VadBoundary:
 class EnergyVAD:
     """Bounded PCM16/16 kHz mono endpoint detector with hysteresis and pre-roll.
 
-    ``feed`` returns ``(onset, segment_pcm)``:
-
-    * ``onset`` is ``True`` exactly once per utterance, on the block where the
-      onset requirement is met;
-    * ``segment_pcm`` is the complete utterance audio when the utterance ends
-      (endpoint silence or maximum segment length), otherwise ``None``.
+    ``feed`` returns ``(onset, segment_pcm)`` for the two historical call sites
+    (``server/live_voice.py``) and ``feed_event`` returns the richer
+    ``(boundary, segment_pcm)`` where ``boundary`` is one of :data:`ONSET`,
+    :data:`SEGMENT`, :data:`REJECTED` or ``None``.  ``feed_event`` is what the
+    conversation engine uses, because a rejected utterance must be *visible*:
+    the old API reported "no utterance finished" and "an utterance was opened
+    and then thrown away" with the same ``(False, None)``.
 
     A ``segment_pcm`` of ``None`` with a non-``None`` second element never
-    happens: an utterance shorter than ``min_voiced_frames`` produces ``None``.
+    happens: an utterance shorter than ``min_voiced_frames`` produces
+    ``(REJECTED, None)`` and a completed one produces audio.
     """
 
     def __init__(
@@ -117,6 +134,8 @@ class EnergyVAD:
         self.last_boundary: VadBoundary | None = None
         self.last_trailing_quiet = 0
         self.last_voiced_frames = 0
+        self.rejected_utterances = 0
+        """How many opened utterances were thrown away as too short."""
         self._onset_at: float | None = None
 
     # ------------------------------------------------------------------ config
@@ -147,14 +166,32 @@ class EnergyVAD:
 
     # ------------------------------------------------------------------- feed
     def feed(self, pcm: bytes, *, at: float | None = None) -> tuple[bool, bytes | None]:
-        """Consume one audio block and return ``(onset, complete_segment)``."""
+        """Consume one audio block and return ``(onset, complete_segment)``.
+
+        Kept for the historical call sites.  It cannot report a rejected
+        utterance — use :meth:`feed_event` when that matters.
+        """
+        boundary, segment = self.feed_event(pcm, at=at)
+        return boundary == ONSET, segment
+
+    def feed_event(
+        self, pcm: bytes, *, at: float | None = None
+    ) -> tuple[str | None, bytes | None]:
+        """Consume one block and return ``(boundary, complete_segment)``.
+
+        ``boundary`` is :data:`ONSET` (an utterance is now open),
+        :data:`SEGMENT` (the utterance ended with audio), :data:`REJECTED`
+        (the utterance ended without audio, e.g. a cough) or ``None``.
+        """
         level = block_rms(pcm)
         self.last_rms = level
         if not self.started:
             return self._feed_idle(pcm, level, at)
         return self._feed_active(pcm, level, at)
 
-    def _feed_idle(self, pcm: bytes, level: float, at: float | None) -> tuple[bool, bytes | None]:
+    def _feed_idle(
+        self, pcm: bytes, level: float, at: float | None
+    ) -> tuple[str | None, bytes | None]:
         self._ring.append(pcm)
         if level >= self.onset_level:
             self.voiced += 1
@@ -167,16 +204,18 @@ class EnergyVAD:
                 self.last_boundary = VadBoundary(
                     "onset", at or 0.0, level, self.noise_floor, len(self.frames)
                 )
-                return True, None
-            return False, None
+                return ONSET, None
+            return None, None
         # Not voiced: count the block towards the noise estimate and restart the run.
         self.voiced = 0
         if self.noise_adapt:
             alpha = self.noise_alpha
             self.noise_floor = (1 - alpha) * self.noise_floor + alpha * level
-        return False, None
+        return None, None
 
-    def _feed_active(self, pcm: bytes, level: float, at: float | None) -> tuple[bool, bytes | None]:
+    def _feed_active(
+        self, pcm: bytes, level: float, at: float | None
+    ) -> tuple[str | None, bytes | None]:
         self.frames.append(pcm)
         if level >= self.continuation_level:
             self.quiet = 0
@@ -190,20 +229,23 @@ class EnergyVAD:
             self.last_boundary = VadBoundary(
                 "endpoint", at or 0.0, level, self.noise_floor, len(self.frames)
             )
-            return False, self._finish()
+            return self._close()
         if len(self.frames) >= self.max_frames:
             self.last_boundary = VadBoundary(
                 "max_segment", at or 0.0, level, self.noise_floor, len(self.frames)
             )
-            return False, self._finish()
-        return False, None
+            return self._close()
+        return None, None
 
-    def _finish(self) -> bytes | None:
+    def _close(self) -> tuple[str, bytes | None]:
+        """Finish the open utterance and say explicitly what happened to it."""
         frames = self.frames
         accepted = self.voiced >= self.min_voiced_frames
         # Reported so the caller can trim the endpoint silence before ASR.
         self.last_trailing_quiet = self.quiet
         self.last_voiced_frames = self.voiced
+        if not accepted:
+            self.rejected_utterances += 1
         # The pre-roll ring must not replay audio that was already emitted.
         self.frames = []
         self.quiet = 0
@@ -211,7 +253,9 @@ class EnergyVAD:
         self.started = False
         self._onset_at = None
         self._ring.clear()
-        return b"".join(frames) if accepted and frames else None
+        if accepted and frames:
+            return SEGMENT, b"".join(frames)
+        return REJECTED, None
 
     # ------------------------------------------------------------- diagnostics
     def onset_delay_ms(self) -> float:
