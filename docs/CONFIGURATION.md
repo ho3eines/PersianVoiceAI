@@ -122,6 +122,9 @@ AEC فقط با ۱۶kHz و بلوک ۲۰ms معنا دارد؛ `GET /ready` ای
 | `PVAI_HISTORY_TOKEN_BUDGET` | `1536` | بودجهٔ تخمینی توکن context (حداقل ۱۲۸) |
 | `PVAI_HISTORY_MAX_STORED` | `500` | پنجرهٔ RAM؛ فایل روی دیسک کامل می‌ماند (جلوگیری از رشد نامحدود حافظه) |
 | `PVAI_HISTORY_INCLUDE_INTERRUPTED` | `false` | آیا پاسخ قطع‌شده در context مدل بیاید (برای بازبینی همیشه ذخیره می‌شود) |
+| `PVAI_HISTORY_RESUME` | `on` | `on`: مسیر زندهٔ محلی در هر اجرا نشستِ قبلی را ادامه می‌دهد (الزام ۱۷). `off`: هر اجرا نشست تازه؛ `session_id` صریح همیشه resume می‌شود |
+| `PVAI_VOICE_SESSION_ID` | (خالی) | اگر تنظیم شود، نشستِ ثابتی است که مسیر زندهٔ محلی همیشه در آن می‌نویسد (فقط `[A-Za-z0-9_-]`) |
+| `PVAI_HISTORY_RETENTION_DAYS` | `0` | `0` = نگه‌داشتن همه. با مقدار مثبت، نشست‌هایی که این تعداد روز دست‌نخورده مانده‌اند در startup و با `python -m server.sessions purge` پاک می‌شوند |
 
 ## ۱۰. انتقال صوتی WebSocket (LAN)
 

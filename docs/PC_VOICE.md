@@ -85,9 +85,15 @@ D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 1
 .\.venv\Scripts\python.exe -m server.voice
 ```
 
-برای خروج Ctrl+C بزنید. **تاریخچهٔ مکالمه با خروج پاک نمی‌شود**: با `PVAI_HISTORY_PERSIST=true`
-در `data/conversations/<session_id>.jsonl` می‌ماند و با `python -m server.sessions list` قابل
-بازبینی/حذف است (پنجرهٔ RAM با `PVAI_HISTORY_MAX_STORED` محدود است، فایل دیسک کامل می‌ماند).
+برای خروج Ctrl+C بزنید. **تاریخچهٔ مکالمه با خروج پاک نمی‌شود و اجرای بعدی همان نشست را ادامه
+می‌دهد**: با `PVAI_HISTORY_PERSIST=true` در `data/conversations/<session_id>.jsonl` می‌ماند و
+`PVAI_HISTORY_RESUME=on` (پیش‌فرض) هنگام شروع، آخرین نشست را می‌خواند؛ پیام‌ها در startup چاپ
+می‌شوند (`ادامهٔ نشست «…» با N پیام قبلی`). برای شروع تازه `PVAI_HISTORY_RESUME=off` بگذارید یا
+`python -m server.sessions delete-all` را اجرا کنید. با `PVAI_VOICE_SESSION_ID` می‌توانید یک
+شناسهٔ ثابت انتخاب کنید. بازبینی/حذف: `python -m server.sessions list|show|delete|delete-all`.
+پنجرهٔ RAM با `PVAI_HISTORY_MAX_STORED` محدود است، فایل دیسک کامل می‌ماند؛ برای جلوگیری از
+نگه‌داشتن بی‌پایان متن گفتار، `PVAI_HISTORY_RETENTION_DAYS` (پیش‌فرض `0` = همه) و
+`python -m server.sessions purge` را ببینید.
 
 برای فهرست دستگاه‌ها: `python -m server.voice --list-devices`. انتخاب صریح ورودی/خروجی با
 `PVAI_AUDIO_INPUT_DEVICE` / `PVAI_AUDIO_OUTPUT_DEVICE` (نام یا index) انجام می‌شود؛ پیام startup

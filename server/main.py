@@ -30,7 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
 from .config import Settings
-from .conversation import STATUS_COMPLETE, Conversation, open_store
+from .conversation import STATUS_COMPLETE, Conversation, open_store, purge_expired
 from .protocol import describe as describe_protocol
 from .ws_voice import build_router as build_ws_router
 from .ws_voice import default_bundle as default_voice_bundle
@@ -117,6 +117,15 @@ def create_app(
         app.state.started_at = time.time()
         app.state.llm = llm or LlamaServerClient(resolved)
         app.state.store = open_store(resolved)
+        # Retention is enforced at startup, not in a timer: transcripts are
+        # plain text on disk and an untouched PC must still age them out.
+        removed = purge_expired(resolved, app.state.store)
+        if removed:
+            logger.info(
+                "retention removed %d session(s) older than %s day(s)",
+                len(removed),
+                resolved.history_retention_days,
+            )
         app.state.voice_bundle = voice_bundle or default_voice_bundle
         logger.info(
             "Persian Voice AI %s | model=%s",
@@ -369,10 +378,14 @@ def create_app(
     @app.get("/api/sessions", tags=["sessions"])
     async def list_sessions(request: Request) -> dict[str, Any]:
         store = request_store()
+        # Counting lines still reads every file; keep the blocking IO off the
+        # event loop so audio frames and WebSocket traffic are not stalled by a
+        # session listing.
+        sessions = await asyncio.to_thread(store.sessions)
         return {
             "persistence": bool(store.enabled),
             "directory": str(store.root) if store.enabled else None,
-            "sessions": store.sessions(),
+            "sessions": sessions,
         }
 
     @app.get("/api/sessions/{session_id}", tags=["sessions"])

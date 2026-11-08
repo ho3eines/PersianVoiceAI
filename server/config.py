@@ -54,6 +54,19 @@ def _env_str(name: str, default: str) -> str:
     return value.strip() if value and value.strip() else default
 
 
+def _env_choice(name: str, default: str, allowed: set[str]) -> str:
+    """One of ``allowed`` (lower-cased); an unknown value keeps the default.
+
+    A typo must not silently change a privacy-relevant behaviour, so the
+    fallback is the documented default rather than the raw value.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    return value if value in allowed else default
+
+
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
     raw = os.getenv(name)
     if raw is None or not raw.strip():
@@ -178,6 +191,15 @@ class Settings:
     history_max_stored_messages: int = 500  # RAM window; disk log stays complete
     history_token_budget: int = 1536
     history_include_interrupted: bool = False
+    # Resume behaviour.  ``on`` keeps one rolling session for the local live
+    # voice loop (``PVAI_VOICE_SESSION_ID`` or the last stored session), so a
+    # restart continues the conversation instead of starting over.  The API
+    # always resumes the explicit ``session_id`` it is given.
+    history_resume: str = "on"
+    voice_session_id: str = ""
+    # 0 disables pruning; otherwise sessions untouched for this many days are
+    # deleted at startup and by ``python -m server.sessions purge``.
+    history_retention_days: int = 0
 
     # ---- LAN voice transport (WebSocket, ESP32-S3 readiness) ----
     ws_enabled: bool = False  # opt-in: needs a device token and a trusted LAN
@@ -231,6 +253,16 @@ class Settings:
                 "PVAI_WS_ENABLED=true بدون PVAI_WS_TOKEN مجاز نیست؛ "
                 "API صوتی بی‌احراز هویت روی شبکه باز نمی‌شود."
             )
+        if self.voice_session_id:
+            from .conversation import ConversationStore
+
+            try:
+                ConversationStore.sanitize(self.voice_session_id)
+            except ValueError:
+                errors.append(
+                    "PVAI_VOICE_SESSION_ID نامعتبر است؛ فقط حروف انگلیسی، رقم، «-» و «_» "
+                    "(حداکثر ۶۴ نویسه و نه نام دستگاه رزروشدهٔ ویندوز)."
+                )
         return errors
 
     @classmethod
@@ -293,6 +325,13 @@ class Settings:
             ),
             history_token_budget=_env_int("PVAI_HISTORY_TOKEN_BUDGET", 1536, minimum=128, maximum=16384),
             history_include_interrupted=bool(_env_optional_bool("PVAI_HISTORY_INCLUDE_INTERRUPTED", False)),
+            history_resume=_env_choice(
+                "PVAI_HISTORY_RESUME", "on", {"on", "off"}
+            ),
+            voice_session_id=_env_str("PVAI_VOICE_SESSION_ID", ""),
+            history_retention_days=_env_int(
+                "PVAI_HISTORY_RETENTION_DAYS", 0, minimum=0, maximum=3650
+            ),
             ws_enabled=bool(_env_optional_bool("PVAI_WS_ENABLED", False)),
             ws_token=_env_str("PVAI_WS_TOKEN", ""),
             metrics_enabled=bool(_env_optional_bool("PVAI_METRICS_ENABLED", True)),

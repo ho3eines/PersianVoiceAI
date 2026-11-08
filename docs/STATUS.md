@@ -44,16 +44,16 @@
 
 ```text
 $ python -m pytest
-281 passed, 5 skipped in 5.3s
+304 passed, 5 skipped in 7.0s
 ```
 
 - تست‌های native SpeexDSP در sandbox بدون کتابخانهٔ ساخته‌شده صریحاً skip می‌شوند؛ اگر
   `libspeexdsp` نصب باشد اجرا می‌شوند (در اجرای قبلی همین محیط: ۵۴ تست موفق با کتابخانه).
-- تست پایه پیش از این مرحله: `53 passed, 2 skipped`. یعنی ۲۲۸ تست جدید یا گسترش‌یافته؛
+- تست پایه پیش از این مرحله: `53 passed, 2 skipped`. یعنی ۲۴۹ تست جدید یا گسترش‌یافته؛
   آخرین افزوده: ۱۴ تست transport وب‌سوکت + ۱ تست قطع کلاینت SSE + ۲ تست پیکربندی/readiness +
-  ۲۷ تست در دو مرحلهٔ اخیر: ۱۶ تست موتور مکالمه (نویز کوتاه/utterance ردشده، شکست TTS،
-  context خالی، preemption partial) + ۱۱ تست مسیر صوتی (حلقهٔ بازگشایی، ساعت مشترک، stall
-  دستگاهی که فریم نمی‌دهد، ریست VAD/AEC روی reopen).
+  ۲۷ تست موتور مکالمه و مسیر صوتی + ۲۳ تست مرحلهٔ resume (ادامهٔ نشست از مسیر
+  `create_conversation`/`Pipeline`/`WS`، سخت‌گیری شناسهٔ نشست، شمارش سبک فهرست نشست‌ها و
+  سیاست نگه‌داری).
 - ۵ skip این محیط: ۳ تست native SpeexDSP (کتابخانهٔ native ساخته نشده) + ۲ تستی که به numpy نیاز
   دارند و در sandbox نصب نیست. هیچ‌کدام به منطق موتور مکالمه مربوط نیست.
 - **همهٔ تست‌ها fake/ساختگی‌اند**: بدون مدل Whisper/Piper/Qwen، بدون میکروفون و بلندگو، بدون شبکهٔ
@@ -83,7 +83,7 @@ $ python -m pytest
 | ۱۴ | وصل دوباره/بازگشایی دستگاه | `test_audio_io.py::test_stream_forever_reopens_after_portaudio_failure_then_gives_up` |
 | ۱۵ | قطع llama-server و بازیابی نوبت بعد | `test_api.py::test_backend_unavailable_returns_503`, `test_stream_backend_failure_is_sse_error`, `test_streaming_voice.py::test_llm_failure_releases_the_state_and_the_next_turn_recovers` |
 | ۱۶ | خطای init مدل به‌صورت پیام | `test_voice.py::test_module_startup_missing_model_has_no_traceback`, `test_tts.py::test_missing_piper_model_is_a_user_facing_error` |
-| ۱۷ | ماندگاری context پس از restart | `test_conversation.py::test_session_is_persisted_and_reloaded`, `test_api.py::test_chat_with_session_id_persists_and_reuses_context` |
+| ۱۷ | ماندگاری context پس از restart | `test_conversation.py::test_session_is_persisted_and_reloaded`, `test_create_conversation_resumes_an_explicit_session`, `test_resume_defaults_to_the_last_session_for_the_local_loop`, `test_api.py::test_chat_with_session_id_persists_and_reuses_context`, `test_streaming_voice.py::test_resumed_pipeline_continues_ids_and_keeps_the_first_new_utterance`, `test_ws_voice.py::test_device_resumes_a_session_with_its_earlier_context`, `test_resumed_device_session_context_reaches_the_model` |
 | ۱۸ | برش توکنی | `test_conversation.py::test_context_is_truncated_by_tokens_not_only_message_count` |
 | ۱۹ | کار آفلاین بدون API خارجی | `test_voice.py::test_whisper_never_downloads`, `test_public_api_rejected` |
 | ۲۰ | نبود صف/حافظهٔ نامحدود | `test_long_run.py` (۲ تست) + `test_conversation.py` (۲ تست bounded-RAM) |

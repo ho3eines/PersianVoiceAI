@@ -50,6 +50,7 @@ from .conversation import (
     STATUS_INTERRUPTED,
     Conversation,
     create_conversation,
+    purge_expired,
 )
 from .live_voice import Speaker, sentences
 from .metrics import Metrics
@@ -422,8 +423,11 @@ class Pipeline:
         # look superseded.  Kept as the reported "newest transcript" marker;
         # the decision itself is made from the conversation (see ``_has_answer``)
         # because an answer may have been committed by a barge-in or shutdown.
-        self._latest_utterance_id = 0
-        self._next_utterance_id = 1
+        # ``next_utterance_id`` is the conversation's, not ``1``: after a resume
+        # the stored turns already own ids 1..N, and a fresh counter would hand
+        # the first new utterance a duplicate that dedupe silently drops.
+        self._latest_utterance_id = self.conversation.next_utterance_id() - 1
+        self._next_utterance_id = self.conversation.next_utterance_id()
         self._last_partial_frames = 0
         self._barged_in_utterance = 0
         # Utterances whose turn produced no answer (empty/failed transcript).
@@ -1494,9 +1498,15 @@ def create_pipeline(
     emit: Callable[[dict[str, Any]], None],
     *,
     metrics: Metrics | None = None,
+    session_id: str | None = None,
 ) -> Pipeline:
-    """Build a pipeline with the configured persisted conversation."""
-    conversation = create_conversation(settings)
+    """Build a pipeline with the configured persisted conversation.
+
+    ``session_id`` selects the session to resume; ``None`` follows the configured
+    resume policy (``PVAI_HISTORY_RESUME``), which for the local loop means the
+    last session instead of a new one on every restart.
+    """
+    conversation = create_conversation(settings, session_id=session_id)
     return Pipeline(
         settings,
         audio,
@@ -1516,6 +1526,15 @@ async def run_live(settings: Settings) -> None:
     problems = settings.config_errors()
     if problems:
         raise VoiceError(" ".join(problems))
+
+    # Retention must also apply to a PC that only ever runs the live loop and
+    # never starts the API: transcripts are plain text on disk.
+    removed = purge_expired(settings)
+    if removed:
+        print(
+            f"{len(removed)} نشست قدیمی‌تر از {settings.history_retention_days} روز حذف شد.",
+            flush=True,
+        )
 
     metrics = Metrics(enabled=settings.metrics_enabled)
     audio = LocalAudio(settings, metrics=metrics)
@@ -1556,6 +1575,16 @@ async def run_live(settings: Settings) -> None:
                 metrics=metrics,
             )
             pipeline.start()
+            resumed = getattr(pipeline, "conversation", None)
+            if resumed is not None and resumed.messages:
+                # Say it out loud: a resumed conversation looks like a fresh one
+                # until the model answers with context the user did not type.
+                print(
+                    "ادامهٔ نشست «"
+                    f"{resumed.session_id}» با {len(resumed.messages)} پیام قبلی "
+                    "(خاموش: PVAI_HISTORY_RESUME=off)",
+                    flush=True,
+                )
 
             def opened(plan: audio_io.StreamPlan) -> None:
                 print(

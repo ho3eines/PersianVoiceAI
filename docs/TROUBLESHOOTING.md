@@ -85,7 +85,7 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 | `503` با `backend unavailable` | llama-server در دسترس نیست | سرویس مدل را شروع کنید |
 | `404` `model not loaded` | مدل در llama-server لود نشده | `-m` را بررسی کنید |
 | `502` `generation error` | خطای تولید | لاگ llama-server |
-| `400` «شناسهٔ نشست نامعتبر است.» | `session_id` کاراکتر غیرمجاز دارد | فقط حروف/رقم/`-`/`_` و حداکثر ۶۴ کاراکتر |
+| `400` «شناسهٔ نشست نامعتبر است.» | `session_id` کاراکتر غیرمجاز دارد | فقط حروف **انگلیسی**/رقم/`-`/`_`، حداکثر ۶۴ کاراکتر، و نه نام دستگاه رزروشدهٔ ویندوز (`CON`, `NUL`, `COM1`…) |
 | `404` «نشست پیدا نشد.» | نشست ذخیره نشده | `PVAI_HISTORY_PERSIST=true` و `/api/sessions` |
 
 ## ۷. عیب‌یابی داده و حافظه
@@ -95,12 +95,19 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 .\.venv\Scripts\python.exe -m server.sessions list
 .\.venv\Scripts\python.exe -m server.sessions show <session_id>
 .\.venv\Scripts\python.exe -m server.sessions delete <session_id>
-.\.venv\Scripts\python.exe -m server.sessions delete --all
+.\.venv\Scripts\python.exe -m server.sessions delete-all
+.\.venv\Scripts\python.exe -m server.sessions purge --days 30
 ```
 
 - داده در `PVAI_DATA_DIR/conversations/*.jsonl` است (در `.gitignore`).
 - `PVAI_HISTORY_PERSIST=false` هیچ فایلی نمی‌سازد (تست: `test_persistence_can_be_disabled`).
 - پاسخ‌های قطع‌شده با `status=interrupted` ذخیره می‌شوند و به‌طور پیش‌فرض وارد context مدل نمی‌شوند.
+- **شروع تازه می‌خواهید؟** `PVAI_HISTORY_RESUME=off` بگذارید (هر اجرا نشست تازه) یا
+  `python -m server.sessions delete-all`. برعکس، اگر بعد از restart مکالمه ادامه نیافت،
+  `PVAI_HISTORY_PERSIST=true` و `PVAI_HISTORY_RESUME=on` را بررسی کنید؛ پیام startup
+  «ادامهٔ نشست … با N پیام قبلی» نشان می‌دهد resume انجام شده است.
+- **`sessions purge` می‌گوید «مدت نگه‌داری تعیین نشده است»؟** `PVAI_HISTORY_RETENTION_DAYS`
+  را تنظیم کنید یا `--days N` بدهید (پیش‌فرض `0` یعنی هیچ‌چیز پاک نمی‌شود).
 
 ## ۸. اگر مشکل پیدا نشد
 

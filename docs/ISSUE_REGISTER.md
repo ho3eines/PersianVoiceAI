@@ -549,3 +549,99 @@
 - **وضعیت:** رفع‌شده + تست
 
 سنجه‌های تازه: `audio_reopen_count`, `audio_reopen_attempts`, `audio_reopen_reset_count`.
+
+## مرحلهٔ پنجم — بازتولید و رفع باگ «نشستِ resum‌شدهٔ خالی» (۸ نوامبر ۲۰۲۶)
+
+### C1-01 — `create_conversation` هرگز فایل موجود را نمی‌خواند: context از دست می‌رفت و شناسه‌ها تکرار می‌شدند
+
+- **فایل:** `server/conversation.py` → `create_conversation`, `Conversation.load`؛
+  `server/streaming_voice.py` → `Pipeline.__init__`, `create_pipeline`؛
+  `server/ws_voice.py` → `_open_pipeline`
+- **ریشه:** فقط `Conversation.load` فایل JSONL را می‌خواند و تنها `/api/chat` از آن استفاده
+  می‌کرد. `create_conversation(settings, session_id="demo")` یک `Conversation` **خالی** می‌ساخت
+  و همان `session_id` را به فایل موجود می‌چسباند. نتیجه سه‌گانه بود:
+  1. `messages` خالی ⇒ context مدل فقط نوبت جدید بود (الزام ۱۷ در `docs/STATUS.md` نقض می‌شد)،
+  2. `_next_id`/`_next_turn` از ۱ شروع می‌شد ⇒ `id` و `turn_id` تکراری در همان فایل،
+  3. مجموعهٔ dedupe خالی بود ⇒ `utterance_id`های ذخیره‌شده دوباره پذیرفته می‌شدند.
+  علاوه بر این `Pipeline._next_utterance_id` همیشه از ۱ شروع می‌شد، پس در نشست resum‌شده
+  **اولین utterance تازه** شناسه‌ای می‌گرفت که از قبل در فایل بود و بی‌صدا به‌عنوان «تکرار»
+  دور انداخته می‌شد — رویداد `transcript_final` می‌آمد ولی نه پیام کاربر و نه پاسخی ثبت نمی‌شد.
+- **بازتولید:** `/tmp/repro_conv.py` (دو بار `create_conversation(settings, session_id="demo")`)
+  ⇒ نشست دوم `messages: []`، `next id 1`، فایل `ids: [1, 2, 1, 2]`، `turn_ids: [None, 1, None, 1]`،
+  context فقط شامل دو پیام جدید. `/tmp/repro_utt.py` ⇒ `NEW UTTERANCE DROPPED`.
+- **رفع:**
+  - `create_conversation` هر نشستی را که قرار است در آن نوشته شود از `Conversation.load`
+    می‌خواند (`resume_target` انتخاب می‌کند کدام نشست)؛ بنابراین `_next_id`، `_next_turn`،
+    مجموعهٔ dedupe و `_next_utterance_id` همه از حداکثر موجود ادامه می‌یابند.
+  - `Conversation.next_utterance_id()` افزوده شد و `Pipeline` شمارندهٔ utterance خود را از آن
+    می‌گیرد (نشست تازه همان `1` می‌ماند؛ تست جداگانه تضمینش می‌کند).
+  - **تصمیم دربارهٔ پیش‌فرض resume (مستندشده):** `PVAI_HISTORY_RESUME=on` پیش‌فرض است و فقط
+    مسیر **زندهٔ محلی** را تحت تأثیر می‌گذارد: با نبود `session_id`، نشستِ
+    `PVAI_VOICE_SESSION_ID` (اگر تنظیم شده باشد) وگرنه آخرین نشست نوشته‌شده ادامه می‌یابد.
+    `PVAI_HISTORY_RESUME=off` رفتار قدیمی (هر اجرا نشست تازه) را برمی‌گرداند.
+    `session_id` صریح همیشه resume می‌شود، مستقل از این کلید.
+  - **استثنای لازم برای انزوا:** `ws_voice._open_pipeline` با `resume=False` صدا می‌زند، پس
+    دستگاهی که `session_id` نمی‌فرستد هرگز به نشست محلی/دستگاه دیگر نمی‌چسبد
+    (`test_device_without_a_session_id_never_joins_the_last_local_session`).
+    `/api/chat` بدون `session_id` هم دست‌نخورده می‌ماند (همیشه RAM-only).
+- **تست:** `test_create_conversation_resumes_an_explicit_session`,
+  `test_resumed_conversation_deduplicates_stored_utterances`,
+  `test_resume_defaults_to_the_last_session_for_the_local_loop`,
+  `test_history_resume_off_keeps_every_start_fresh`,
+  `test_voice_session_id_pins_the_local_session`,
+  `test_resume_with_persistence_off_starts_fresh`,
+  `test_streaming_voice.py::test_resumed_pipeline_continues_ids_and_keeps_the_first_new_utterance`,
+  `test_streaming_voice.py::test_fresh_pipeline_still_starts_its_utterance_ids_at_one`,
+  `test_ws_voice.py::test_device_resumes_a_session_with_its_earlier_context`,
+  `test_ws_voice.py::test_resumed_device_session_context_reaches_the_model`
+- **وضعیت:** رفع‌شده + تست (هر ۱۰ تست روی کد قدیم شکست می‌خورند)
+
+### C1-02 — `ConversationStore.sanitize` حروف/ارقام یونیکد و نام‌های رزروشدهٔ ویندوز را می‌پذیرفت
+
+- **فایل:** `server/conversation.py` → `sanitize`, `append`
+- **ریشه:** `char.isalnum()` حروف فارسی/عربی و ارقام فارسی را قبول می‌کرد و آن‌ها داخل نام فایل
+  می‌رفتند؛ روی ویندوز (case folding و نرمال‌سازی یونیکد) دو شناسهٔ متفاوت می‌توانند یک فایل
+  شوند. نام‌های دستگاه (`CON`, `NUL`, `AUX`, `COM1`…) هم پذیرفته می‌شدند، در حالی که
+  `<name>.jsonl` روی ویندوز ساخته نمی‌شود.
+- **بازتولید:** `sanitize('CON')`, `sanitize('café')`, `sanitize('sess-١٢٣')` همه پذیرفته می‌شدند.
+- **رفع:** الفبای مجاز فقط `[A-Za-z0-9_-]` (`SESSION_ID_ALPHABET`)؛ `WINDOWS_RESERVED_NAMES`
+  (شامل `COM1`–`COM9`, `LPT1`–`LPT9`, `clock$`) رد می‌شود؛ و چون `S-DEMO`/`s-demo` روی
+  فایل‌سیستم حساس‌نبودن به بزرگی/کوچکی یک فایل‌اند، `append` شناسه‌ای را که فقط در بزرگی/کوچکی
+  با نشست موجود فرق دارد رد می‌کند (`store.error` توضیح می‌دهد) تا لاگ دو نشست قاطی نشود.
+- **تست:** `test_session_id_rejects_non_ascii_letters_and_digits`,
+  `test_session_id_rejects_windows_reserved_device_names`,
+  `test_session_id_keeps_the_documented_alphabet`,
+  `test_case_insensitive_collision_is_refused_instead_of_sharing_a_file`,
+  `test_settings_reject_an_invalid_voice_session_id`
+- **وضعیت:** رفع‌شده + تست. **سازگاری:** شناسه‌های غیر‑ASCII که قبلاً ذخیره شده‌اند دیگر از طریق
+  API/CLI قابل خواندن نیستند؛ چنین نشستی فقط با تغییر نام فایل به الفبای مجاز بازیابی می‌شود.
+
+### C1-03 — `sessions()` برای شمردن پیام‌ها کل فایل را JSON-parse می‌کرد و event loop را می‌بست
+
+- **فایل:** `server/conversation.py` → `sessions`, `count_messages`؛ `server/main.py` → `GET /api/sessions`
+- **ریشه:** در هندلر async، `sessions()` هر فایل را کامل می‌خواند و هر خط را `json.loads`
+  می‌کرد فقط برای شمردن `kind == "message"`. یک فایل ۱۱ مگابایتی ۲۰٬۰۰۰ پیامی ۶۲٫۵ms طول
+  می‌کشید و همان‌جا روی event loop اجرا می‌شد (صدای زنده و WebSocket پشت آن می‌ماند).
+- **رفع:** `count_messages` (و `_count_messages`) با خواندن باینری خط‌به‌خط و تست پیشوند/پسوند
+  `{"kind": "message"…}` می‌شمارد؛ هر خط غیرمنتظره (خط پارهٔ آخر فایل، فایل دست‌کاری‌شده) به
+  مسیر دقیق `json.loads` می‌رود تا شمارش هرگز بیشتر از واقع نشود. هندلر هم با
+  `asyncio.to_thread(store.sessions)` اجرا می‌شود.
+- **اندازه‌گیری (همان فایل در sandbox):** ۶۲٫۵ms → ۱۳٫۹ms، با شمارش درست ۲۰٬۰۰۰.
+- **تست:** `test_session_listing_counts_messages_without_parsing_the_whole_file`,
+  `test_latest_session_follows_the_write_time`
+- **وضعیت:** رفع‌شده + تست
+
+### C1-04 — `history_persist=true` متن کامل گفتار را بی‌پایان نگه می‌داشت
+
+- **فایل:** `server/config.py`, `server/conversation.py` → `purge_older_than`/`purge_expired`,
+  `server/main.py` (startup), `server/sessions.py` → `purge`
+- **ریشه:** `PVAI_HISTORY_PERSIST` پیش‌فرض روشن است و هر ترنسکریپت به‌صورت متن ساده در JSONL
+  می‌ماند؛ هیچ سیاست نگه‌داری‌ای نبود، پس هم مسئلهٔ حریم خصوصی بود و هم دیسک، بدون آنکه کاربر
+  بدون اجرای CLI ببیند.
+- **رفع:** `PVAI_HISTORY_RETENTION_DAYS` (پیش‌فرض `0` = نگه‌داشتن همه، سازگار با رفتار قبلی).
+  با مقدار مثبت، نشست‌هایی که mtime آن‌ها قدیمی‌تر است در startup API پاک می‌شوند
+  (`purge_expired`) و با `python -m server.sessions purge [--days N]` دستی هم اجرا می‌شود.
+- **تست:** `test_retention_purges_only_sessions_older_than_the_limit`,
+  `test_retention_zero_keeps_everything_and_disabled_persistence_is_a_no_op`,
+  `test_env_history_resume_and_retention_are_parsed`
+- **وضعیت:** رفع‌شده + تست

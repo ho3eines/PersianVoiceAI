@@ -24,7 +24,12 @@ Rules that are deliberate
 * **One pipeline per connection.**  Sessions are isolated: separate
   ``Conversation``, separate ASR queue, separate playback queue.  A device can
   resume a session by sending its ``session_id`` in ``hello`` (or
-  ``session_start``) when ``PVAI_HISTORY_PERSIST`` is on.
+  ``session_start``) when ``PVAI_HISTORY_PERSIST`` is on; the stored messages
+  are loaded before the conversation is used, so ids and the dedupe window
+  continue instead of restarting.  A device that sends *no* id always gets a
+  fresh session — the local loop's "resume the last session" default
+  (``PVAI_HISTORY_RESUME``) deliberately does not apply here, or one device
+  could inherit another's history.
 * **Barge-in is a protocol event.**  ``interrupt`` from the device cancels the
   assistant turn *and* drops queued playback frames; the server answers with
   ``play_stop`` and never sends a frame that belongs to the cancelled turn.
@@ -452,7 +457,13 @@ class VoiceWebSocket:
         ConversationStore.sanitize(session_id)
 
     async def _open_pipeline(self) -> bool:
-        conversation = create_conversation(self.settings, session_id=self.session_id)
+        # ``resume=False`` only disables the *implicit* default: a device that
+        # asked for a ``session_id`` still resumes that session, while a device
+        # that asked for nothing gets its own new one instead of joining
+        # whatever the last session on this PC was.
+        conversation = create_conversation(
+            self.settings, session_id=self.session_id, resume=False
+        )
         self.session_id = conversation.session_id
         try:
             self.bundle = self.bundle_factory(self.settings, self.sink, self.metrics)
