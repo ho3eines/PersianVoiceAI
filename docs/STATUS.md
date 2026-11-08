@@ -30,20 +30,22 @@
 | سنجه‌های کامل خط لوله (شامل jitter callback، صف، CPU/RAM در اجرای زنده) | پیاده‌شده + تست | `server/metrics.py`, `server/audio_io.py` |
 | بنچمارک کل زنجیرهٔ صوت | ابزار آماده (`tools/benchmark_voice.py`)؛ اعداد واقعی هدف **NOT MEASURED** | `docs/BENCHMARKS.md` |
 | ارزیابی فارسی WER/CER | مجموعهٔ ۴۰ جمله + ابزار؛ اعداد واقعی **NOT MEASURED** | `benchmarks/persian_eval.py` |
-| پروتکل WebSocket صوتی ESP32-S3 | فقط قرارداد + تست واحد؛ **transport و firmware پیاده نشده** | `server/protocol.py`, `docs/PROTOCOL.md` |
-| Command Broker / IoT / OTA / احراز هویت دستگاه | **پیاده‌نشده** | — |
+| پروتکل و **transport سمت سرور** WebSocket صوتی (`WS /ws/voice`) | پیاده‌شده + تست (fake)؛ احراز هویت اجباری با توکن دستگاه | `server/protocol.py`, `server/ws_voice.py`, `tests/test_ws_voice.py` |
+| firmware ESP32-S3، رجیستری per-device، OTA، تست LAN واقعی | **پیاده‌نشده / NOT MEASURED** | — |
+| Command Broker / IoT | **پیاده‌نشده** | — |
 
 ## ۲. وضعیت تست
 
 ```text
 $ python -m pytest
-237 passed, 2 skipped in 4.6s
+254 passed, 2 skipped in 8.3s
 ```
 
 - دو تست skip فقط تست‌های native SpeexDSP هستند: در sandbox کتابخانهٔ native ساخته نشده و تست
   به‌جای شکست، صریحاً skip می‌شود. اگر `libspeexdsp` نصب باشد اجرا می‌شوند (در اجرای قبلی همین
   محیط: ۵۴ تست موفق با کتابخانهٔ ساخته‌شده).
-- تست پایه پیش از این مرحله: `53 passed, 2 skipped`. یعنی ۱۷۷ تست جدید یا گسترش‌یافته.
+- تست پایه پیش از این مرحله: `53 passed, 2 skipped`. یعنی ۱۹۹ تست جدید یا گسترش‌یافته؛
+  آخرین افزوده: ۱۴ تست transport وب‌سوکت + ۱ تست قطع کلاینت SSE + ۲ تست پیکربندی/readiness.
 - **همهٔ تست‌ها fake/ساختگی‌اند**: بدون مدل Whisper/Piper/Qwen، بدون میکروفون و بلندگو، بدون شبکهٔ
   واقعی. این تست‌ها «صحت منطق و کنترل جریان» را ثابت می‌کنند، نه کیفیت صوتی.
 

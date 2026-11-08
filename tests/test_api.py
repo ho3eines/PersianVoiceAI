@@ -317,6 +317,40 @@ def test_ready_is_200_when_every_check_passes(monkeypatch, tmp_path) -> None:
     assert body["checks"]["aec"]["skipped"] is True
 
 
+def test_ready_reports_the_ws_transport_and_refuses_it_without_a_token(monkeypatch, tmp_path) -> None:
+    """An enabled-but-tokenless transport is reported as not ready, never as open."""
+    from server.main import create_app
+
+    monkeypatch.setattr("server.readiness.VOICE_DEPENDENCIES", ())
+    off = _fake_models(tmp_path)
+    with TestClient(create_app(settings=off, llm=FakeLLM())) as client:
+        check = client.get("/ready").json()["checks"]["ws_voice"]
+    assert check["enabled"] is False and check["skipped"] is True
+
+    on = Settings(
+        asr_model_path=off.asr_model_path,
+        tts_model_path=off.tts_model_path,
+        aec_enabled=False,
+        data_dir=str(tmp_path),
+        ws_enabled=True,
+        ws_token="device-token",
+    )
+    with TestClient(create_app(settings=on, llm=FakeLLM())) as client:
+        check = client.get("/ready").json()["checks"]["ws_voice"]
+    assert check["ok"] is True and check["enabled"] is True
+    assert check["path"] == "/ws/voice" and check["firmware"] is False
+
+
+def test_ws_enabled_without_a_token_is_a_configuration_error() -> None:
+    assert any("PVAI_WS_TOKEN" in error for error in Settings(ws_enabled=True, ws_token="").config_errors())
+    # A configured token satisfies the same rule.
+    assert not [
+        error
+        for error in Settings(ws_enabled=True, ws_token="device-token").config_errors()
+        if "PVAI_WS_TOKEN" in error
+    ]
+
+
 def test_ready_reports_missing_backend(monkeypatch, tmp_path) -> None:
     from server.main import create_app
 
@@ -327,9 +361,112 @@ def test_ready_reports_missing_backend(monkeypatch, tmp_path) -> None:
     assert body["checks"]["llm_backend"]["reachable"] is False
 
 
-def test_protocol_endpoint_is_design_only(client: TestClient) -> None:
+def test_sse_client_disconnect_cancels_upstream_generation(tmp_path) -> None:
+    """A browser that hangs up mid-stream must stop generation, not leak it.
+
+    The app is driven at the ASGI level so the test can send a real
+    ``http.disconnect`` after the second chunk — exactly what Starlette sees when
+    the client closes the connection (OPEN-03).
+    """
+    import asyncio
+    import json as jsonlib
+
+    from server.llm import StreamDelta
+    from server.main import create_app
+
+    class EndlessLlm:
+        """Generates "forever"; records whether the stream was closed early."""
+
+        def __init__(self) -> None:
+            self.produced = 0
+            self.closed = False
+            self.finished = False
+
+        async def aclose(self) -> None:
+            return None
+
+        async def health(self) -> dict:
+            return {"reachable": True, "model_available": True}
+
+        async def list_models(self) -> list[str]:
+            return ["test-model"]
+
+        async def chat(self, *args, **kwargs):  # pragma: no cover - not used
+            raise AssertionError("non-streaming path must not run")
+
+        async def stream_chat(self, *args, **kwargs):
+            try:
+                for index in range(100_000):
+                    self.produced += 1
+                    await asyncio.sleep(0.001)
+                    yield StreamDelta(content=f"کلمه{index} ")
+                self.finished = True
+            finally:
+                self.closed = True
+
+    settings = Settings(model_path="models/test-model.gguf", data_dir=str(tmp_path))
+    llm = EndlessLlm()
+    app = create_app(settings=settings, llm=llm)
+
+    async def scenario() -> None:
+        body = jsonlib.dumps(
+            {
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "سلام"}],
+                "stream": True,
+            }
+        ).encode("utf-8")
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/v1/chat/completions",
+            "raw_path": b"/v1/chat/completions",
+            "query_string": b"",
+            "root_path": "",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode()),
+            ],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+        }
+        request_sent = False
+        disconnected = asyncio.Event()
+        chunks = 0
+
+        async def receive() -> dict:
+            nonlocal request_sent
+            if not request_sent:
+                request_sent = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            await disconnected.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict) -> None:
+            nonlocal chunks
+            if message["type"] == "http.response.body" and message.get("body"):
+                chunks += 1
+                if chunks == 2:
+                    disconnected.set()  # the browser closed the tab here
+
+        async with app.router.lifespan_context(app):
+            await asyncio.wait_for(app(scope, receive, send), timeout=5)
+
+    asyncio.run(scenario())
+    assert llm.closed is True, "upstream stream stayed open after the client left"
+    assert llm.finished is False
+    assert llm.produced < 500, f"generation kept running: {llm.produced} deltas"
+
+
+def test_protocol_endpoint_reports_transport_but_no_firmware(client: TestClient) -> None:
+    """The published contract must match the code: transport done, firmware not."""
     body = client.get("/api/protocol").json()
-    assert body["implemented"] is False
+    assert body["implemented"] is True
+    assert body["transport_implemented"] is True
+    assert body["firmware_implemented"] is False
     assert body["audio"]["sample_rate"] == 16000
 
 

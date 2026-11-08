@@ -172,6 +172,10 @@ class Settings:
     history_token_budget: int = 1536
     history_include_interrupted: bool = False
 
+    # ---- LAN voice transport (WebSocket, ESP32-S3 readiness) ----
+    ws_enabled: bool = False  # opt-in: needs a device token and a trusted LAN
+    ws_token: str = ""  # PVAI_WS_TOKEN; empty => every connection is refused
+
     # ---- observability ----
     metrics_enabled: bool = True
     llm_enable_thinking: bool = False
@@ -215,6 +219,11 @@ class Settings:
             errors.append("PVAI_VOICE_VAD_OFFSET_RATIO باید بین ۰ و ۱ باشد.")
         if self.history_token_budget < 128:
             errors.append("PVAI_HISTORY_TOKEN_BUDGET باید حداقل ۱۲۸ باشد.")
+        if self.ws_enabled and not self.ws_token:
+            errors.append(
+                "PVAI_WS_ENABLED=true بدون PVAI_WS_TOKEN مجاز نیست؛ "
+                "API صوتی بی‌احراز هویت روی شبکه باز نمی‌شود."
+            )
         return errors
 
     @classmethod
@@ -274,6 +283,8 @@ class Settings:
             ),
             history_token_budget=_env_int("PVAI_HISTORY_TOKEN_BUDGET", 1536, minimum=128, maximum=16384),
             history_include_interrupted=bool(_env_optional_bool("PVAI_HISTORY_INCLUDE_INTERRUPTED", False)),
+            ws_enabled=bool(_env_optional_bool("PVAI_WS_ENABLED", False)),
+            ws_token=_env_str("PVAI_WS_TOKEN", ""),
             metrics_enabled=bool(_env_optional_bool("PVAI_METRICS_ENABLED", True)),
             llm_enable_thinking=bool(_env_optional_bool("PVAI_LLM_ENABLE_THINKING", False)),
             aec_enabled=bool(_env_optional_bool("PVAI_AEC_ENABLED", True)),

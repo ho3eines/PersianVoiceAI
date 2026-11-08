@@ -543,6 +543,7 @@ class Pipeline:
             self.event(
                 "interrupted",
                 reason=reason,
+                turn_id=turn.turn_id if turn is not None else 0,
                 dropped_sentences=dropped,
                 teardown_ms=round(latency, 2),
             )

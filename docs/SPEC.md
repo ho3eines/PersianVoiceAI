@@ -382,8 +382,9 @@ ASR → LLM Intent → Structured Command → Command Broker
    یا `session_id` صریح است.
 6. **اندازه‌گیری بدون ادعا:** هر عدد `MEASURED`/`SIMULATED`/`NOT MEASURED` برچسب دارد؛ روش و
    نتایج در [`BENCHMARKS.md`](BENCHMARKS.md).
-7. **PC-first:** firmware و WebSocket صوتی ESP32 تا پاس‌شدن تست پذیرش PC شروع نمی‌شود؛
-   قرارداد انتقال در [`PROTOCOL.md`](PROTOCOL.md) است و `implemented: false`.
+7. **PC-first:** firmware ESP32 تا پاس‌شدن تست پذیرش PC شروع نمی‌شود. قرارداد انتقال و
+   **transport سمت سرور** در [`PROTOCOL.md`](PROTOCOL.md) مستند شده‌اند؛ `/api/protocol` مقدار
+   `transport_implemented: true` و `firmware_implemented: false` برمی‌گرداند.
 8. **warmup فقط برای مدلی که درون پروسه است:** Whisper با `PVAI_ASR_WARMUP` گرم می‌شود و
    Piper هنگام ساخت `Speaker` لود می‌شود؛ LLM در llama-server جدا زندگی می‌کند، پس warmup
    جداگانه در این پروسه معنا ندارد و وضعیت آن با `model_available` در `/ready` گزارش می‌شود.

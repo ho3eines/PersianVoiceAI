@@ -1,10 +1,12 @@
-# پروتکل صوتی ESP32-S3 ↔ PC (طراحی‌شده و تست واحد شده — پیاده‌نشده)
+# پروتکل صوتی ESP32-S3 ↔ PC (transport سرور پیاده‌شده — firmware نشده)
 
-> **وضعیت صادقانه:** این سند *قرارداد انتقال* را تعریف می‌کند و کد آن در
-> `server/protocol.py` با تست‌های `tests/test_protocol.py` پیاده شده است.
-> **هیچ transport WebSocket، رجیستری دستگاه یا firmware ESP32 در این مخزن وجود ندارد.**
-> `GET /api/protocol` این وضعیت را با `"implemented": false` برمی‌گرداند و نباید خلاف آن ادعا شود.
-> اولویت توسعه PC-first است: تا وقتی موتور مکالمهٔ PC تست پذیرش را پاس نکرده، firmware شروع نمی‌شود.
+> **وضعیت صادقانه:** قرارداد انتقال در `server/protocol.py` (تست: `tests/test_protocol.py`) و
+> **transport سمت سرور** در `server/ws_voice.py` (تست: `tests/test_ws_voice.py`) پیاده شده است.
+> `GET /api/protocol` این وضعیت را با `"implemented": true`, `"transport_implemented": true` و
+> `"firmware_implemented": false` برمی‌گرداند.
+> **هیچ firmware، رجیستری دستگاه یا OTA در این مخزن وجود ندارد** و هیچ تست سخت‌افزاری/شبکهٔ واقعی
+> اجرا نشده است (به `docs/HARDWARE_VALIDATION.md` نگاه کنید). اولویت PC-first است: تا وقتی موتور
+> مکالمهٔ PC تست پذیرش را پاس نکرده، firmware شروع نمی‌شود.
 
 ## ۱. اصول
 
@@ -100,16 +102,39 @@ device            server(PC)                llama-server      piper
 - سرور در `hello_ok` نسخهٔ پروتکل و قالب صدا را اعلام می‌کند؛ دستگاه ناسازگار باید صریحاً
   `error` بدهد، نه اینکه با نرخ اشتباه ادامه دهد.
 
-## ۶. امنیت LAN
+## ۶. transport سمت سرور (`WS /ws/voice`)
+
+پیاده‌سازی: `server/ws_voice.py`؛ فقط وقتی `PVAI_WS_ENABLED=true` باشد در برنامه ثبت می‌شود.
+
+- **احراز هویت اجباری است.** اگر `PVAI_WS_TOKEN` خالی باشد، هر اتصال با `error` کد
+  `auth_not_configured` و بستن `1008` رد می‌شود؛ API صوتی بی‌احراز هویت باز نمی‌شود.
+  `PVAI_WS_ENABLED=true` بدون توکن خطای پیکربندی است (`Settings.config_errors`).
+- نخستین پیام باید `hello` باشد؛ پیام دیگر → `error` کد `handshake_required`. مهلت `hello` ده ثانیه
+  است (`handshake_timeout`). پیام خطا **قبل از** بستن اتصال فرستاده می‌شود تا دستگاه دلیل را لاگ کند.
+- هر اتصال **Pipeline و Conversation مستقل** دارد؛ ASR، TTS و صف پخش بین دستگاه‌ها مشترک نیست.
+- capture باینری به همان `Pipeline` مسیر میکروفن داده می‌شود؛ event‌های آن یک‌به‌یک به پیام‌های
+  `speech_start`/`speech_end`/`asr_partial`/`asr_final`/`play_start`/`play_end`/`play_stop` تبدیل می‌شوند.
+- پخش: هر بلوک ۲۰ms در یک فریم باینری `kind=2` با `sequence` صعودی ۰..۶۵۵۳۵. صف پخش محدود است
+  (۲۵۰ فریم ≈ ۵ ثانیه)؛ دستگاه کند باعث backpressure روی سنتز می‌شود، نه رشد حافظه.
+- `play_end` مرز **نوبت** است، نه جمله؛ و فقط پس از ارسال همهٔ فریم‌های آن نوبت فرستاده می‌شود
+  (نوبت چندجمله‌ای یک `play_end` دارد).
+- `interrupt` از دستگاه: `Pipeline.barge_in` اجرا می‌شود، صف پخش همان لحظه خالی می‌شود و سپس
+  `play_stop` می‌رود؛ هیچ فریمی از نوبت لغوشده بعد از `play_stop` ارسال نمی‌شود.
+- `speech_start`/`speech_end` از دستگاه فقط **اطلاعی** هستند؛ endpointing مال سرور است.
+- `set_voice` صدای جمله‌های بعدی را عوض می‌کند؛ اگر مدل آن صدا نباشد `error` کد `voice_unavailable`.
+- متریک‌ها: `ws_connections`, `ws_frames_in`, `ws_frames_out`, `ws_auth_failures`.
+- `/ready` کلید `ws_voice` را برمی‌گرداند (خاموش/بدون‌توکن/آماده).
+
+## ۷. امنیت LAN
 
 - API صوتی **بدون احراز هویت نباید عمومی شود**. `PVAI_HOST=0.0.0.0` فقط در شبکهٔ مورد اعتماد.
 - توکن در `.env` نگه داشته می‌شود؛ در مخزن commit نشود (`.gitignore`).
 - پیشنهاد آینده: توکن per-device، rate limit و لاگ اتصال. هیچ‌کدام **پیاده نشده‌اند** و نباید
   به‌عنوان قابلیت موجود مستند شوند.
 
-## ۷. آنچه هنوز لازم است (به ترتیب)
+## ۸. آنچه هنوز لازم است (به ترتیب)
 
-1. سرور WebSocket روی همان `protocol.py` + اتصال `session_id` به `Conversation`.
-2. تست یکپارچه با دو کلاینت هم‌زمان (جداسازی نشست).
-3. firmware ESP-IDF: I2S capture/playback، VAD سبک سمت دستگاه، reconnect.
-4. سنجش RTT/LAN jitter با `ping/pong` و ثبت در `docs/BENCHMARKS.md`.
+1. firmware ESP-IDF: I2S capture/playback، VAD سبک سمت دستگاه، reconnect (شروع نشده).
+2. رجیستری دستگاه per-device token، rate limit و لاگ اتصال (شروع نشده).
+3. OTA و مدیریت نسخهٔ firmware (شروع نشده).
+4. سنجش RTT/LAN jitter واقعی با `ping/pong` روی سخت‌افزار — **NOT MEASURED**.

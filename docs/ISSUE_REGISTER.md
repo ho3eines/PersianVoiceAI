@@ -193,7 +193,8 @@
 | شناسه | شدت | موضوع | دلیل |
 |---|---|---|---|
 | OPEN-01 | P1 | توقف قطعی inference در حال اجرا (thread درجا قابل kill نیست) | نیازمند process isolation؛ خارج از دامنهٔ این مرحله |
-| OPEN-02 | P1 | WebSocket صوتی سرور/ESP32 و احراز هویت دستگاه | فقط پروتکل طراحی و تست واحد شده؛ پیاده‌سازی انتقال نشده |
+| OPEN-02a | — | transport سمت سرور WebSocket صوتی + احراز هویت دستگاه | **رفع‌شده** (`server/ws_voice.py`، ۱۴ تست در `tests/test_ws_voice.py`، متریک‌های `ws_*`، کلید `ws_voice` در `/ready`) |
+| OPEN-02b | P1 | firmware ESP32-S3، رجیستری دستگاه و OTA | هیچ کد سخت‌افزاری در مخزن نیست؛ تا پاس‌شدن پذیرش PC شروع نمی‌شود |
 | OPEN-03 | P1 | صحت اکوی اتاق واقعی و تأخیر دستگاه | نیازمند سخت‌افزار |
 | OPEN-04 | P2 | VAD عصبی محلی (Silero/WebRTC) | وابستگی جدید بدون سنجش؛ حالت انرژی با هیسترزیس فعلی حفظ شد |
 | OPEN-05 | P2 | Command Broker / IoT و OTA | خارج از دامنهٔ موتور مکالمه |
@@ -332,7 +333,7 @@
 | مورد | وضعیت |
 |---|---|
 | `docs/CONFIGURATION.md` (مرجع کامل ۴۸ متغیر `PVAI_*`) | افزوده شد (قبلاً `config.py` به آن ارجاع می‌داد ولی وجود نداشت) |
-| `docs/PROTOCOL.md` (قرارداد WebSocket/ESP32) | افزوده شد؛ همچنان design-only |
+| `docs/PROTOCOL.md` (قرارداد WebSocket/ESP32) | به‌روزرسانی شد: transport سرور پیاده‌شده، firmware همچنان نشده |
 | `docs/TROUBLESHOOTING.md` | افزوده شد؛ نگاشت پیام واقعی کد به راه‌حل |
 | `docs/HARDWARE_VALIDATION.md` | افزوده شد؛ چک‌لیست ۱۴ مرحله‌ای سناریوی پذیرش |
 | `docs/BENCHMARKS.md` | افزوده شد؛ روش‌شناسی + جدول sandbox با برچسب + NOT MEASURED هدف |
@@ -344,3 +345,40 @@
 | `docs/SPEC.md` | بخش ۱۷ افزوده شد (قرارداد موتور مکالمه ۱.۱)؛ قبلاً در این مرحله به‌روز نشده بود |
 | `docs/AUDIT_REPORT.md` | گزارش نهایی A–F داخل مخزن (قبلاً فقط در پاسخ چت بود) |
 | `tests/test_bargein.py` | تست‌های اختصاصی صدای کهنه و اکوی پخش |
+
+---
+
+## مرحلهٔ تکمیلی — transport صوتی LAN (۸ نوامبر ۲۰۲۶)
+
+### ن-۱ — `play_end` پیش از فریم‌های صوتی ارسال می‌شد (نوبت چندجمله‌ای)
+
+- **فایل:** `server/ws_voice.py` → نگاشت event‌ها و `_sender`
+- **ریشه:** `tts_end` (مرز *جمله*) به `play_end` (مرز *نوبت*) نگاشت می‌شد و `_sender` همیشه کنترل را
+  بر صدا مقدم می‌داشت. نتیجه: دستگاه «پایان پخش» را قبل از رسیدن بایت‌های همان جمله می‌گرفت و در
+  پاسخ چندجمله‌ای چند `play_end` می‌دید.
+- **رفع:** `play_end` فقط از `response_end` با `status=complete` ساخته می‌شود، `played_ms` از تعداد
+  بلوک‌های تولیدشدهٔ همان نوبت می‌آید، و `_sender` تا خالی‌نشدن صف پخش، `play_end` را عقب می‌اندازد.
+- **تست:** `tests/test_ws_voice.py::test_playback_frames_are_valid_protocol_frames` و
+  `::test_one_play_end_per_turn_not_per_sentence`
+
+### ن-۲ — پیام خطای دست‌دهی هرگز به دستگاه نمی‌رسید
+
+- **فایل:** `server/ws_voice.py` → `_handshake`
+- **ریشه:** خطا با `_queue_control` در صف می‌رفت، اما task فرستنده فقط بعد از دست‌دهی موفق شروع
+  می‌شد؛ پس دستگاه فقط close code ۱۰۰۸ می‌دید، بدون دلیل.
+- **رفع:** `_reject()` پیام خطا را مستقیم می‌فرستد و بعد می‌بندد.
+- **تست:** چهار تست رد دست‌دهی در `tests/test_ws_voice.py`.
+
+### ن-۳ — `interrupted` بدون `turn_id` و بدون پاک‌سازی صف پخش
+
+- **فایل:** `server/streaming_voice.py` (`barge_in`)، `server/ws_voice.py`
+- **ریشه:** event «interrupted» شناسهٔ نوبت را حمل نمی‌کرد، بنابراین `play_stop` با `turn_id=0` می‌رفت؛
+  و صف پخش دستی خالی نمی‌شد، پس ممکن بود فریمی از نوبت لغوشده بعد از `play_stop` برود.
+- **رفع:** `turn_id` به event اضافه شد و `ws_voice` پیش از ارسال `play_stop` صف را drain می‌کند.
+- **تست:** `::test_device_interrupt_cancels_playback_and_reports_play_stop`،
+  `::test_cancelled_playback_frames_are_dropped_before_play_stop`
+
+### ن-۴ — قطع کلاینت SSE پایان‌دهی به تولید را تست نکرده بود (OPEN-03 سابق)
+
+- **رفع:** تست ASGI سطح‌پایین `tests/test_api.py::test_sse_client_disconnect_cancels_upstream_generation`
+  پس از `http.disconnect` بررسی می‌کند که generator بالادست بسته و تولید متوقف شود.

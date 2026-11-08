@@ -1,12 +1,11 @@
 """ESP32-S3 ↔ PC audio protocol: wire format definitions and validation.
 
-**This is a design artifact, not a server.**  The PC voice engine must pass its
-acceptance tests first; the transport (WebSocket endpoint, device registry,
-reconnect loop) is deliberately not implemented yet.  What *is* implemented here
-is the part that must be exact before firmware work starts: the binary audio
-framing, the control-message schema, sequence numbers, and authentication rules.
-These are pure functions with unit tests, so the firmware and the future server
-cannot drift apart.
+The wire format is defined here; the server-side transport that uses it lives
+in :mod:`server.ws_voice` (``/ws/voice``, opt-in via ``PVAI_WS_ENABLED`` and
+``PVAI_WS_TOKEN``).  There is still **no device firmware** and no persistent
+device registry in this repository.  The binary framing, the control-message
+schema, sequence numbers and the authentication rules are kept as pure
+functions with unit tests so firmware and server cannot drift apart.
 
 Transport (target): private LAN WebSocket, binary audio frames, JSON text
 control messages, optional TLS, bearer device token.
@@ -22,7 +21,7 @@ Binary audio frame (10-byte header, big endian)::
 
 Control messages are JSON objects with a mandatory ``type`` field and an
 optional ``seq`` echo.  See :class:`MessageType` for the allowed types and
-``docs/ESP32_PROTOCOL.md`` for the full description and state machine.
+``docs/PROTOCOL.md`` for the full description and state machine.
 """
 
 from __future__ import annotations
@@ -278,7 +277,8 @@ def check_token(provided: str | None, expected: str | None) -> bool:
 
     If ``expected`` is empty, authentication is **disabled** — which is only
     acceptable on a trusted loopback interface.  The live API must never be
-    exposed to the public internet, and ``docs/ESP32_PROTOCOL.md`` says so.
+    exposed to the public internet; ``server.ws_voice`` refuses every connection
+    when no token is configured, and ``docs/PROTOCOL.md`` says so.
     """
     if not expected:
         return True
@@ -332,10 +332,14 @@ def describe() -> dict[str, Any]:
             "max_samples_per_frame": MAX_AUDIO_SAMPLES,
         },
         "control_types": [kind.value for kind in MessageType],
-        "implemented": False,
+        "implemented": True,
+        "transport_implemented": True,
+        "firmware_implemented": False,
+        "endpoint": "/ws/voice (PVAI_WS_ENABLED=true + PVAI_WS_TOKEN)",
         "notes": [
-            "This module defines and validates the wire format only.",
-            "No WebSocket transport, device registry or firmware exists yet.",
+            "Wire format, validation and the server-side WebSocket transport are implemented.",
+            "Device firmware, a persistent device registry and OTA remain unimplemented.",
+            "Without PVAI_WS_TOKEN every connection is refused by design.",
         ],
     }
 

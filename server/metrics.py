@@ -63,6 +63,11 @@ METRIC_NAMES: tuple[str, ...] = (
     "cpu_usage_percent",
     "ram_usage_mb",
     "aec_process_ms",
+    # WebSocket voice transport (LAN terminals)
+    "ws_connections",
+    "ws_frames_in",
+    "ws_frames_out",
+    "ws_auth_failures",
 )
 
 

@@ -10,7 +10,8 @@ POST /api/chat               one-shot chat, optionally bound to a local session
 GET  /api/sessions           locally persisted sessions
 GET  /api/sessions/{id}      one session with message lifecycle statuses
 DEL  /api/sessions/{id}      delete a locally persisted session
-GET  /api/protocol           ESP32 wire-protocol description (design only)
+GET  /api/protocol           ESP32 wire-protocol description
+WS   /ws/voice               LAN device audio transport (opt-in, token required)
 """
 
 from __future__ import annotations
@@ -31,6 +32,8 @@ from . import __version__
 from .config import Settings
 from .conversation import STATUS_COMPLETE, Conversation, open_store
 from .protocol import describe as describe_protocol
+from .ws_voice import build_router as build_ws_router
+from .ws_voice import default_bundle as default_voice_bundle
 from .readiness import collect as collect_readiness
 from .llm import (
     ChatResult,
@@ -91,8 +94,17 @@ def _sse(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def create_app(settings: Settings | None = None, llm: LlamaServerClient | Any | None = None) -> FastAPI:
-    """Application factory. ``llm`` is injectable so tests need no model."""
+def create_app(
+    settings: Settings | None = None,
+    llm: LlamaServerClient | Any | None = None,
+    voice_bundle: Any | None = None,
+) -> FastAPI:
+    """Application factory.
+
+    ``llm`` and ``voice_bundle`` are injectable so tests need no model and no
+    audio device; ``voice_bundle`` builds the per-connection voice dependencies
+    for the WebSocket transport.
+    """
     resolved = settings or Settings.from_env()
 
     @asynccontextmanager
@@ -105,6 +117,7 @@ def create_app(settings: Settings | None = None, llm: LlamaServerClient | Any | 
         app.state.started_at = time.time()
         app.state.llm = llm or LlamaServerClient(resolved)
         app.state.store = open_store(resolved)
+        app.state.voice_bundle = voice_bundle or default_voice_bundle
         logger.info(
             "Persian Voice AI %s | model=%s",
             __version__,
@@ -150,6 +163,13 @@ def create_app(settings: Settings | None = None, llm: LlamaServerClient | Any | 
         )
 
     # ---------------------------------------------------------------- basics
+    if resolved.ws_enabled:
+        # Opt-in LAN voice transport; each connection gets its own Pipeline and
+        # Conversation.  Refused unless PVAI_WS_TOKEN is configured.
+        app.include_router(
+            build_ws_router(resolved, bundle_factory=voice_bundle or default_voice_bundle)
+        )
+
     @app.get("/", tags=["meta"])
     async def root() -> dict[str, Any]:
         return {

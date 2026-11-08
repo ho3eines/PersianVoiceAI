@@ -146,8 +146,12 @@ def test_token_comparison() -> None:
 
 
 def test_protocol_description_is_honest_about_implementation_state() -> None:
+    """The description must claim exactly what exists: transport yes, firmware no."""
     description = describe()
-    assert description["implemented"] is False
+    assert description["implemented"] is True
+    assert description["transport_implemented"] is True
+    assert description["firmware_implemented"] is False
     assert description["audio"]["sample_rate"] == 16000
     assert "hello" in description["control_types"]
-    assert any("No WebSocket transport" in note for note in description["notes"])
+    assert any("WebSocket transport are implemented" in note for note in description["notes"])
+    assert any("firmware" in note.lower() for note in description["notes"])

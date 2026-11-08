@@ -279,7 +279,12 @@ def test_shutdown_marks_pending_reply_interrupted() -> None:
         pipeline.start()
         feed_utterance(pipeline)
         await until(lambda: pipeline.pending_turn is not None)
-        await until(lambda: pipeline.conversation.messages != [])
+        # Wait for the first *delta*, not merely for the user message: closing
+        # before any text arrived left nothing to mark as interrupted, which made
+        # this assertion racy on a loaded machine.
+        await until(
+            lambda: pipeline.pending_turn is not None and bool(pipeline.pending_turn.text)
+        )
         await pipeline.close()
         assistant = [m for m in pipeline.conversation.messages if m.role == "assistant"]
         assert assistant and assistant[0].status == "interrupted"

@@ -27,7 +27,7 @@
 | حافظهٔ مکالمه | محلی/JSONL، برش توکنی، پنجرهٔ RAM محدود، وضعیت interrupted |
 | readiness / سنجه‌ها | `/ready` کامل + `server/metrics.py` با تست |
 | بنچمارک و ارزیابی فارسی | `tools/benchmark_voice.py` و `benchmarks/persian_eval.py`؛ اعداد واقعی هدف NOT MEASURED |
-| Wi-Fi/WebSocket صوتی ESP32 | پیاده‌نشده |
+| Wi-Fi/WebSocket صوتی ESP32 | transport سرور پیاده‌شده (`server/ws_voice.py`)؛ firmware پیاده‌نشده |
 | IoT Command Broker، احراز هویت دستگاه، OTA | پیاده‌نشده |
 
 جزئیات و فهرست فایل‌ها: [`docs/STATUS.md`](docs/STATUS.md).
@@ -64,7 +64,7 @@ PersianVoiceAI/
 │  ├─ STREAMING_ARCHITECTURE.md ← utterance/generation، صف‌ها، ماشین حالت، لغو
 │  ├─ CONFIGURATION.md    ← مرجع کامل متغیرهای PVAI_*
 │  ├─ AEC.md              ← SpeexDSP، تأخیر، چک‌لیست
-│  ├─ PROTOCOL.md         ← قرارداد WebSocket ESP32-S3 (design-only)
+│  ├─ PROTOCOL.md         ← قرارداد WebSocket ESP32-S3 + transport سرور
 │  ├─ BENCHMARKS.md       ← روش‌شناسی و نتایج برچسب‌دار
 │  ├─ TROUBLESHOOTING.md  ← پیام‌های خطا و راه‌حل
 │  └─ HARDWARE_VALIDATION.md ← چک‌لیست تست واقعی
@@ -84,7 +84,8 @@ PersianVoiceAI/
 │  ├─ resources.py        ← CPU/RAM بدون وابستگی اجباری
 │  ├─ readiness.py        ← چک‌لیست startup
 │  ├─ persian.py          ← نرمال‌سازی فارسی + WER/CER
-│  ├─ protocol.py         ← قرارداد فریم/پیام ESP32 (design-only)
+│  ├─ protocol.py         ← قرارداد فریم/پیام ESP32
+│  ├─ ws_voice.py         ← transport WebSocket سرور برای دستگاه LAN
 │  ├─ cli.py              ← کلاینت چت فارسی ترمینال
 │  ├─ __main__.py         ← اجرای `python -m server`
 │  └─ __init__.py         ← نسخهٔ سرویس
@@ -203,5 +204,6 @@ AEC مرجع `docs/AEC.md`: مرجع فقط از PCM ارسال‌شده در ca
    بخش ۸ همان سند است.
 5. **متن در برابر صوت:** متن مکالمه با `PVAI_HISTORY_PERSIST` روی دیسک محلی می‌ماند؛ صوت نه.
    اگر قابلیت جدیدی متن را جایی خارج از `PVAI_DATA_DIR` می‌نویسد، همان‌جا مستند و قابل حذف کنید.
-6. **پروتکل ESP32 هنوز design-only است** (`/api/protocol` → `implemented: false`). تا پیاده‌سازی
+6. **firmware ESP32 هنوز وجود ندارد** (`/api/protocol` → `transport_implemented: true`,
+   `firmware_implemented: false`). تا پیاده‌سازی
    transport، در README/STATUS «پیاده‌شده» نوشته نشود.

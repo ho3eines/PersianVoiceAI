@@ -96,6 +96,31 @@ def check_aec(settings: Any) -> dict[str, Any]:
     return {"ok": bool(status.get("available")), **status}
 
 
+def check_ws(settings: Any) -> dict[str, Any]:
+    """LAN voice transport status (opt-in, token required)."""
+    if not getattr(settings, "ws_enabled", False):
+        return {
+            "ok": True,
+            "skipped": True,
+            "enabled": False,
+            "detail": "انتقال WebSocket صوتی خاموش است (PVAI_WS_ENABLED).",
+        }
+    if not getattr(settings, "ws_token", ""):
+        return {
+            "ok": False,
+            "enabled": True,
+            "detail": "PVAI_WS_ENABLED روشن است ولی PVAI_WS_TOKEN خالی است؛ "
+            "اتصال دستگاه‌ها عمداً رد می‌شود.",
+        }
+    return {
+        "ok": True,
+        "enabled": True,
+        "detail": "انتقال WebSocket صوتی آماده است (احراز هویت با توکن دستگاه).",
+        "path": "/ws/voice",
+        "firmware": False,
+    }
+
+
 def check_storage(settings: Any) -> dict[str, Any]:
     if not getattr(settings, "history_persist", False):
         return {"ok": True, "skipped": True, "detail": "ذخیره‌سازی محلی خاموش است."}
@@ -127,6 +152,7 @@ def collect(settings: Any, *, backend: dict[str, Any] | None = None) -> dict[str
         "dependencies": check_dependencies(),
         "aec": check_aec(settings),
         "storage": check_storage(settings),
+        "ws_voice": check_ws(settings),
     }
     if backend is not None:
         reachable = bool(backend.get("reachable"))

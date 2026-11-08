@@ -30,8 +30,8 @@
 | P3-01…P3-04 | P3 | — | نام‌گذاری، مستندات کهنه، نبود ارزیابی فارسی، گزارش آستانهٔ مؤثر | همه رفع‌شده | `test_persian`, `test_vad` |
 
 موارد باز: **OPEN-01** توقف قطعی inference در حال اجرا (نیازمند process isolation)،
-**OPEN-02** WebSocket صوتی/فirmware ESP32 (فقط قرارداد)، **OPEN-03** اکوی واقعی اتاق،
-**OPEN-04** VAD عصبی، **OPEN-05** Command Broker/IoT/OTA.
+**OPEN-02** firmware ESP32/رجیستری/OTA (transport سرور و تست قطع SSE بسته شدند — بخش G)،
+**OPEN-03** اکوی واقعی اتاق، **OPEN-04** VAD عصبی، **OPEN-05** Command Broker/IoT.
 
 ## B. فایل‌های تغییریافته
 
@@ -86,7 +86,7 @@ $ python -m pytest
 2. چک‌لیست `HARDWARE_VALIDATION.md` (barge-in با گوش، false barge-in، کالیبراسیون AEC).
 3. ضبط ۴۰ جمله و `benchmarks/persian_eval.py --audio-dir` برای WER/CER واقعی.
 4. OPEN-01: process isolation برای توقف قطعی inference.
-5. OPEN-02: WebSocket صوتی + firmware پس از پاس‌شدن تست‌های PC.
+5. OPEN-02 (باقی‌مانده): firmware ESP32 پس از پاس‌شدن تست‌های PC؛ transport سرور انجام شد.
 
 ## F. چک‌لیست پذیرش
 
@@ -103,3 +103,13 @@ $ python -m pytest
 | پروتکل ESP32 | قرارداد ✅ | ✅ | ⛔ | ⛔ | ✅ |
 
 علامت ⛔ به معنی «انجام نشده»، نه «شکست‌خورده» است. هیچ ردیفی «تأییدشده روی سخت‌افزار» نیست.
+
+## G. تکمیل — transport صوتی LAN و لغو استریم با قطع کلاینت (۸ نوامبر ۲۰۲۶)
+
+| مورد | وضعیت | شاهد |
+|---|---|---|
+| `WS /ws/voice` با احراز هویت توکن، pipeline مستقل برای هر دستگاه | انجام شد (تست fake) | `server/ws_voice.py`, `tests/test_ws_voice.py` (۱۴ تست) |
+| `play_end` مرز نوبت و پس از همهٔ فریم‌ها | انجام شد | `test_playback_frames_are_valid_protocol_frames`, `test_one_play_end_per_turn_not_per_sentence` |
+| barge-in دستگاه: drain صف پخش + `play_stop` با `turn_id` | انجام شد | `test_cancelled_playback_frames_are_dropped_before_play_stop` |
+| لغو تولید پس از قطع کلاینت SSE | انجام شد | `tests/test_api.py::test_sse_client_disconnect_cancels_upstream_generation` |
+| firmware / LAN واقعی / رجیستری / OTA | **انجام نشده — NOT MEASURED** | `docs/HARDWARE_VALIDATION.md` |

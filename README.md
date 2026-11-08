@@ -52,7 +52,8 @@ D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 1
 - AEC با اکو/دوصدایی مصنوعی تست شده (کاهش ۵۷٫۸dB در سیگنال ساختگی)؛ اتاق و دستگاه واقعی
   تأیید نشده‌اند. بدون هدفون، کالیبراسیون `PVAI_AEC_DELAY_MS` لازم است.
 - تاریخچهٔ مکالمه محلی و ماندگار است (`data/conversations/*.jsonl`)؛ پنجرهٔ RAM محدود است.
-- پروتکل WebSocket صوتی ESP32-S3 فقط **قرارداد + تست واحد** است؛ transport و firmware پیاده نشده‌اند.
+- پروتکل WebSocket صوتی ESP32-S3 و **transport سمت سرور** پیاده شده‌اند (`WS /ws/voice`، خاموش به‌صورت
+  پیش‌فرض، با توکن اجباری)؛ **firmware و تست LAN واقعی انجام نشده‌اند**.
 - اجرای CPU پیش‌فرض است؛ بنچمارک قدیمی GPU روی MiniCPM به Qwen قابل تعمیم نیست.
 
 ## API و چت متنی
@@ -61,7 +62,8 @@ D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 1
 |---|---|
 | `GET /health` | وضعیت اتصال backend و مدل |
 | `GET /ready` | چک‌لیست کامل: تنظیمات، مدل ASR/TTS، وابستگی‌ها، AEC، ذخیره‌سازی، backend (503 اگر ناقص) |
-| `GET /api/protocol` | قرارداد انتقال ESP32 (design-only، `implemented: false`) |
+| `GET /api/protocol` | قرارداد انتقال ESP32 (`transport_implemented: true`، `firmware_implemented: false`) |
+| `WS /ws/voice` | صدای دستگاه LAN (opt-in با `PVAI_WS_ENABLED` و `PVAI_WS_TOKEN`) |
 | `GET /v1/models` | مدل‌های بارشده در llama-server |
 | `POST /v1/chat/completions` | چت JSON یا SSE با `stream=true` |
 | `POST /api/chat` | پاسخ سادهٔ یک‌پیامی با `session_id` اختیاری |
@@ -102,7 +104,7 @@ API فعلی احراز هویت ندارد؛ پورت‌ها را عمومی ن
 - [STREAMING_ARCHITECTURE](docs/STREAMING_ARCHITECTURE.md): utterance/generation، صف‌ها، ماشین حالت، لغو
 - [CONFIGURATION](docs/CONFIGURATION.md): مرجع کامل `PVAI_*`
 - [AEC](docs/AEC.md): SpeexDSP، تأخیر، چک‌لیست بلندگو/میکروفون
-- [PROTOCOL](docs/PROTOCOL.md): قرارداد WebSocket صوتی ESP32-S3 (design-only)
+- [PROTOCOL](docs/PROTOCOL.md): قرارداد WebSocket صوتی ESP32-S3 + transport سرور (firmware نشده)
 - [BENCHMARKS](docs/BENCHMARKS.md): روش‌شناسی و نتایج برچسب‌دار
 - [TROUBLESHOOTING](docs/TROUBLESHOOTING.md): پیام‌ها و راه‌حل
 - [HARDWARE_VALIDATION](docs/HARDWARE_VALIDATION.md): چک‌لیست تست واقعی
