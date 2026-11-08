@@ -167,7 +167,7 @@ def test_runtime_aec_precedes_pipeline_and_resources_close(monkeypatch):
             order.append('aec_close')
 
     class Pipeline:
-        def __init__(self, *args):
+        def __init__(self, *args, **kwargs):
             pass
 
         def start(self):
@@ -191,11 +191,21 @@ def test_runtime_aec_precedes_pipeline_and_resources_close(monkeypatch):
         def __exit__(self, *args):
             order.append('stream_close')
 
+    class FakeSd:
+        """Minimal sounddevice stand-in: one duplex device, no capability checks."""
+
+        @staticmethod
+        def query_devices():
+            return [{'name': 'test duplex', 'max_input_channels': 1,
+                     'max_output_channels': 1, 'default_samplerate': 16000}]
+
+    FakeSd.RawStream = Stream
     monkeypatch.setattr('server.aec.SpeexAEC', AEC)
-    monkeypatch.setattr('server.streaming_voice.LocalAudio', lambda s: SimpleNamespace(validate=lambda: None))
+    monkeypatch.setattr('server.streaming_voice.LocalAudio',
+                        lambda s, metrics=None: SimpleNamespace(validate=lambda: None))
     monkeypatch.setattr('server.streaming_voice.Speaker', lambda s, duplex: object())
     monkeypatch.setattr('server.streaming_voice.Pipeline', Pipeline)
-    monkeypatch.setattr('server.streaming_voice.dependency', lambda name: SimpleNamespace(RawStream=Stream))
+    monkeypatch.setattr('server.streaming_voice.dependency', lambda name: FakeSd)
     with pytest.raises(RuntimeError, match='stop test'):
         asyncio.run(run_live(Settings()))
     assert order == ['aec', 'vad_asr', 'stream_close', 'pipeline_close', 'aec_close']

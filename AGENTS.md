@@ -21,9 +21,13 @@
 | هستهٔ متنی محلی: FastAPI + llama.cpp (GGUF) + CLI فارسی | **پیاده‌شده و تست‌شده** (درس ۱) |
 | بنچمارک فارسی (TTFT، tok/s، زمان کل) | اجراشده روی MiniCPM؛ جزئیات در STATUS |
 | ESP32-S3 (I2S، پخش، RMS) | کد V1-A **در این مخزن نیست** (خارج از مخزن نگه داشته می‌شود) و روی سخت‌افزار واقعی build/تست نشده |
-| صوت PC | ورودی پیوسته، energy endpointing، Whisper افزایشی حین گفتار، async SSE و Piper تدریجی؛ تست واقعی لازم است |
+| صوت PC | ورودی پیوسته، VAD با هیسترزیس/پیش‌رول، صف final بدون‌افت، partial هم‌پوشان، async SSE، Piper تدریجی؛ تست خودکار سبز، تست واقعی لازم |
 | AEC روی PC | SpeexDSP با مرجع duplex؛ تست مصنوعی موفق، تست دستگاه واقعی لازم |
-| Wi-Fi/WebSocket صوتی ESP32 | پیاده‌نشده |
+| ماشین حالت و barge-in | صریح و تست‌شده (`tests/test_state_machine.py`, `tests/test_utterance_lifecycle.py`) |
+| حافظهٔ مکالمه | محلی/JSONL، برش توکنی، پنجرهٔ RAM محدود، وضعیت interrupted |
+| readiness / سنجه‌ها | `/ready` کامل + `server/metrics.py` با تست |
+| بنچمارک و ارزیابی فارسی | `tools/benchmark_voice.py` و `benchmarks/persian_eval.py`؛ اعداد واقعی هدف NOT MEASURED |
+| Wi-Fi/WebSocket صوتی ESP32 | transport سرور پیاده‌شده (`server/ws_voice.py`)؛ firmware پیاده‌نشده |
 | IoT Command Broker، احراز هویت دستگاه، OTA | پیاده‌نشده |
 
 جزئیات و فهرست فایل‌ها: [`docs/STATUS.md`](docs/STATUS.md).
@@ -55,20 +59,39 @@ PersianVoiceAI/
 ├─ .env.example           ← قالب متغیرهای محیطی
 ├─ docs/
 │  ├─ SPEC.md             ← مستند جامع v1.0 (مرجع تصمیم‌ها)
-│  └─ STATUS.md           ← وضعیت اجرایی، تست‌ها، گام بعدی
+│  ├─ STATUS.md           ← وضعیت اجرایی، تست‌ها، نگاشت ۲۰ الزام به تست
+│  ├─ ISSUE_REGISTER.md   ← دفترچهٔ ایرادها: ریشه، رفع، تست، وضعیت
+│  ├─ STREAMING_ARCHITECTURE.md ← utterance/generation، صف‌ها، ماشین حالت، لغو
+│  ├─ CONFIGURATION.md    ← مرجع کامل متغیرهای PVAI_*
+│  ├─ AEC.md              ← SpeexDSP، تأخیر، چک‌لیست
+│  ├─ PROTOCOL.md         ← قرارداد WebSocket ESP32-S3 + transport سرور
+│  ├─ BENCHMARKS.md       ← روش‌شناسی و نتایج برچسب‌دار
+│  ├─ TROUBLESHOOTING.md  ← پیام‌های خطا و راه‌حل
+│  └─ HARDWARE_VALIDATION.md ← چک‌لیست تست واقعی
 ├─ server/                ← سرویس محلی پایتون (FastAPI)
-│  ├─ main.py             ← اپ FastAPI و endpointها
+│  ├─ main.py             ← اپ FastAPI، /ready، /api/sessions، OpenAI-compatible
 │  ├─ llm.py              ← کلاینت async llama.cpp + اندازه‌گیری زمان
-│  ├─ config.py           ← تنظیمات از env / .env (PVAI_*)
-│  ├─ voice.py           ← ورودی CLI صوت PC (پیش‌فرض زنده)
-│  ├─ live_voice.py      ← endpoint، جمله‌بندی و پخش لغوپذیر
-│  ├─ streaming_voice.py ← actorهای async، ASR partial/final و لغو SSE
+│  ├─ config.py           ← تنظیمات از env / .env (PVAI_*) + اعتبارسنجی
+│  ├─ voice.py            ← LocalAudio (Whisper) و CLI حالت turn-based
+│  ├─ live_voice.py       ← Speaker (Piper)، جمله‌بندی، پخش لغوپذیر
+│  ├─ streaming_voice.py  ← Pipeline: Utterance/AssistantTurn، AsrScheduler، ماشین حالت
+│  ├─ vad.py              ← EnergyVAD: هیسترزیس، پیش‌رول، کف نویز تطبیقی
+│  ├─ aec.py              ← SpeexDSP + DuplexAudio (مرجع پخش واقعی)
+│  ├─ audio_io.py         ← انتخاب/اعتبارسنجی دستگاه، pump و recovery
+│  ├─ conversation.py     ← Message/Conversation/ConversationStore (JSONL محلی)
+│  ├─ sessions.py         ← CLI بازبینی/حذف نشست
+│  ├─ metrics.py          ← سنجه‌های bounded
+│  ├─ resources.py        ← CPU/RAM بدون وابستگی اجباری
+│  ├─ readiness.py        ← چک‌لیست startup
+│  ├─ persian.py          ← نرمال‌سازی فارسی + WER/CER
+│  ├─ protocol.py         ← قرارداد فریم/پیام ESP32
+│  ├─ ws_voice.py         ← transport WebSocket سرور برای دستگاه LAN
 │  ├─ cli.py              ← کلاینت چت فارسی ترمینال
 │  ├─ __main__.py         ← اجرای `python -m server`
 │  └─ __init__.py         ← نسخهٔ سرویس
-├─ tests/                 ← pytest؛ بدون نیاز به مدل (fake LLM)
-├─ benchmarks/            ← ۸ پرامپت فارسی + اسکریپت سنجش
-├─ tools/                 ← اسکریپت‌های PowerShell و ابزار بررسی
+├─ tests/                 ← pytest؛ بدون نیاز به مدل (fake LLM/ASR/TTS/دستگاه)
+├─ benchmarks/            ← پرامپت‌های متنی + persian_eval.py + persian_eval_set.json
+├─ tools/                 ← PowerShell + benchmark_voice.py + environment_test.py
 ├─ models/                ← مدل‌های محلی GGUF (خارج از git)
 ├─ data/                  ← مکالمه/بازخورد/دانش محلی (خارج از git)
 └─ firmware/              ← (ساخته نشده) هدف: پروژهٔ ESP-IDF esp32s3_terminal
@@ -94,8 +117,12 @@ Copy-Item .env.example .env
 .\tools\chat.ps1
 .\tools\chat.ps1 --once "سلام! خودت را معرفی کن"
 
-# تست‌ها (بدون مدل) — باید همیشه سبز باشد
+# تست‌ها (بدون مدل) — باید همیشه سبز باشد: ۲۳۷ passed، ۲ skipped
 .\.venv\Scripts\python.exe -m pytest
+
+# آمادگی سرویس و بنچمارک زنجیرهٔ صوت (برچسب MEASURED/SIMULATED/NOT MEASURED)
+curl http://127.0.0.1:8000/ready
+.\.venv\Scripts\python.exe tools\benchmark_voice.py --json-out benchmarks\results\voice-pc.json
 
 # سنجش کیفیت/سرعت پاسخ
 .\tools\benchmark.ps1
@@ -161,3 +188,22 @@ Whisper افزایشی با snapshot را با مدل ذاتاً streaming یک�
 
 AEC مرجع `docs/AEC.md`: مرجع فقط از PCM ارسال‌شده در callback duplex گرفته شود؛
 نبود کتابخانهٔ native نباید باعث bypass خاموش شود. AEC قبل از VAD/ASR اعمال می‌شود.
+
+
+---
+
+## نکات تازهٔ بازبینی (الزامی برای هر عامل بعدی)
+
+1. **برچسب‌گذاری اندازه‌گیری:** هر عدد در مستندات باید `MEASURED` / `SIMULATED` /
+   `NOT MEASURED` داشته باشد. `SIMULATED` را هرگز «کارایی» ننامید. مرجع: `docs/BENCHMARKS.md`.
+2. **مالکیت صف‌ها:** `AsrScheduler.finals` بدون‌افت است؛ هیچ لغو دستیار اجازهٔ دست‌زدن به آن را ندارد.
+   فقط shutdown می‌تواند کنارش بگذارد و باید اعلام کند. تست: `tests/test_asr_scheduler.py`.
+3. **`AsrScheduler.submit_*` باید روی thread حلقهٔ asyncio صدا زده شود.** اگر روزی از thread دیگر
+   صدا زدید، `loop.call_soon_threadsafe` لازم است؛ در غیر این صورت lost wakeup برمی‌گردد.
+4. **هیچ ادعای «تست سخت‌افزاری» بدون ثبت در `docs/HARDWARE_VALIDATION.md`.** الگوی ثبت در
+   بخش ۸ همان سند است.
+5. **متن در برابر صوت:** متن مکالمه با `PVAI_HISTORY_PERSIST` روی دیسک محلی می‌ماند؛ صوت نه.
+   اگر قابلیت جدیدی متن را جایی خارج از `PVAI_DATA_DIR` می‌نویسد، همان‌جا مستند و قابل حذف کنید.
+6. **firmware ESP32 هنوز وجود ندارد** (`/api/protocol` → `transport_implemented: true`,
+   `firmware_implemented: false`). تا پیاده‌سازی
+   transport، در README/STATUS «پیاده‌شده» نوشته نشود.
