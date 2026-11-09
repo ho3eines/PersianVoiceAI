@@ -18,8 +18,9 @@ Three modes
    when a human has listened to real recordings and typed what they heard, or
    when an ASR run produced a transcript file.  WER/CER are computed with
    :func:`server.persian.evaluate`, i.e. the documented policy
-   (NFC, Arabic ي/ك → ی/ک, diacritics removed, digits unified, نیم‌فاصله → space,
-   punctuation removed).  Formatting-only differences therefore do **not**
+   (NFC, Arabic ي/ك and أ/إ/ٱ → ی/ک/ا, diacritics removed, invisible characters
+   dropped, digits unified, number separators canonicalised, نیم‌فاصله → space,
+   punctuation → a space).  Formatting-only differences therefore do **not**
    count as recognition errors.
 
 3. ``--audio-dir DIR`` — transcribe ``DIR/<id>.wav`` with the *real* local

@@ -677,3 +677,108 @@ def test_a_huge_integer_is_read_digit_by_digit() -> None:
 
 def test_control_characters_are_removed() -> None:
     assert prepare_for_tts("\x00\x01 متن \x7f") == "متن."
+
+
+# --------------------------------------------------------------- review fixes
+def test_persian_list_markers_are_not_read_aloud() -> None:
+    """A Persian model writes ``۱.``, not ``1.``.
+
+    ``_LIST_MARKER_RE`` only knew ASCII digits, so ``۱. اول`` kept its marker and
+    the voice said "یک." before every item — the exact defect the ASCII path was
+    added to fix.
+    """
+    assert prepare_for_tts("۱. اول\n۲. دوم") == prepare_for_tts("1. اول\n2. دوم")
+    assert prepare_for_tts("۱. اول\n۲. دوم") == "اول دوم."
+    assert prepare_for_tts("۱) اول\n۲) دوم") == "اول دوم."
+
+
+def test_persian_thousands_and_decimal_marks_are_spoken_as_one_number() -> None:
+    """``۱٬۲۰۰٬۰۰۰`` was read as "یک٬دویست٬صفر": the mark reached the voice.
+
+    The number regex only knew ASCII separators, so the Persian thousands mark
+    stayed in the text while the digits around it were replaced.
+    """
+    assert prepare_for_tts("قیمت ۱٬۲۰۰٬۰۰۰ ریال") == (
+        "قیمت یک میلیون و دویست هزار ریال."
+    )
+    assert prepare_for_tts("۱٬۲۳۴ ریال") == "یک هزار و دویست و سی و چهار ریال."
+    assert prepare_for_tts("۱۲٬۳۴۵٫۶۷") == (
+        "دوازده هزار و سیصد و چهل و پنج ممیز شصت و هفت."
+    )
+    assert prepare_for_tts("۳٫۵ درصد") == "سه ممیز پنج درصد."
+    for raw in ("۱٬۲۰۰٬۰۰۰", "۱۲٬۳۴۵٫۶۷"):
+        out = prepare_for_tts(raw)
+        assert "\u066c" not in out and "\u066b" not in out, out
+
+
+def test_the_decimal_mark_is_not_a_clock_separator() -> None:
+    """``۳٫۴۵`` is "three point four five", not "three and forty-five minutes".
+
+    ``_TIME_RE`` accepted ``٫`` as a clock separator, so every Persian decimal
+    between 00 and 59 in the minute position became a time.
+    """
+    assert prepare_for_tts("۳٫۴۵") == "سه ممیز چهل و پنج."
+    assert prepare_for_tts("ساعت ۱۰:۳۰") == "ده و سی دقیقه."
+    assert prepare_for_tts("ساعت ۱۰٫۳۰") == "ساعت ده ممیز سی."
+
+
+def test_a_percent_sign_before_the_number_is_spoken() -> None:
+    assert prepare_for_tts("٪۲۵") == "بیست و پنج درصد."
+    assert prepare_for_tts("۲۵٪") == "بیست و پنج درصد."
+
+
+def test_the_ezafe_written_as_one_letter_survives() -> None:
+    """``ۀ`` (U+06C0) was folded to ``ه`` and the ezafe disappeared."""
+    assert prepare_for_tts("خانۀ من") == prepare_for_tts("خانهٔ من")
+    assert EZAFE in prepare_for_tts("خانۀ من")
+
+
+def test_invisible_characters_are_dropped_before_the_voice_sees_them() -> None:
+    """A zero-width space is not a نیم‌فاصله: dropping it glues the word."""
+    for hidden in ("\u200b", "\u200d", "\u00ad", "\ufeff"):
+        assert prepare_for_tts(f"می{hidden}روم") == "میروم."
+    # A lone ZWNJ next to a space or doubled is a paste artefact, not a نیم‌فاصله.
+    assert prepare_for_tts(f"می {ZWNJ}روم") == "می روم."
+    assert prepare_for_tts(f"می{ZWNJ}{ZWNJ}روم") == "میروم."
+
+
+def test_split_tts_sentences_keeps_persian_digits_together() -> None:
+    """``۳.۵`` used to split into ``۳.`` and ``۵`` -- a list number every time."""
+    assert split_tts_sentences("عدد ۳.۵ است. بله.") == ["عدد ۳.۵ است.", "بله."]
+    assert split_tts_sentences("ساعت ۱۰:۳۰ است. بعد برو.") == [
+        "ساعت ۱۰:۳۰ است.",
+        "بعد برو.",
+    ]
+
+
+@pytest.mark.parametrize("step", (1, 2, 3, 5, 8))
+def test_streaming_persian_list_does_not_split_the_numbers(step: int) -> None:
+    text = "**مهم:** سه مورد:\n۱. اول\n۲. دوم"
+    buffer = ""
+    ready: list[str] = []
+    for index in range(0, len(text), step):
+        piece, buffer = sentences(buffer + text[index : index + step])
+        ready.extend(piece)
+    ready.extend(sentences(buffer, final=True)[0])
+    assert "۱." not in ready and "۲." not in ready, (step, ready)
+    # No printed marker survives into what the voice is handed, and both items
+    # are still spoken.  (Each piece is prepared on its own, as the pipeline
+    # does, so the line-anchored marker rule only sees its own piece.)
+    spoken = [prepare_for_tts(piece) for piece in ready]
+    for piece in spoken:
+        assert "۱." not in piece and "۲." not in piece, (step, spoken)
+        assert not any(char.isdigit() for char in piece), (step, spoken)
+    assert "اول" in "".join(spoken) and "دوم" in "".join(spoken), (step, spoken)
+
+
+def test_a_long_text_without_spaces_is_still_cut() -> None:
+    """``rfind(" ")`` returned -1 and nothing was ever released.
+
+    A buffer with no space in the window (unpunctuated text, or a script that
+    does not separate words) grew until the turn ended, so speech started only
+    after the whole answer had been generated.
+    """
+    ready, tail = sentences("ا" * 400 + " پایان")
+    assert ready, "the overflow path released nothing"
+    assert all(len(piece) <= 180 for piece in ready)
+    assert tail.endswith("پایان") or "پایان" in "".join(ready)

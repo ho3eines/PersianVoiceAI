@@ -354,3 +354,39 @@ def test_benchmark_closes_real_components(benchmark_voice) -> None:
 
     benchmark_voice._close_quietly(Broken())  # cleanup never fails a run
     assert released == ["asr", "tts"]
+
+
+def test_the_measured_policy_survives_real_asr_output_shapes(persian_eval) -> None:
+    """End-to-end: transcripts the way a Persian ASR model actually writes them.
+
+    Both differences below are *formatting* — Arabic ``ي``/``ك``/``إ`` instead of
+    Persian letters, Persian thousands ``٬`` instead of ASCII digits — so the
+    score must stay zero.  Before the review fixes the Arabic alef was left
+    untouched and the thousands mark reached the comparison, so each of these
+    produced a non-zero WER.
+    """
+    data = persian_eval.load_set()
+    reference = persian_eval.references(data)
+    hypothesis = dict(reference)
+    hypothesis["fa-019"] = "مي‌خواهم يك فيلم فارسي ببينم."  # Arabic yeh + kaf
+    hypothesis["fa-004"] = "شماره منزل من ٢٤ است و واحد سه."  # Arabic-Indic digits
+    report = persian_eval.score(reference, hypothesis)
+    assert report["wer"] == 0.0, report
+    assert report["cer"] == 0.0, report
+
+
+def test_policy_limits_are_documented_not_hidden(persian_eval) -> None:
+    """The two known non-equivalences must keep costing, not be normalised away.
+
+    * a quantity written as digits is not the same token as the same quantity
+      written in words (``۱۲۰۰`` vs «هزار و دویست»);
+    * the ezafe written as a نیم‌فاصله (``کتابخانهٔ`` → ``کتابخانه‌ی``) becomes
+      two tokens, because the policy maps ZWNJ to a space.
+
+    Both are stated in ``docs/BENCHMARKS.md``; pinning them stops a later
+    "cleanup" from silently making the metric lenient.
+    """
+    from server.persian import wer
+
+    assert wer("هزار و دویست تومان", "۱۲۰۰ تومان") > 0
+    assert wer("کتابخانهٔ دانشگاه", "کتابخانه‌ی دانشگاه") > 0

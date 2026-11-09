@@ -36,12 +36,20 @@ logger = logging.getLogger("persian_voice_ai.tts")
 SENTENCE_END = re.compile(r"[.!؟?\n؛](?:\s|$)")
 MAX_CHUNK_CHARS = 180
 
+#: Digits of every script a Persian model writes: ASCII, Arabic-Indic (٠-٩) and
+#: Persian (۰-۹).  Matching only ASCII was a real defect — ``۱. اول`` (the form a
+#: Persian model produces) was not recognised as a list marker, so every item
+#: number became its own utterance and Piper read it as "یک.".
+_DIGITS = "0-9\u0660-\u0669\u06f0-\u06f9"
+
 #: A boundary immediately preceded by one of these is not a sentence end:
 #: ``1.`` / ``2)`` is a list marker and ``3.5`` a decimal.  The original
 #: ``SENTENCE_END`` split ``"**مهم:** سه مورد:\n1. اول\n2. دوم"`` into
 #: ``['…\n1.', 'اول\n2.', 'دوم']``, so Piper pronounced every list number as
 #: its own sentence with an audible full stop.
-_NOT_A_BOUNDARY = re.compile(r"(?:[0-9]{1,3}[.)]|[0-9]\.[0-9]|[A-Za-z]\.[A-Za-z])$")
+_NOT_A_BOUNDARY = re.compile(
+    rf"(?:[{_DIGITS}]{{1,3}}[.)]|[{_DIGITS}]\.[{_DIGITS}]|[A-Za-z]\.[A-Za-z])$"
+)
 OUTPUT_BLOCK_SECONDS = 0.02
 
 
@@ -69,6 +77,13 @@ def sentences(buffer: str, final: bool = False) -> tuple[list[str], str]:
             end = match.end()
         elif len(buffer) > MAX_CHUNK_CHARS:
             end = buffer.rfind(" ", 0, MAX_CHUNK_CHARS)
+            if end <= 0:
+                # No space at all in the window (an unpunctuated blob, or a
+                # language that does not separate words).  Refusing to split
+                # held the whole buffer back until the end of the turn, so the
+                # utterance latency grew without bound; cut at the limit
+                # instead, which is what the limit exists for.
+                end = MAX_CHUNK_CHARS
         else:
             end = -1
         if end <= 0:
@@ -84,7 +99,7 @@ def sentences(buffer: str, final: bool = False) -> tuple[list[str], str]:
         # piece back means "2. دوم" is split as one utterance instead of
         # "2." followed by "دوم" -- the number is a marker, not a full stop.
         last = ready[-1]
-        if last.endswith((",", "،")) or re.search(r"[0-9]{1,3}[.)]$", last):
+        if last.endswith((",", "،")) or re.search(rf"[{_DIGITS}]{{1,3}}[.)]$", last):
             ready = ready[:-1]
             buffer = (last + " " + buffer).strip()
     if final and buffer.strip():
