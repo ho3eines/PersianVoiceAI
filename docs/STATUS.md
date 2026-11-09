@@ -202,6 +202,41 @@ $ python -m pytest
 - تست‌های ساختگی: `tests/test_dataset_preparation.py`؛ کیفیت دادهٔ واقعی و آموزش
   **NOT MEASURED**.
 
+## بازبینی MLOps: پیکربندی، مسیرها و اعتبارسنجی داده — ۹ نوامبر ۲۰۲۶
+
+این گذر خواستهٔ «هیچ hyper-parameter و هیچ مسیر محلی داخل اسکریپت نباشد» را برای
+ابزارهای داده/آموزش پیاده کرد. **حلقهٔ آموزش همچنان در مخزن نیست** و هیچ عدد
+کیفیتی ادعا نمی‌شود.
+
+- `tools/training_config.py` (جدید): لایهٔ مشترک پیکربندی JSON/YAML با
+  اعتبارسنجی نوع/بازه، رد کلید ناشناخته با پیشنهاد، و بازکردن `${VAR}`،
+  `${VAR:-default}` و `~`. متغیر تعریف‌نشده **خطای پیکربندی** است (قبلاً به
+  «manifest not found: .../${CORPUS_ROOT}/...» تبدیل می‌شد).
+- مسیرهای نسبی در فایل پیکربندی نسبت به **پوشهٔ همان فایل** حل می‌شوند، نه `cwd`.
+  `PVAI_CORPUS_ROOT` مبنای مسیر صوت است وقتی `--audio-root`/`audio_root` نباشد.
+- `configs/`: `dataset.example.{yaml,json}` و `training.example.{yaml,json}`؛
+  هیچ مسیر مطلق محلی در آن‌ها نیست و تست، برابری YAML و JSON را تضمین می‌کند.
+- `tools/train_plan.py` (جدید): قرارداد trainer خارجی — `batch_size`، `grad_accum`
+  (با `effective_batch_size`)، `learning_rate` در `(0,1]`، `epochs`، `seed`،
+  `warmup_steps`، `precision` و مسیر هر split؛ `--write` یک plan ماشین‌خوان
+  می‌نویسد و `--check --no-require-paths` طرح‌واره را بدون corpus بررسی می‌کند.
+  پرچم خط فرمان بر فایل پیکربندی اولویت دارد.
+- `tools/prepare_dataset.py`: `--config` چند split را یک‌جا اعتبارسنجی می‌کند،
+  ورودی Hugging Face `save_to_disk` (DatasetDict و Dataset تک‌split، خواندن
+  محلی `.arrow` با PyArrow و صراحت در نبودش) می‌پذیرد، `--check` گزارش نشت
+  گوینده/فایل بین splitها می‌دهد و `--report` خروجی JSON ماشین‌خوان می‌نویسد.
+  بررسی تازه: `id` ایمن، `min/max_duration_s`، تناقض فیلد `split`، و پیام خطای
+  حاوی نام فایل برای WAV نامعتبر. هیچ فایلی بازنویسی نمی‌شود.
+- مسیرهای خروجی ابزارهای بنچمارک/ارزیابی از محیط قابل تنظیم شدند:
+  `PVAI_BENCHMARK_OUTPUT_DIR`، `PVAI_EVAL_SET` — گزارش دیگر به اجبار داخل checkout
+  نوشته نمی‌شود.
+- مستندات: `docs/DATASETS.md` بازنویسی شد (پیکربندی، قاعدهٔ مسیر، جدول بررسی‌ها،
+  قرارداد آموزش، ورودی Hugging Face) و README/AGENTS/THIRD_PARTY هم‌گام شدند.
+  `PyYAML` و `pyarrow` فقط dependency توسعه/ابزارند و در requirements-dev آمده‌اند.
+- تست‌ها: `tests/test_training_config.py` (۵۳ تست، بدون مدل/شبکه؛ خواندن
+  `save_to_disk` فقط وقتی `datasets`/`pyarrow` نصب باشند skip می‌شود). کیفیت دادهٔ
+  واقعی، آموزش و رفتار روی Windows **NOT MEASURED**.
+
 ## بازبینی چرخهٔ عمر منابع و پیکربندی — ۹ نوامبر ۲۰۲۶
 
 هدف این گذر «حافظهٔ نامحدود و مقدار نامعتبرِ خاموش» بود: هر جا عددی رشد می‌کرد

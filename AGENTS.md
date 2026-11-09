@@ -62,9 +62,10 @@ PersianVoiceAI/
 ├─ requirements.txt       ← فقط زمان اجرا
 ├─ requirements-dev.txt   ← pytest (فقط توسعه)
 ├─ requirements-voice.txt ← پشتهٔ صوتی اختیاری
+├─ configs/               ← نمونهٔ پیکربندی داده و آموزش (JSON + YAML)
 ├─ docs/
 │  ├─ PROJECT_GUIDE.md    ← راهنمای یکپارچه؛ تولید با tools/build_docs.py
-│  ├─ DATASETS.md         ← دادهٔ سفارشی و اعتبارسنجی manifest (بدون trainer)
+│  ├─ DATASETS.md         ← دادهٔ سفارشی، پیکربندی JSON/YAML، قرارداد trainer خارجی
 │  ├─ SPEC.md             ← مستند جامع v1.0 (مرجع تصمیم‌ها)
 │  ├─ STATUS.md           ← وضعیت اجرایی، تست‌ها، نگاشت ۲۰ الزام به تست
 │  ├─ ISSUE_REGISTER.md   ← دفترچهٔ ایرادها: ریشه، رفع، تست، وضعیت
@@ -103,6 +104,7 @@ PersianVoiceAI/
 ├─ tests/                 ← pytest؛ بدون نیاز به مدل (fake LLM/ASR/TTS/دستگاه)
 ├─ benchmarks/            ← پرامپت‌های متنی + persian_eval.py + persian_eval_set.json
 ├─ tools/                 ← اسکریپت‌های .ps1 و .sh + benchmark_voice.py + download_parallel.py
+│                             + prepare_dataset.py / train_plan.py / training_config.py
 ├─ models/                ← مدل‌های محلی GGUF (خارج از git)
 ├─ data/                  ← مکالمه/بازخورد/دانش محلی (خارج از git)
 └─ firmware/              ← (ساخته نشده) هدف: پروژهٔ ESP-IDF esp32s3_terminal
@@ -246,4 +248,7 @@ AEC مرجع `docs/AEC.md`: مرجع فقط از PCM ارسال‌شده در ca
 نقطهٔ ورود یکپارچه: [docs/PROJECT_GUIDE.md](docs/PROJECT_GUIDE.md).
 این فایل از راهنماهای موجود تولید می‌شود؛ پس از ویرایش منبع،
 `python tools/build_docs.py` و `python tools/build_docs.py --check` را اجرا کنید.
-ابزار `tools/prepare_dataset.py` فقط اعتبارسنجی محلی JSON/JSONL/CSV است؛ trainer نداریم.
+ابزار `tools/prepare_dataset.py` (ورودی JSON/JSONL/CSV یا Hugging Face `save_to_disk`)
+و `tools/train_plan.py` فقط اعتبارسنجی پیکربندی و داده‌اند؛ **trainer نداریم**. هر
+hyper-parameter جدید (يا مسیر) باید در `configs/*.example.*` و `docs/DATASETS.md`
+مستند شود و از `tools/training_config.py` رد شود، نه داخل اسکریپت hardcode.

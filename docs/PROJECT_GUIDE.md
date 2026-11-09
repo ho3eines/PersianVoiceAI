@@ -516,7 +516,8 @@ PersianVoiceAI/
 ├─ pytest.ini                   # Pytest discovery settings
 ├─ requirements.txt             # Minimal runtime dependencies (FastAPI, Uvicorn, httpx)
 ├─ requirements-voice.txt       # Optional local voice stack (Whisper, Piper, audio I/O)
-├─ requirements-dev.txt         # Test dependencies (pytest)
+├─ requirements-dev.txt         # Test/tooling dependencies (pytest, PyYAML, pyarrow)
+├─ configs/                     # Dataset & training configuration examples (JSON + YAML)
 ├─ server/                      # Core Python backend & voice engine
 │  ├─ main.py                   # FastAPI app, REST routes, auth middleware, rate limiting
 │  ├─ __main__.py               # Entry point for `python -m server`
@@ -545,7 +546,9 @@ PersianVoiceAI/
 │  ├─ benchmark.sh / .ps1       # Run text LLM throughput/TTFT benchmark
 │  ├─ benchmark_voice.py        # End-to-end voice pipeline benchmark (MEASURED/SIMULATED/NOT MEASURED)
 │  ├─ download_parallel.py      # Resumable parallel HTTPS downloader with mandatory SHA-256 checks
-│  ├─ prepare_dataset.py        # Offline JSON/JSONL/CSV + PCM16 WAV dataset manifest validator
+│  ├─ prepare_dataset.py        # Manifest validator (JSON/JSONL/CSV/Hugging Face) + portable export
+│  ├─ train_plan.py             # Validates a training config and emits a plan for an external trainer
+│  ├─ training_config.py        # Shared JSON/YAML config loader: paths, types, ranges, typo rejection
 │  ├─ environment_test.py       # Quick check for Python 3.12 inside `.venv`
 │  └─ build_docs.py             # Builds and checks `docs/PROJECT_GUIDE.md`
 ├─ benchmarks/                  # Evaluation scripts, prompt sets, and JSON results
@@ -604,15 +607,27 @@ python benchmarks/persian_eval.py --audio-dir recordings/fa --strict
 .\tools\benchmark.ps1
 ```
 
-### Custom Dataset Manifest Validation
+### Custom Datasets & External Training Contract
 
-This repository is for inference and evaluation only and **does not include a training loop**. To validate local JSON/JSONL/CSV manifests and 16 kHz mono PCM16 WAV recordings for external trainers:
+This repository is for inference and evaluation only and **does not include a training loop**. Data preparation and the hyper-parameters handed to an *external* trainer are nonetheless validated and reproducible:
 
 ```bash
-python tools/prepare_dataset.py --help
+# 1. Describe the corpus once (JSON or YAML; paths may use ${VAR} and are
+#    resolved relative to the config file, never the shell's cwd)
+cp configs/dataset.example.yaml configs/dataset.yaml
+export PVAI_CORPUS_ROOT=/data/persian-corpus
+
+# 2. Validate every split, get a split-leakage report, and export portable JSONL
+python tools/prepare_dataset.py --config configs/dataset.yaml --check   --report reports/dataset.json
+
+# 3. Validate the training hyper-parameters and hand the trainer a plan
+python tools/train_plan.py --config configs/training.example.yaml --check --no-require-paths
+PVAI_CORPUS_ROOT=/data/persian-corpus python tools/train_plan.py   --config configs/training.yaml --write runs/whisper-small-fa/plan.json
 ```
 
-See [`docs/DATASETS.md`](DATASETS.md) for the full schema, split hygiene, and Hugging Face local export workflow.
+Both tools also work purely from flags (`--manifest`, `--audio-root`, `--batch-size`, `--learning-rate`, …); a config file simply removes the machine-specific paths from the command line. Inputs: `.json`, `.jsonl`, `.csv`, or a Hugging Face `Dataset.save_to_disk` directory whose `audio` column holds path strings. Nothing is downloaded, nothing is rewritten, and no training is performed.
+
+See [`docs/DATASETS.md`](DATASETS.md) for the manifest schema, split hygiene, Hugging Face input, and the full list of validated hyper-parameters.
 
 ---
 
@@ -869,6 +884,41 @@ $ python -m pytest
   و export محلی Hugging Face است. پشتیبانی آموزش یا دریافت dataset از Hub اضافه نشده.
 - تست‌های ساختگی: `tests/test_dataset_preparation.py`؛ کیفیت دادهٔ واقعی و آموزش
   **NOT MEASURED**.
+
+## بازبینی MLOps: پیکربندی، مسیرها و اعتبارسنجی داده — ۹ نوامبر ۲۰۲۶
+
+این گذر خواستهٔ «هیچ hyper-parameter و هیچ مسیر محلی داخل اسکریپت نباشد» را برای
+ابزارهای داده/آموزش پیاده کرد. **حلقهٔ آموزش همچنان در مخزن نیست** و هیچ عدد
+کیفیتی ادعا نمی‌شود.
+
+- `tools/training_config.py` (جدید): لایهٔ مشترک پیکربندی JSON/YAML با
+  اعتبارسنجی نوع/بازه، رد کلید ناشناخته با پیشنهاد، و بازکردن `${VAR}`،
+  `${VAR:-default}` و `~`. متغیر تعریف‌نشده **خطای پیکربندی** است (قبلاً به
+  «manifest not found: .../${CORPUS_ROOT}/...» تبدیل می‌شد).
+- مسیرهای نسبی در فایل پیکربندی نسبت به **پوشهٔ همان فایل** حل می‌شوند، نه `cwd`.
+  `PVAI_CORPUS_ROOT` مبنای مسیر صوت است وقتی `--audio-root`/`audio_root` نباشد.
+- `configs/`: `dataset.example.{yaml,json}` و `training.example.{yaml,json}`؛
+  هیچ مسیر مطلق محلی در آن‌ها نیست و تست، برابری YAML و JSON را تضمین می‌کند.
+- `tools/train_plan.py` (جدید): قرارداد trainer خارجی — `batch_size`، `grad_accum`
+  (با `effective_batch_size`)، `learning_rate` در `(0,1]`، `epochs`، `seed`،
+  `warmup_steps`، `precision` و مسیر هر split؛ `--write` یک plan ماشین‌خوان
+  می‌نویسد و `--check --no-require-paths` طرح‌واره را بدون corpus بررسی می‌کند.
+  پرچم خط فرمان بر فایل پیکربندی اولویت دارد.
+- `tools/prepare_dataset.py`: `--config` چند split را یک‌جا اعتبارسنجی می‌کند،
+  ورودی Hugging Face `save_to_disk` (DatasetDict و Dataset تک‌split، خواندن
+  محلی `.arrow` با PyArrow و صراحت در نبودش) می‌پذیرد، `--check` گزارش نشت
+  گوینده/فایل بین splitها می‌دهد و `--report` خروجی JSON ماشین‌خوان می‌نویسد.
+  بررسی تازه: `id` ایمن، `min/max_duration_s`، تناقض فیلد `split`، و پیام خطای
+  حاوی نام فایل برای WAV نامعتبر. هیچ فایلی بازنویسی نمی‌شود.
+- مسیرهای خروجی ابزارهای بنچمارک/ارزیابی از محیط قابل تنظیم شدند:
+  `PVAI_BENCHMARK_OUTPUT_DIR`، `PVAI_EVAL_SET` — گزارش دیگر به اجبار داخل checkout
+  نوشته نمی‌شود.
+- مستندات: `docs/DATASETS.md` بازنویسی شد (پیکربندی، قاعدهٔ مسیر، جدول بررسی‌ها،
+  قرارداد آموزش، ورودی Hugging Face) و README/AGENTS/THIRD_PARTY هم‌گام شدند.
+  `PyYAML` و `pyarrow` فقط dependency توسعه/ابزارند و در requirements-dev آمده‌اند.
+- تست‌ها: `tests/test_training_config.py` (۵۳ تست، بدون مدل/شبکه؛ خواندن
+  `save_to_disk` فقط وقتی `datasets`/`pyarrow` نصب باشند skip می‌شود). کیفیت دادهٔ
+  واقعی، آموزش و رفتار روی Windows **NOT MEASURED**.
 
 ## بازبینی چرخهٔ عمر منابع و پیکربندی — ۹ نوامبر ۲۰۲۶
 
@@ -1917,99 +1967,179 @@ voice.example.internal {
 
 ## بخش 8 — docs/DATASETS.md
 
-# آماده‌سازی دادهٔ سفارشی (آفلاین)
+# آماده‌سازی دادهٔ سفارشی و قرارداد آموزش (آفلاین)
 
-## دامنهٔ فعلی
+این سند دو کار می‌کند: (۱) می‌گوید چگونه دادهٔ فارسی خودتان را برای آموزش آماده و
+اعتبارسنجی کنید، (۲) قرارداد hyper-parameterها را برای **trainer خارجی** تعریف می‌کند.
 
-این مخزن **حلقهٔ آموزش یا fine-tuning ندارد**؛ Whisper/CTranslate2، Piper و
-llama.cpp برای inference محلی استفاده می‌شوند. `benchmarks/persian_eval.py`
-برای ارزیابی است و `tools/prepare_dataset.py` فقط اعتبارسنجی و خروجی manifest
-انجام می‌دهد. batch size، learning rate و epochs در کد فعلی مصرف‌کننده ندارند؛
-آن‌ها باید در argparse یا فایل پیکربندی trainer آینده تعریف شوند، نه در inference.
-فایل CTranslate2 `model.bin` جایگزین checkpoint قابل آموزش Whisper نیست.
+## دامنهٔ فعلی (واقعیت کد)
+
+این مخزن **حلقهٔ آموزش یا fine-tuning ندارد**. Whisper/CTranslate2، Piper و
+llama.cpp فقط برای inference محلی استفاده می‌شوند و فایل `model.bin` یک checkpoint
+قابل آموزش نیست. ابزارهای این مخزن:
+
+| ابزار | کار |
+|---|---|
+| `tools/prepare_dataset.py` | اعتبارسنجی manifest/WAV، گزارش نشت split، export قابل‌حمل JSONL |
+| `tools/train_plan.py` | اعتبارسنجی پیکربندی آموزش و تولید plan ماشین‌خوان برای trainer خارجی |
+| `tools/training_config.py` | لایهٔ مشترک JSON/YAML، مسیرها، و اعتبارسنجی انواع |
+| `configs/dataset.example.yaml` | نمونهٔ پیکربندی داده (سه split) |
+| `configs/training.example.yaml` | نمونهٔ قرارداد آموزش (batch/lr/epochs/seed/…) |
+| `benchmarks/persian_eval.py` | ارزیابی WER/CER پس از آموزش |
+
+هیچ‌کدام شبکه استفاده نمی‌کنند و هیچ عدد کارایی/کیفیتی بدون اندازه‌گیری گزارش نمی‌شود.
 
 ## ۱. جمع‌آوری و جداسازی
 
-- فقط صوت دارای رضایت و مجوز مناسب استفاده کنید؛ اطلاعات شخصی را حذف کنید.
-- دادهٔ خصوصی را بیرون مخزن نگه دارید. صوت و manifest را commit نکنید.
-- train/validation/test را **پیش از آموزش** بر اساس گوینده و جلسهٔ ضبط جدا کنید؛
-  قطعه‌های یک ضبط نباید در چند split باشند. validator هر manifest را مستقل بررسی
-  می‌کند و عدم هم‌پوشانی بین splitها را تضمین نمی‌کند.
+- فقط صوت دارای رضایت و مجوز استفاده کنید؛ اطلاعات شخصی را حذف کنید.
+- دادهٔ خصوصی را بیرون مخزن نگه دارید. صوت، manifest و `configs/*.yaml` شخصی را
+  commit نکنید (فقط فایل‌های `*.example.*` در مخزن‌اند).
+- train/validation/test را **پیش از آموزش** بر اساس گوینده و جلسهٔ ضبط جدا کنید.
+  `--check` یک گزارش نشت (گوینده/فایل مشترک بین splitها) می‌دهد؛ آن را جدی بگیرید،
+  چون یک گویندهٔ مشترک عدد held-out را بی‌اعتبار می‌کند.
 - مجموعهٔ `benchmarks/persian_eval_set.json` برای ارزیابی است؛ آن را وارد train نکنید.
 - متن باید رونویسی واقعی همان قطعه باشد. نرمال‌سازی WER در
   `server.persian.normalize_for_eval` سیاست ارزیابی است، نه الزام تغییر متن آموزش.
 
 ## ۲. قرارداد manifest
 
-هر split یک فایل UTF-8 با پسوند `.json`، `.jsonl` یا `.csv` دارد.
-JSON یک آرایهٔ غیرخالی از objectهاست؛ JSONL هر خط یک object؛ CSV هدر الزامی دارد.
-فیلدهای الزامی و رشته‌ای غیرخالی:
+هر split یک فایل UTF-8 با پسوند `.json`، `.jsonl` یا `.csv` دارد، یا یک پوشهٔ
+Hugging Face `save_to_disk` است (بخش ۵). JSON یک آرایهٔ غیرخالی از objectهاست؛
+JSONL هر خط یک object؛ CSV هدر الزامی دارد.
 
-| فیلد | معنی |
-|---|---|
-| `id` | شناسهٔ یکتا در manifest |
-| `audio` | مسیر محلی فایل WAV |
-| `text` | رونویسی مرجع |
+| فیلد | الزامی | معنی |
+|---|---|---|
+| `id` | ✅ | شناسهٔ یکتا و ایمن (بدون `..`, `/`, `\`)؛ در ارزیابی نام فایل `<id>.wav` می‌شود |
+| `audio` | ✅ | مسیر فایل WAV (نسبی یا مطلق) |
+| `text` | ✅ | رونویسی مرجع، غیرخالی |
+| `speaker` | اختیاری | برای گزارش نشت split اکیداً توصیه می‌شود |
+| `split` | اختیاری | اگر بیاید باید با split همان manifest یکی باشد |
+| `duration_s`, `source` | اختیاری | حفظ می‌شوند؛ `duration_s` از خود WAV بازمحاسبه می‌شود |
 
 نمونهٔ JSONL (`train.jsonl`):
 
 ```json
-{"id":"speaker01-001","audio":"audio/speaker01-001.wav","text":"سلام حال شما چطور است؟"}
+{"id":"speaker01-001","audio":"audio/speaker01-001.wav","text":"سلام حال شما چطور است؟","speaker":"speaker01"}
 ```
 
 نمونهٔ CSV:
 
 ```csv
-id,audio,text
-speaker01-001,audio/speaker01-001.wav,سلام حال شما چطور است؟
+id,audio,text,speaker
+speaker01-001,audio/speaker01-001.wav,سلام حال شما چطور است؟,speaker01
 ```
 
-فیلد CSV دارای کاما باید داخل کوتیشن باشد. فیلدهای اضافی در export حفظ نمی‌شوند؛
-نسخهٔ اصلی manifest و metadata گوینده/مجوز را جداگانه نگه دارید.
+فیلد CSV دارای کاما باید داخل کوتیشن باشد. نسخهٔ اصلی manifest و metadata
+گوینده/مجوز را جداگانه نگه دارید؛ export فقط فیلدهای شناخته‌شده را می‌نویسد.
 
-## ۳. مسیرها و اعتبارسنجی
+## ۳. پیکربندی داده (توصیه‌شده) و مسیرها
 
-مسیرهای نسبی `audio` به **پوشهٔ manifest** وابسته‌اند، نه پوشهٔ اجرای فرمان.
-`--audio-root` این مبنا را تغییر می‌دهد؛ مقدار نسبی آن نسبت به پوشهٔ اجرای فرمان است.
-مسیر مطلق، `~` و متغیر محیطی مانند `${CORPUS_ROOT}` نیز پشتیبانی می‌شوند.
-خروجی مسیر صوت را نسبت به پوشهٔ manifest خروجی ذخیره می‌کند؛ برای انتقال، ساختار
-نسبی پوشه‌های صوت و manifest را با هم حفظ کنید. متغیر محیطی تعریف‌نشده در نهایت
-به‌صورت مسیر ناموجود رد می‌شود. هیچ دانلود یا تماس شبکه‌ای انجام نمی‌شود.
+همهٔ پارامترها هم از **فایل پیکربندی** و هم از **آرگومان خط فرمان** قابل تنظیم‌اند:
 
 ```bash
-python tools/prepare_dataset.py --manifest /path/to/corpus/train.jsonl
-python tools/prepare_dataset.py --manifest /path/to/corpus/train.csv \
-  --audio-root /path/to/recordings --sample-rate 16000 \
-  --out /path/to/corpus/validated/train.jsonl
+cp configs/dataset.example.yaml configs/dataset.yaml   # سپس مسیرها را ویرایش کنید
+export PVAI_CORPUS_ROOT=/data/persian-corpus          # یا در خود فایل بگذارید
+python tools/prepare_dataset.py --config configs/dataset.yaml --check --report reports/dataset.json
 ```
 
-همهٔ پارامترهای preprocessing از argparse می‌آیند:
-`--manifest` (اجباری)، `--audio-root` (پیش‌فرض پوشهٔ manifest)،
-`--sample-rate` (پیش‌فرض 16000)، `--out` (اختیاری).
+```bash
+# یک manifest، با پرچم‌های صریح
+python tools/prepare_dataset.py --manifest manifests/train.jsonl \
+  --audio-root audio --sample-rate 16000 \
+  --min-duration-s 0.3 --max-duration-s 30 \
+  --out validated/train.jsonl
+```
 
-validator با کتابخانهٔ استاندارد پایتون فایل را واقعاً باز می‌کند و WAV PCM16،
-mono، نرخ انتخاب‌شده، غیرخالی بودن و کامل بودن فریم‌ها را بررسی می‌کند.
-شناسه یا recording تکراری، نوع فیلد نامعتبر، JSON خراب و صوت ناخوانا با پیام شامل
-مسیر/شمارهٔ رکورد و exit code 2 رد می‌شوند. فایل ورودی بازنویسی نمی‌شود.
-این ابزار صوت را تغییر نمی‌دهد؛ تبدیل را آگاهانه روی یک کپی انجام دهید، مثلاً با
-FFmpeg نصب‌شدهٔ محلی:
+قواعد مسیر — همه در `tools/training_config.py` پیاده شده‌اند:
+
+1. `${VAR}`، `$VAR`، `${VAR:-default}` و `~` باز می‌شوند. متغیر تعریف‌نشده
+   **خطای پیکربندی** است، نه مسیر عجیب `${VAR}/...`.
+2. مسیر نسبی در فایل پیکربندی **نسبت به پوشهٔ همان فایل** حل می‌شود، پس `cd` به
+   پوشهٔ دیگر رفتار را عوض نمی‌کند. مسیر مطلق همان‌طور که هست استفاده می‌شود.
+3. `PVAI_CORPUS_ROOT` مبنای مسیرهای `audio` است وقتی `--audio-root`/`audio_root`
+   داده نشده باشد (پیش‌فرض: پوشهٔ manifest).
+4. `PVAI_DATASET_CONFIG` و `PVAI_TRAIN_CONFIG` مسیر فایل پیکربندی را می‌دهند،
+   `PVAI_BENCHMARK_OUTPUT_DIR` و `PVAI_EVAL_SET` مسیر خروجی/مجموعهٔ ارزیابی را.
+5. پرچم خط فرمان بر مقدار فایل پیکربندی اولویت دارد.
+
+کلید ناشناخته در فایل پیکربندی **رد** می‌شود (با پیشنهاد نزدیک‌ترین کلید درست)،
+چون یک غلط تایپی مثل `learnig_rate` در سکوت به پیش‌فرض برمی‌گشت و آزمایش را عوض می‌کرد.
+
+## ۴. اعتبارسنجی: چه چیزی بررسی می‌شود
+
+| بررسی | رفتار |
+|---|---|
+| فرمت manifest | `.json`/`.jsonl`/`.csv`/HF dir؛ پسوند دیگر خطای صریح |
+| فیلدهای رکورد | `id`/`audio`/`text` رشتهٔ غیرخالی؛ object بودن هر رکورد |
+| `id` | یکتا و ایمن (بدون `..`, `/`, `\`, NUL) |
+| recording | یکتا؛ WAV واقعاً باز می‌شود |
+| فرمت WAV | PCM16 mono با نرخ پیکربندی (پیش‌فرض 16000) |
+| خالی/بریده | `nframes>0` و طول داده = `nframes*2` |
+| مدت | `min_duration_s`/`max_duration_s` روی طول واقعی |
+| split | فیلد `split` نباید با manifest متناقض باشد؛ یک manifest = یک split |
+| نشت | گزارش گوینده/فایل مشترک بین splitها |
+
+خروجی: پیام خطا با مسیر manifest، شمارهٔ رکورد و مسیر فایل، و exit code `2`.
+هیچ فایلی بازنویسی نمی‌شود و هیچ صوتی تغییر نمی‌کند.
 
 ```bash
+# تبدیل آگاهانه روی یک کپی (FFmpeg سیستمی، نه پایتون)
 ffmpeg -i original.wav -ar 16000 -ac 1 -c:a pcm_s16le normalized.wav
 ```
 
-## ۴. استفاده با trainer خارجی یا Hugging Face
+## ۵. ورودی Hugging Face (`save_to_disk`)
 
-این ابزار `DatasetDict`، مسیر `save_to_disk` یا نام dataset روی Hub را نمی‌خواند.
-برای دادهٔ Hugging Face، هر split را **محلی** به قرارداد JSONL بالا export کنید؛
-ستون audio باید مسیر فایل باشد، نه object، آرایهٔ نمونه‌ها یا URL.
-اگر داده فقط آرایه دارد، ابتدا آن را با نرخ صحیح به WAV محلی ذخیره کنید.
-شناسهٔ پایدار به هر ردیف بدهید و splitها را جدا اعتبارسنجی کنید.
-پس از validation، trainer خارجی باید manifest را بخواند و مسیرهای نسبی audio را
-نسبت به خود manifest resolve کند. هایپرپارامترها، seed، نسخهٔ مدل/داده و وابستگی‌ها
-را در پیکربندی همان trainer ثبت کنید. این مخزن اجرای آموزش را ارائه نمی‌دهد.
+پوشه‌ای که `Dataset.save_to_disk`/`DatasetDict.save_to_disk` ساخته است مستقیماً
+پذیرفته می‌شود:
 
-## ۵. ارزیابی پس از آموزش
+```bash
+python tools/prepare_dataset.py --manifest /data/hf/persian-tts --split train --check
+```
+
+- `dataset_dict.json` فهرست splitها را می‌دهد؛ `--split` برای انتخاب لازم است.
+  یک `Dataset` تک‌split خودش نام split را تعیین می‌کند.
+- شاردهای `.arrow` با PyArrow خوانده می‌شوند (`python -m pip install pyarrow`؛
+  بخش توسعهٔ `requirements-dev.txt`). بدون PyArrow پیام صریح داده می‌شود.
+- ستون `audio` **باید رشتهٔ مسیر** باشد. اگر ستون یک feature واکاوی‌شدهٔ `Audio` باشد
+  (نمونه‌ها داخل arrow)، رد می‌شود: ابتدا نمونه‌ها را به WAV بنویسید و مسیر بدهید.
+- هیچ دانلودی از Hub انجام نمی‌شود؛ `datasets` در زمان اعتبارسنجی لازم نیست.
+
+## ۶. قرارداد آموزش برای trainer خارجی
+
+`tools/train_plan.py` پیکربندی را اعتبارسنجی و یک plan ماشین‌خوان تولید می‌کند:
+
+```bash
+# فقط اعتبارسنجی طرح‌واره (بدون نیاز به corpus؛ همان چیزی که CI اجرا می‌کند)
+python tools/train_plan.py --config configs/training.example.yaml --check --no-require-paths
+
+# اعتبارسنجی واقعی و تحویل plan به trainer
+PVAI_CORPUS_ROOT=/data/persian-corpus python tools/train_plan.py \
+  --config configs/training.yaml --write runs/whisper-small-fa/plan.json
+```
+
+کلیدها و بازه‌های مجاز:
+
+| کلید | پیش‌فرض | اعتبارسنجی |
+|---|---|---|
+| `model` | `openai/whisper-small` | رشتهٔ غیرخالی |
+| `output_dir` | — (الزامی) | مسیر؛ نسبی = نسبت به فایل پیکربندی |
+| `seed` | `13` | عدد صحیح ≥ 0 |
+| `batch_size` | `8` | عدد صحیح ≥ 1 |
+| `grad_accum` | `1` | عدد صحیح ≥ 1؛ `effective_batch_size = batch_size × grad_accum` |
+| `learning_rate` | `1e-5` | عدد متناهی در `(0, 1]` |
+| `epochs` | `3` | عدد صحیح ≥ 1 |
+| `warmup_steps` | `100` | عدد صحیح ≥ 0 |
+| `precision` | `fp32` | `fp32`/`fp16`/`bf16`/`int8` |
+| `data.{train,validation,test}` | — (`train` الزامی) | فایل JSON/JSONL/CSV یا پوشهٔ HF |
+| `data.sample_rate` | `16000` | 1000–192000 (Whisper pretrained = 16 kHz) |
+| `data.min_duration_s`/`max_duration_s` | `0` / بی‌حد | `max > min` |
+
+plan خروجی شامل `effective_batch_size`، مسیر مطلق هر split و صریحاً
+`"trainer": "external (this repository performs no training)"` است. trainer باید
+همان plan را بخواند تا اجرای مقایسه‌شده با hyper-parameter یکسان انجام شود.
+seed، نسخهٔ مدل/داده و وابستگی‌ها را هم در لاگ همان trainer ثبت کنید.
+
+## ۷. ارزیابی پس از آموزش
 
 فرمت ارزیابی با فرمت train متفاوت است: JSON دارای کلید `sentences`، با `id` و
 `text` و فیلدهای اختیاری `category` و `kind`؛ شناسه فقط حروف لاتین، رقم، `_` و `-`
@@ -2019,12 +2149,14 @@ ffmpeg -i original.wav -ar 16000 -ac 1 -c:a pcm_s16le normalized.wav
 ```bash
 python benchmarks/persian_eval.py --set /path/to/eval.json --list
 python benchmarks/persian_eval.py --set /path/to/eval.json \
-  --hypotheses /path/to/transcripts.json --strict
+  --hypotheses /path/to/transcripts.json --strict \
+  --json-out /path/to/report.json
 ```
 
-hypotheses یک object از `id: text` یا لیست objectهای `id` و `text` است؛ شناسهٔ
-تکراری در لیست و مقدار غیررشته‌ای رد می‌شود. معیارها روی دادهٔ واقعی گزارش شوند؛
-validation manifest به‌تنهایی تأیید کیفیت برچسب‌ها یا نتیجهٔ آموزش نیست.
+مسیرها با `PVAI_EVAL_SET` هم قابل تنظیم‌اند. hypotheses یک object از `id: text`
+یا لیست objectهای `id` و `text` است؛ شناسهٔ تکراری در لیست و مقدار غیررشته‌ای رد
+می‌شود. معیارها روی دادهٔ واقعی گزارش شوند؛ اعتبارسنجی manifest به‌تنهایی تأیید
+کیفیت برچسب‌ها یا نتیجهٔ آموزش نیست.
 
 ---
 
@@ -2522,6 +2654,8 @@ Verified from PyPI package metadata and the upstream repositories.
 | `uvicorn[standard]` | 0.54.0 | BSD-3-Clause | `[standard]` pulls `uvloop` (MIT), `httptools` (MIT), `websockets` (BSD-3-Clause), `watchfiles` (MIT), `python-dotenv` (BSD-3-Clause), `PyYAML` (MIT) |
 | `httpx` | 0.28.1 | BSD-3-Clause | runtime, used by `server/cli.py` and `server/llm.py` |
 | `pytest` | 9.2.0 | MIT | **dev only** (`requirements-dev.txt`) |
+| `PyYAML` | >=6,<7 | MIT | **dev/tooling only**: YAML configuration for `tools/training_config.py`; JSON configs work without it (also pulled by `uvicorn[standard]`) |
+| `pyarrow` | >=14,<27 | Apache-2.0 | **dev/tooling only**: reads a Hugging Face `Dataset.save_to_disk` directory in `tools/prepare_dataset.py`; every runtime path uses JSONL/CSV instead |
 | `starlette` | 1.10.0 | BSD-3-Clause | **dev/test direct import** (`tests/test_ws_voice.py`; also pulled by `fastapi`) |
 | `faster-whisper` | >=1.1,<2 | MIT | optional voice stack |
 | `ctranslate2` | >=4.0,<5 | MIT | optional voice stack (direct CUDA check in `server/voice.py`) |
@@ -2697,9 +2831,10 @@ PersianVoiceAI/
 ├─ requirements.txt       ← فقط زمان اجرا
 ├─ requirements-dev.txt   ← pytest (فقط توسعه)
 ├─ requirements-voice.txt ← پشتهٔ صوتی اختیاری
+├─ configs/               ← نمونهٔ پیکربندی داده و آموزش (JSON + YAML)
 ├─ docs/
 │  ├─ PROJECT_GUIDE.md    ← راهنمای یکپارچه؛ تولید با tools/build_docs.py
-│  ├─ DATASETS.md         ← دادهٔ سفارشی و اعتبارسنجی manifest (بدون trainer)
+│  ├─ DATASETS.md         ← دادهٔ سفارشی، پیکربندی JSON/YAML، قرارداد trainer خارجی
 │  ├─ SPEC.md             ← مستند جامع v1.0 (مرجع تصمیم‌ها)
 │  ├─ STATUS.md           ← وضعیت اجرایی، تست‌ها، نگاشت ۲۰ الزام به تست
 │  ├─ ISSUE_REGISTER.md   ← دفترچهٔ ایرادها: ریشه، رفع، تست، وضعیت
@@ -2738,6 +2873,7 @@ PersianVoiceAI/
 ├─ tests/                 ← pytest؛ بدون نیاز به مدل (fake LLM/ASR/TTS/دستگاه)
 ├─ benchmarks/            ← پرامپت‌های متنی + persian_eval.py + persian_eval_set.json
 ├─ tools/                 ← اسکریپت‌های .ps1 و .sh + benchmark_voice.py + download_parallel.py
+│                             + prepare_dataset.py / train_plan.py / training_config.py
 ├─ models/                ← مدل‌های محلی GGUF (خارج از git)
 ├─ data/                  ← مکالمه/بازخورد/دانش محلی (خارج از git)
 └─ firmware/              ← (ساخته نشده) هدف: پروژهٔ ESP-IDF esp32s3_terminal
@@ -2881,7 +3017,10 @@ AEC مرجع `docs/AEC.md`: مرجع فقط از PCM ارسال‌شده در ca
 نقطهٔ ورود یکپارچه: [docs/PROJECT_GUIDE.md](PROJECT_GUIDE.md).
 این فایل از راهنماهای موجود تولید می‌شود؛ پس از ویرایش منبع،
 `python tools/build_docs.py` و `python tools/build_docs.py --check` را اجرا کنید.
-ابزار `tools/prepare_dataset.py` فقط اعتبارسنجی محلی JSON/JSONL/CSV است؛ trainer نداریم.
+ابزار `tools/prepare_dataset.py` (ورودی JSON/JSONL/CSV یا Hugging Face `save_to_disk`)
+و `tools/train_plan.py` فقط اعتبارسنجی پیکربندی و داده‌اند؛ **trainer نداریم**. هر
+hyper-parameter جدید (يا مسیر) باید در `configs/*.example.*` و `docs/DATASETS.md`
+مستند شود و از `tools/training_config.py` رد شود، نه داخل اسکریپت hardcode.
 
 ---
 

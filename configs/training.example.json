@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "model": "openai/whisper-small",
+  "output_dir": "${PVAI_TRAIN_OUTPUT:-runs/whisper-small-fa}",
+  "seed": 13,
+  "batch_size": 8,
+  "grad_accum": 2,
+  "learning_rate": 0.00001,
+  "epochs": 3,
+  "warmup_steps": 100,
+  "precision": "fp32",
+  "data": {
+    "sample_rate": 16000,
+    "min_duration_s": 0.3,
+    "max_duration_s": 30.0,
+    "train": "${PVAI_CORPUS_ROOT:-corpus}/validated/train.jsonl",
+    "validation": "${PVAI_CORPUS_ROOT:-corpus}/validated/validation.jsonl",
+    "test": "${PVAI_CORPUS_ROOT:-corpus}/validated/test.jsonl"
+  },
+  "notes": "Persian ASR fine-tune. No training is performed by this repository."
+}

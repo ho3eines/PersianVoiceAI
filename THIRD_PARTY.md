@@ -21,6 +21,8 @@ Verified from PyPI package metadata and the upstream repositories.
 | `uvicorn[standard]` | 0.54.0 | BSD-3-Clause | `[standard]` pulls `uvloop` (MIT), `httptools` (MIT), `websockets` (BSD-3-Clause), `watchfiles` (MIT), `python-dotenv` (BSD-3-Clause), `PyYAML` (MIT) |
 | `httpx` | 0.28.1 | BSD-3-Clause | runtime, used by `server/cli.py` and `server/llm.py` |
 | `pytest` | 9.2.0 | MIT | **dev only** (`requirements-dev.txt`) |
+| `PyYAML` | >=6,<7 | MIT | **dev/tooling only**: YAML configuration for `tools/training_config.py`; JSON configs work without it (also pulled by `uvicorn[standard]`) |
+| `pyarrow` | >=14,<27 | Apache-2.0 | **dev/tooling only**: reads a Hugging Face `Dataset.save_to_disk` directory in `tools/prepare_dataset.py`; every runtime path uses JSONL/CSV instead |
 | `starlette` | 1.10.0 | BSD-3-Clause | **dev/test direct import** (`tests/test_ws_voice.py`; also pulled by `fastapi`) |
 | `faster-whisper` | >=1.1,<2 | MIT | optional voice stack |
 | `ctranslate2` | >=4.0,<5 | MIT | optional voice stack (direct CUDA check in `server/voice.py`) |

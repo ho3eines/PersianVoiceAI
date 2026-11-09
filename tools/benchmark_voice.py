@@ -43,6 +43,7 @@ import argparse
 import asyncio
 import json
 import math
+import os
 import statistics
 import sys
 import threading
@@ -141,6 +142,20 @@ def frame(level: int = LOUD, samples: int = FRAME_SAMPLES) -> bytes:
 
 def silence(samples: int = FRAME_SAMPLES) -> bytes:
     return b"\x00\x00" * samples
+
+
+def results_dir() -> Path | None:
+    """Default report directory for ``--json-out``; env-overridable, never assumed.
+
+    ``PVAI_BENCHMARK_OUTPUT_DIR`` keeps reports out of the checkout (CI, a
+    corpus drive, a per-machine directory).  When it is unset there is no
+    implicit output at all: the report is printed unless ``--json-out`` names a
+    file, so nothing is written by accident.
+    """
+    override = os.getenv("PVAI_BENCHMARK_OUTPUT_DIR", "").strip()
+    if not override:
+        return None
+    return Path(os.path.expandvars(override)).expanduser()
 
 
 def environment() -> dict[str, Any]:
@@ -860,7 +875,11 @@ def main(argv: list[str] | None = None) -> int:
         "plumbing only; NOT MEASURED = unavailable."
     )
     if args.json_out:
-        path = Path(args.json_out)
+        path = Path(os.path.expandvars(args.json_out)).expanduser()
+        if path.is_absolute() is False and path.parent == Path("."):
+            directory = results_dir()
+            if directory is not None:
+                path = directory / path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(report.as_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"report written to {path}")

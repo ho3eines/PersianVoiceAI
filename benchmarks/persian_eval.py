@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import wave
@@ -331,7 +332,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Persian ASR evaluation (WER/CER) with the project normalization policy"
     )
-    parser.add_argument("--set", default=str(DEFAULT_SET), help="evaluation set JSON")
+    parser.add_argument(
+        "--set",
+        default=os.getenv("PVAI_EVAL_SET", "").strip() or str(DEFAULT_SET),
+        help=f"evaluation set JSON (default: {DEFAULT_SET}); env: PVAI_EVAL_SET",
+    )
     parser.add_argument("--list", action="store_true", help="print the evaluation set")
     parser.add_argument("--hypotheses", help="JSON transcript file to score")
     parser.add_argument("--audio-dir", help="directory of <id>.wav recordings")
@@ -445,10 +450,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  policy           : {data['normalization_policy']}")
 
     if args.json_out:
-        Path(args.json_out).write_text(
-            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        # Reports are artefacts: honour ${VAR}/~ and create the directory, so a
+        # CI or per-corpus path works without a pre-created tree.
+        output = Path(os.path.expandvars(args.json_out)).expanduser()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-        print(f"  report written   : {args.json_out}")
+        print(f"  report written   : {output}")
 
     if args.strict and (report["missing_ids"] or missing_audio):
         return 1

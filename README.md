@@ -482,7 +482,8 @@ PersianVoiceAI/
 ├─ pytest.ini                   # Pytest discovery settings
 ├─ requirements.txt             # Minimal runtime dependencies (FastAPI, Uvicorn, httpx)
 ├─ requirements-voice.txt       # Optional local voice stack (Whisper, Piper, audio I/O)
-├─ requirements-dev.txt         # Test dependencies (pytest)
+├─ requirements-dev.txt         # Test/tooling dependencies (pytest, PyYAML, pyarrow)
+├─ configs/                     # Dataset & training configuration examples (JSON + YAML)
 ├─ server/                      # Core Python backend & voice engine
 │  ├─ main.py                   # FastAPI app, REST routes, auth middleware, rate limiting
 │  ├─ __main__.py               # Entry point for `python -m server`
@@ -511,7 +512,9 @@ PersianVoiceAI/
 │  ├─ benchmark.sh / .ps1       # Run text LLM throughput/TTFT benchmark
 │  ├─ benchmark_voice.py        # End-to-end voice pipeline benchmark (MEASURED/SIMULATED/NOT MEASURED)
 │  ├─ download_parallel.py      # Resumable parallel HTTPS downloader with mandatory SHA-256 checks
-│  ├─ prepare_dataset.py        # Offline JSON/JSONL/CSV + PCM16 WAV dataset manifest validator
+│  ├─ prepare_dataset.py        # Manifest validator (JSON/JSONL/CSV/Hugging Face) + portable export
+│  ├─ train_plan.py             # Validates a training config and emits a plan for an external trainer
+│  ├─ training_config.py        # Shared JSON/YAML config loader: paths, types, ranges, typo rejection
 │  ├─ environment_test.py       # Quick check for Python 3.12 inside `.venv`
 │  └─ build_docs.py             # Builds and checks `docs/PROJECT_GUIDE.md`
 ├─ benchmarks/                  # Evaluation scripts, prompt sets, and JSON results
@@ -570,15 +573,27 @@ python benchmarks/persian_eval.py --audio-dir recordings/fa --strict
 .\tools\benchmark.ps1
 ```
 
-### Custom Dataset Manifest Validation
+### Custom Datasets & External Training Contract
 
-This repository is for inference and evaluation only and **does not include a training loop**. To validate local JSON/JSONL/CSV manifests and 16 kHz mono PCM16 WAV recordings for external trainers:
+This repository is for inference and evaluation only and **does not include a training loop**. Data preparation and the hyper-parameters handed to an *external* trainer are nonetheless validated and reproducible:
 
 ```bash
-python tools/prepare_dataset.py --help
+# 1. Describe the corpus once (JSON or YAML; paths may use ${VAR} and are
+#    resolved relative to the config file, never the shell's cwd)
+cp configs/dataset.example.yaml configs/dataset.yaml
+export PVAI_CORPUS_ROOT=/data/persian-corpus
+
+# 2. Validate every split, get a split-leakage report, and export portable JSONL
+python tools/prepare_dataset.py --config configs/dataset.yaml --check   --report reports/dataset.json
+
+# 3. Validate the training hyper-parameters and hand the trainer a plan
+python tools/train_plan.py --config configs/training.example.yaml --check --no-require-paths
+PVAI_CORPUS_ROOT=/data/persian-corpus python tools/train_plan.py   --config configs/training.yaml --write runs/whisper-small-fa/plan.json
 ```
 
-See [`docs/DATASETS.md`](docs/DATASETS.md) for the full schema, split hygiene, and Hugging Face local export workflow.
+Both tools also work purely from flags (`--manifest`, `--audio-root`, `--batch-size`, `--learning-rate`, …); a config file simply removes the machine-specific paths from the command line. Inputs: `.json`, `.jsonl`, `.csv`, or a Hugging Face `Dataset.save_to_disk` directory whose `audio` column holds path strings. Nothing is downloaded, nothing is rewritten, and no training is performed.
+
+See [`docs/DATASETS.md`](docs/DATASETS.md) for the manifest schema, split hygiene, Hugging Face input, and the full list of validated hyper-parameters.
 
 ---
 
