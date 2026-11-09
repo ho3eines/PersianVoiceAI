@@ -46,7 +46,7 @@
 
 ```text
 $ python -m pytest
-560 passed, 5 skipped in 9.7s
+585 passed, 5 skipped in 10.5s
 ```
 
 - ۳۶ تست امنیتی در `tests/test_ws_security.py` و ۱۸۹ تست متن/ASR در
@@ -127,7 +127,14 @@ $ python -m pytest
 
 ## ۶. اولویت بعدی
 
+> transport سرور WebSocket **انجام شده** است (بند ۴ پیشین، ردیف جدول بالا، و
+> `tests/test_ws_voice.py`). آنچه باقی مانده firmware دستگاه و اجرای واقعی روی LAN است،
+> نه سرور. این بند قبلاً «کار بعدی» شمرده می‌شد و با وضعیت واقعی نمی‌خواند.
+
 1. تهیهٔ وزن‌ها و اجرای `tools/benchmark_voice.py` روی هدف؛ ثبت اعداد در BENCHMARKS.
 2. اجرای چک‌لیست سخت‌افزاری، مخصوصاً barge-in و بدون هدفون.
 3. کلکسیون صدای ارزیابی (۴۰ جمله) و اجرای `benchmarks/persian_eval.py --audio-dir` برای WER واقعی.
-4. WebSocket صوتی روی `server/protocol.py` برای ESP32-S3 (پس از پاس‌شدن تست‌های PC).
+4. firmware ESP32-S3 که با `WS /ws/voice` سخن بگوید، و تست LAN واقعی با دستگاه
+   (سرور سمت خودش آماده و تست‌شده است).
+5. ضبط واقعی سکوت/نویز و اجرای `benchmarks/persian_eval.py --no-speech-dir` برای
+   «نرخ پذیرش کاذب»؛ تا آن زمان عدد آن `NOT MEASURED` است.

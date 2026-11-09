@@ -20,24 +20,47 @@ ASR حین صحبت با پنجره‌های هم‌پوشان اجرا می‌�
 
 ## شروع
 
+**Windows (PowerShell):**
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-voice.txt
 Copy-Item .env.example .env
 ```
 
+**Linux / macOS (bash):**
+
+```bash
+python3 -m venv .venv
+./.venv/bin/python -m pip install -r requirements-voice.txt
+cp .env.example .env
+```
+
+`requirements-voice.txt` فقط وابستگی‌های زمان اجراست. برای اجرای تست‌ها
+`requirements-dev.txt` را هم نصب کنید (pytest فقط همان‌جاست و در deployment لازم نیست).
+
 کتابخانهٔ native **SpeexDSP** را نیز طبق [راهنمای AEC](docs/AEC.md) نصب کنید؛ فقط pip کافی نیست.
 سپس مدل‌های **Qwen3-4B-Q4_K_M GGUF**، **Whisper Small CTranslate2** و **Piper فارسی** را
 محلی تهیه و مسیرشان را در `.env` تنظیم کنید. مدل‌ها دانلود خودکار نمی‌شوند.
 اگر `.env` موجود است، فقط تنظیمات آن را ویرایش کنید.
 
+هر اسکریپت نسخهٔ bash هم دارد؛ هر جا `.ps1` است، `.sh` متناظر در همان مسیر است.
+
 ```powershell
+# Windows / PowerShell
 # ترمینال ۱؛ پرچم‌ها از .env خوانده می‌شوند (PVAI_N_CTX / PVAI_N_THREADS / PVAI_N_GPU_LAYERS)
 .\tools\start_llama.ps1 -Exe D:\Lama.cpp\bin\llama-server.exe
 # ترمینال ۲
 .\tools\start_server.ps1
 # ترمینال ۳
 .\.venv\Scripts\python.exe -m server.voice
+```
+
+```bash
+# Linux / macOS
+./tools/start_llama.sh --exe /opt/llama.cpp/llama-server   # یا llama-server از PATH
+./tools/start_server.sh
+./.venv/bin/python -m server.voice
 ```
 
 > `tools/start_llama.ps1` به‌جای تکرار دستی پرچم‌ها، `python -m server.config --launch` را
@@ -50,7 +73,7 @@ Copy-Item .env.example .env
 
 ## وضعیت صادقانه
 
-- تست خودکار: **۵۶۰ passed، ۵ skipped** (بدون مدل/میکروفون/شبکه؛ skipها فقط native SpeexDSP و numpy).
+- تست خودکار: **۵۸۵ passed، ۵ skipped** (بدون مدل/میکروفون/شبکه؛ skipها فقط native SpeexDSP و numpy).
   این تست‌ها منطق و کنترل جریان را ثابت می‌کنند، نه کیفیت صدا.
 - مدل‌های واقعی (Whisper/Piper/Qwen) در مخزن نیستند؛ در sandbox نصب هم نبودند، پس
   ASR/TTS/LLM واقعی **NOT MEASURED** است.
@@ -98,11 +121,13 @@ FastAPI از طریق **async HTTP به llama-server** متصل می‌شود؛ 
 
 # بنچمارک متنی قدیمی
 .\tools\benchmark.ps1
+./tools/benchmark.sh        # معادل bash
 ```
 
 اعداد sandbox و روش‌شناسی در [BENCHMARKS](docs/BENCHMARKS.md) است؛ اعداد i7-6500U تا اجرای
 واقعی `NOT MEASURED` نوشته می‌شوند. دادهٔ خصوصی و وزن‌ها وارد Git نشوند.
-API فعلی احراز هویت ندارد؛ پورت‌ها را عمومی نکنید.
+هیچ وزن یا داده‌ای در مخزن نیست؛ مجوز کد GPL-3.0-or-later و مجوز هر مدل/صدا در
+[THIRD_PARTY.md](THIRD_PARTY.md) آمده است.
 
 ## مستندات
 
@@ -118,3 +143,15 @@ API فعلی احراز هویت ندارد؛ پورت‌ها را عمومی ن
 - [BENCHMARKS](docs/BENCHMARKS.md): روش‌شناسی و نتایج برچسب‌دار
 - [TROUBLESHOOTING](docs/TROUBLESHOOTING.md): پیام‌ها و راه‌حل
 - [HARDWARE_VALIDATION](docs/HARDWARE_VALIDATION.md): چک‌لیست تست واقعی
+- [PLATFORMS](docs/PLATFORMS.md): Windows/Linux، اسکریپت‌ها، تفاوت‌ها
+- [THIRD_PARTY](THIRD_PARTY.md): مجوز کد، وابستگی‌ها و هر مدل/صدا
+
+## مجوز
+
+کد این مخزن **GPL-3.0-or-later** است ([LICENSE](LICENSE)). دلیل این انتخاب `piper-tts`
+است که خود GPL-3.0-or-later است و in-process وارد می‌شود؛ مجوز MIT یا انحصاری برای این
+مخزن با آن ناسازگار می‌شود. جزئیات و گزینه‌ها در [THIRD_PARTY.md](THIRD_PARTY.md).
+
+وزن مدل‌ها در مخزن نیستند و مجوز هرکدام جداست: Qwen3-4B با Apache-2.0، وزن‌های
+Whisper با MIT، و صدای Piper فارسی بسته به فایل صدا متفاوت است — پیش از عرضه،
+`MODEL_CARD` همان صدا را بخوانید.

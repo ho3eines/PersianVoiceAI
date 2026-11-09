@@ -293,6 +293,10 @@ PersianVoiceAI/
     iot/
   tests/
   requirements.txt
+  requirements-dev.txt
+  requirements-voice.txt
+  LICENSE
+  THIRD_PARTY.md
   models/
   config/
   tools/
