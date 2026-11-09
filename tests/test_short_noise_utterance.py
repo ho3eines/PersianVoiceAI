@@ -167,7 +167,7 @@ def test_failed_retry_does_not_delete_the_answer_of_the_pending_turn() -> None:
     This is the second half of bug 1: "the next utterance produced nothing" is
     not the same as "the next utterance answered".  Turn A is committed with no
     reply (its decode fails), turn B arrives and decodes fine — the user is
-    still waiting for A, so A must be the turn that gets answered.
+    waiting for B; A has no persisted user message and cannot own B's reply.
     """
 
     class FlakyAsr(FakeAsr):
@@ -197,8 +197,8 @@ def test_failed_retry_does_not_delete_the_answer_of_the_pending_turn() -> None:
             feed_utterance(pipeline, speech=20, silence=32)   # B: decodes as "دوم"
             await until(lambda: len(kinds(events, "response_end")) == 1)
             answered = kinds(events, "response_end")[0]["utterance_id"]
-            # A was committed with no answer, so A is the turn still owed one.
-            assert answered == 1
+            # A had no committed user message; B owns its own answer.
+            assert answered == 2
             assert pipeline.state.value == "idle"
         finally:
             await pipeline.close()

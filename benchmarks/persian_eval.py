@@ -54,6 +54,7 @@ from server.persian import (  # noqa: E402
     evaluate_detailed,
     false_accept_examples,
     false_accept_rate,
+    normalize_for_eval,
 )
 
 DEFAULT_SET = Path(__file__).resolve().parent / "persian_eval_set.json"
@@ -235,6 +236,24 @@ def transcribe_no_speech(audio_dir: Path, settings: Any) -> dict[str, Any]:
     return report
 
 
+def score_speech_rejections(data: dict[str, Any], hypothesis: dict[str, str]) -> dict[str, Any]:
+    """Share of *recorded speech* clips whose filtered ASR returned no words.
+
+    Missing hypotheses are reported, never scored as rejections. Use only
+    transcripts from actual recordings to call this a measured ASR rate.
+    """
+    ids = [str(item["id"]) for item in data["sentences"]
+           if item.get("kind", "speech") == "speech"]
+    available = [key for key in ids if key in hypothesis]
+    rejected = sum(not normalize_for_eval(hypothesis[key]).strip() for key in available)
+    return {
+        "clips": len(available),
+        "rejected": rejected,
+        "false_reject_rate": round(rejected / len(available), 4) if available else 0.0,
+        "missing_ids": [key for key in ids if key not in hypothesis],
+    }
+
+
 def score_no_speech(
     data: dict[str, Any], hypothesis: dict[str, str]
 ) -> dict[str, Any]:
@@ -246,12 +265,11 @@ def score_no_speech(
     TV — the cases where Whisper invents a sentence and the assistant answers
     a question nobody asked.
     """
-    clips: list[str] = []
-    for entry in data.get("sentences", []):
-        if str(entry.get("kind", "speech")) != "no_speech":
-            continue
-        clips.append(hypothesis.get(str(entry["id"]), ""))
+    ids = [str(entry["id"]) for entry in data.get("sentences", [])
+           if str(entry.get("kind", "speech")) == "no_speech"]
+    clips = [hypothesis[key] for key in ids if key in hypothesis]
     report = false_accept_rate(clips)
+    report["missing_ids"] = [key for key in ids if key not in hypothesis]
     report["examples"] = false_accept_examples(clips)
     return report
 
@@ -319,6 +337,7 @@ def main(argv: list[str] | None = None) -> int:
     report["missing_audio"] = missing_audio
     report["by_category"] = score_by_category(data, hypotheses)
     report["no_speech"] = score_no_speech(data, hypotheses)
+    report["speech_rejections"] = score_speech_rejections(data, hypotheses)
     if args.no_speech_dir:
         report["no_speech_audio"] = transcribe_no_speech(
             Path(args.no_speech_dir), Settings.from_env()

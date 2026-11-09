@@ -20,7 +20,7 @@ PowerShell. That is now fixed, with two deliberate exceptions listed below.
 | SpeexDSP AEC | needs a built DLL | needs a built `.so` | see `docs/AEC.md`; not a pip install |
 | Audio I/O | WASAPI via `sounddevice` | ALSA/PulseAudio via `sounddevice` | device names differ; check `/ready` |
 
-Every `.ps1` in `tools/` has a `.sh` twin except `setup_ollama.ps1`, and
+Every `.ps1` in `tools/` has a `.sh` twin, and
 `tests/test_tools_scripts.py` fails if a new unmatched one appears.
 
 ## Choosing the interpreter
@@ -32,17 +32,10 @@ point somewhere else:
 PVAI_PYTHON=/opt/pvai/bin/python ./tools/start_server.sh
 ```
 
-## Deliberate exceptions
+## Legacy (not on supported launch path)
 
-**`tools/setup_ollama.ps1`** is PowerShell-only. It is not part of the supported
-path — the project runs `llama-server` from llama.cpp, and `docs/SPEC.md` records
-that a local GGUF is used "without Ollama or a cloud service". The script is
-left in place, unmodified, rather than deleted; if you do not use Ollama you can
-ignore it.
-
-**`tools/verify_lesson01.py`** and `benchmarks/results/lesson01-*.json` are
-historical artifacts from the first milestone. They still run (plain Python) and
-still describe a real past measurement.
+Old Ollama setup, lesson-1 verification and its historic report are archived under
+`docs/legacy/`. Use the current llama.cpp launchers and benchmark instead.
 
 ## Path and environment differences
 

@@ -6,7 +6,7 @@ into fixed-size parts, fetches several at once, and re-fetches only the parts
 whose size does not match. Re-running after a failure resumes rather than
 starting over.
 
-    python tools/download_parallel.py --url URL --output models/model.gguf
+    python tools/download_parallel.py --url HTTPS_URL --output models/model.gguf --sha256 EXPECTED_HEX
 
 Requires only the standard library, so it works in a bare Python install on
 Windows, Linux and macOS alike.
@@ -15,6 +15,9 @@ Windows, Linux and macOS alike.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import re
+from urllib.parse import urlsplit
 import sys
 import threading
 import time
@@ -26,13 +29,35 @@ from pathlib import Path
 CHUNK = 1 << 20  # 1 MiB read buffer
 
 
+def _safe_url(url: str) -> None:
+    parsed = urlsplit(url)
+    if parsed.scheme == "https":
+        return
+    if parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1", "::1"}:
+        return  # local test server / explicitly local source
+    raise ValueError("https is required for remote model downloads")
+
+
+class _SafeRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        _safe_url(newurl)
+        if urlsplit(request.full_url).scheme == "https" and urlsplit(newurl).scheme != "https":
+            raise ValueError("https redirects must not downgrade to http")
+        return super().redirect_request(request, fp, code, msg, headers, newurl)
+
+
+def _open(request: urllib.request.Request, timeout: float):
+    _safe_url(request.full_url)
+    return urllib.request.build_opener(_SafeRedirect()).open(request, timeout=timeout)
+
+
 def remote_length(url: str, retries: int = 3) -> int:
     """Total size from Content-Length, following redirects."""
     last: Exception | None = None
     for attempt in range(retries):
         try:
             request = urllib.request.Request(url, method="HEAD")
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with _open(request, timeout=30) as response:
                 length = response.headers.get("Content-Length")
                 if length is None:
                     raise RuntimeError(f"no Content-Length for {url}")
@@ -57,7 +82,7 @@ def fetch_part(url: str, path: Path, start: int, length: int, retries: int) -> N
             request = urllib.request.Request(
                 url, headers={"Range": f"bytes={start}-{expected_end}"}
             )
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with _open(request, timeout=60) as response:
                 if response.status not in (200, 206):
                     raise RuntimeError(f"HTTP {response.status} for bytes {start}-{expected_end}")
                 written = 0
@@ -79,7 +104,13 @@ def fetch_part(url: str, path: Path, start: int, length: int, retries: int) -> N
     raise RuntimeError(f"part {path.name} failed after {retries} attempts: {last}")
 
 
-def download(url: str, output: Path, connections: int, part_mb: int, retries: int) -> Path:
+def download(url: str, output: Path, connections: int, part_mb: int, retries: int,
+             sha256: str | None = None) -> Path:
+    _safe_url(url)
+    if (output.suffix.lower() in {".gguf", ".onnx"} or output.name.lower() == "model.bin") and not sha256:
+        raise ValueError("--sha256 is required for GGUF/ONNX/Whisper model.bin files")
+    if sha256 is not None and not re.fullmatch(r"[0-9a-fA-F]{64}", sha256):
+        raise ValueError("--sha256 must contain 64 hexadecimal characters")
     total = remote_length(url, retries=retries)
     part_size = part_mb << 20
     part_count = (total + part_size - 1) // part_size
@@ -144,7 +175,8 @@ def download(url: str, output: Path, connections: int, part_mb: int, retries: in
 
     print(f"joining {len(expected)} parts")
     output.parent.mkdir(parents=True, exist_ok=True)
-    with output.open("wb") as handle:
+    temporary_output = output.with_name(output.name + ".part")
+    with temporary_output.open("wb") as handle:
         for path in sorted(expected):
             with path.open("rb") as part:
                 while True:
@@ -153,9 +185,23 @@ def download(url: str, output: Path, connections: int, part_mb: int, retries: in
                         break
                     handle.write(block)
 
-    written = output.stat().st_size
+    written = temporary_output.stat().st_size
     if written != total:
+        temporary_output.unlink(missing_ok=True)
         raise RuntimeError(f"assembled file is {written} bytes, expected {total}")
+    if sha256 is not None:
+        digest = hashlib.sha256()
+        with temporary_output.open("rb") as handle:
+            for block in iter(lambda: handle.read(CHUNK), b""):
+                digest.update(block)
+        if digest.hexdigest() != sha256.lower():
+            temporary_output.unlink(missing_ok=True)
+            # A size-correct cached part may have been corrupted; discard all
+            # cached parts so a retry cannot repeat the same bad assembly.
+            for path in expected:
+                path.unlink(missing_ok=True)
+            raise RuntimeError("sha256 mismatch; existing destination was not replaced")
+    temporary_output.replace(output)
     for path in expected:
         path.unlink(missing_ok=True)
     work.rmdir()
@@ -165,8 +211,9 @@ def download(url: str, output: Path, connections: int, part_mb: int, retries: in
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--url", required=True, help="source URL (http/https)")
+    parser.add_argument("--url", required=True, help="source URL (https, or local http)")
     parser.add_argument("--output", required=True, type=Path, help="destination file")
+    parser.add_argument("--sha256", help="trusted expected SHA-256 from model publisher")
     parser.add_argument("--connections", type=int, default=10, help="parallel requests")
     parser.add_argument("--part-mb", type=int, default=64, help="size of each part in MiB")
     parser.add_argument("--retries", type=int, default=8, help="attempts per part")
@@ -178,8 +225,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--part-mb must be at least 1")
 
     try:
-        download(args.url, args.output, args.connections, args.part_mb, args.retries)
-    except (RuntimeError, urllib.error.URLError, OSError) as exc:
+        download(args.url, args.output, args.connections, args.part_mb, args.retries, args.sha256)
+    except (RuntimeError, ValueError, urllib.error.URLError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 0

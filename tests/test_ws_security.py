@@ -1079,3 +1079,137 @@ def test_a_guard_that_never_marshals_would_lose_the_thread_check(tmp_path: Path)
         return await asyncio.to_thread(from_worker)
 
     assert asyncio.run(capture()) is False
+
+
+def test_idle_gap_cannot_replenish_playback_credit(tmp_path: Path) -> None:
+    session = VoiceWebSocket(websocket=None, settings=settings(tmp_path, ws_playback_credit_ms=200))
+    session._next_frame_at = time.monotonic() - 3
+    session._playback_ready_at()
+    assert session._next_frame_at >= time.monotonic() - .21
+
+
+def test_overflow_play_end_waits_for_frames_and_strips_private_fields(tmp_path: Path) -> None:
+    import asyncio
+    from server.protocol import ControlMessage, MessageType
+    sent = []
+    class Socket:
+        async def send_text(self, payload):
+            sent.append(('text', json.loads(payload)))
+        async def send_bytes(self, payload):
+            sent.append(('audio', payload))
+    session = VoiceWebSocket(websocket=Socket(), settings=settings(tmp_path, ws_playback_pacing=False))
+    for _ in range(session.outgoing.maxsize):
+        session.outgoing.put_nowait(ControlMessage(MessageType.PING, {}).encode())
+    for _ in range(3):
+        session.sink.frames.put_nowait(frame())
+    session._queue_control(ControlMessage(MessageType.PLAY_END, {'turn_id': 7, 'played_ms': None, '_final': True}))
+    assert session._overflow
+    async def run():
+        task = asyncio.create_task(session._sender())
+        try:
+            async with asyncio.timeout(1):
+                while not any(kind == 'text' and data.get('type') == 'play_end' for kind, data in sent if isinstance(data, dict)):
+                    await asyncio.sleep(.001)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    asyncio.run(run())
+    end = next((i, data) for i, (kind, data) in enumerate(sent) if kind == 'text' and data.get('type') == 'play_end')
+    assert sum(kind == 'audio' for kind, _ in sent[:end[0]]) == 3
+    assert end[1]['played_ms'] == 60.0
+    assert '_final' not in end[1]
+
+
+def test_four_idle_unauthenticated_sockets_do_not_consume_model_slots(tmp_path: Path) -> None:
+    from contextlib import ExitStack
+    with app_client(tmp_path, ws_max_connections=4) as client, ExitStack() as stack:
+        idle = [stack.enter_context(client.websocket_connect('/ws/voice')) for _ in range(4)]
+        assert len(idle) == 4
+        with device_session(client) as legitimate:
+            legitimate.send_text(hello())
+            assert wait_for(legitimate, 'hello_ok')['type'] == 'hello_ok'
+
+
+def test_handshake_pool_is_separate_and_failed_auth_backoff_is_per_ip():
+    from server.ws_voice import WsCounters
+    shared = WsCounters()
+    for _ in range(4):
+        assert shared.handshake_enter('one')
+    # Even a full model pool has not been touched by these unauthenticated peers.
+    assert shared.limiter(Settings(ws_max_connections=4)).active == 0
+    for _ in range(3):
+        shared.auth_failed('one')
+    assert not shared.handshake_enter('one')
+    assert shared.handshake_enter('other')
+    for _ in range(4):
+        shared.handshake_leave('one')
+    shared.handshake_leave('other')
+
+
+def test_overflow_play_end_does_not_overtake_queued_play_start(tmp_path: Path) -> None:
+    from server.protocol import ControlMessage, MessageType
+    sent = []
+    class Socket:
+        async def send_text(self, payload):
+            sent.append(json.loads(payload)['type'])
+        async def send_bytes(self, payload):
+            pass
+    session = VoiceWebSocket(websocket=Socket(), settings=settings(tmp_path))
+    session.outgoing.put_nowait(ControlMessage(MessageType.PLAY_START, {'turn_id': 7}).encode())
+    for _ in range(session.outgoing.maxsize - 1):
+        session.outgoing.put_nowait(ControlMessage(MessageType.PING, {}).encode())
+    session._queue_control(ControlMessage(MessageType.PLAY_END, {'turn_id': 7, 'played_ms': None, '_final': True}))
+    async def run():
+        task = asyncio.create_task(session._sender())
+        try:
+            async with asyncio.timeout(1):
+                while 'play_end' not in sent:
+                    await asyncio.sleep(.001)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    asyncio.run(run())
+    assert sent.index('play_start') < sent.index('play_end')
+
+
+def test_shared_asr_metrics_are_process_owned_not_first_socket(tmp_path: Path) -> None:
+    from server.metrics import Metrics
+    from server.voice import LocalAudio
+    from server.ws_voice import ModelPool
+    pool = ModelPool()
+    first_socket = Metrics()
+    second_socket = Metrics()
+    audio = pool.audio(settings(tmp_path), first_socket)
+    assert audio is pool.audio(settings(tmp_path), second_socket)
+    assert audio.metrics is pool.asr_metrics
+    assert audio.metrics is not first_socket
+    disabled = ModelPool()
+    assert not disabled.audio(settings(tmp_path, metrics_enabled=False), first_socket).metrics.enabled
+
+
+def test_reset_model_pool_discards_process_asr_metrics(tmp_path: Path) -> None:
+    from server.ws_voice import ModelPool
+    from server.metrics import Metrics
+    pool = ModelPool()
+    pool.audio(settings(tmp_path), Metrics())
+    assert pool.asr_metrics is not None
+    pool.reset()
+    assert pool.asr_metrics is None
+
+
+def test_three_second_idle_gap_cannot_burst_hundred_frames_in_300ms(tmp_path: Path) -> None:
+    sent = []
+    class Socket:
+        async def send_bytes(self, payload):
+            sent.append(time.monotonic())
+    session = VoiceWebSocket(websocket=Socket(), settings=settings(tmp_path, ws_playback_credit_ms=200))
+    session._next_frame_at = time.monotonic() - 3.0
+    for _ in range(100):
+        session.sink.frames.put_nowait(frame())
+
+    async def run():
+        start = time.monotonic()
+        while time.monotonic() - start < .3:
+            await session._send_playback_frame()
+    asyncio.run(run())
+    assert len(sent) <= 200 / 20 + 15, f'burst sent {len(sent)} frames'

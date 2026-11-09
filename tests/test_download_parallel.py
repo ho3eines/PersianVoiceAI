@@ -9,6 +9,7 @@ matters most in practice: a dropped connection must not restart a 4 GB pull.
 from __future__ import annotations
 
 import http.server
+import hashlib
 import importlib.util
 import re
 import socketserver
@@ -86,7 +87,7 @@ def test_a_multi_part_download_reassembles_the_original_bytes(tmp_path, server):
     downloader = load_downloader()
     output = tmp_path / "model.bin"
 
-    downloader.download(server, output, connections=3, part_mb=1, retries=2)
+    downloader.download(server, output, connections=3, part_mb=1, retries=2, sha256=hashlib.sha256(PAYLOAD).hexdigest())
 
     assert output.read_bytes() == PAYLOAD
 
@@ -94,7 +95,7 @@ def test_a_multi_part_download_reassembles_the_original_bytes(tmp_path, server):
 def test_parts_are_fetched_in_parallel_with_range_requests(tmp_path, server):
     downloader = load_downloader()
 
-    downloader.download(server, tmp_path / "model.bin", 3, 1, 2)
+    downloader.download(server, tmp_path / "model.bin", 3, 1, 2, sha256=hashlib.sha256(PAYLOAD).hexdigest())
 
     ranges = [r for r in _RangeHandler.requests if r]
     assert len(ranges) == 4, ranges
@@ -111,7 +112,7 @@ def test_a_complete_part_is_not_downloaded_again(tmp_path, server):
     (parts / "part0000.bin").write_bytes(PAYLOAD[: 1 << 20])   # complete
     (parts / "part0001.bin").write_bytes(b"corrupt")           # wrong size
 
-    downloader.download(server, output, 3, 1, 2)
+    downloader.download(server, output, 3, 1, 2, sha256=hashlib.sha256(PAYLOAD).hexdigest())
 
     assert output.read_bytes() == PAYLOAD
     ranges = [r for r in _RangeHandler.requests if r]
@@ -130,7 +131,7 @@ def test_success_on_the_final_allowed_round_is_not_reported_as_failure(tmp_path,
     downloader = load_downloader()
     output = tmp_path / "model.bin"
 
-    downloader.download(server, output, connections=3, part_mb=1, retries=1)
+    downloader.download(server, output, connections=3, part_mb=1, retries=1, sha256=hashlib.sha256(PAYLOAD).hexdigest())
 
     assert output.read_bytes() == PAYLOAD
 
@@ -139,7 +140,7 @@ def test_the_parts_directory_is_removed_on_success(tmp_path, server):
     downloader = load_downloader()
     output = tmp_path / "model.bin"
 
-    downloader.download(server, output, 3, 1, 2)
+    downloader.download(server, output, 3, 1, 2, sha256=hashlib.sha256(PAYLOAD).hexdigest())
 
     assert not (tmp_path / "model.bin.parts").exists()
 
@@ -167,3 +168,39 @@ def test_invalid_arguments_are_rejected_before_any_network_call(capsys):
 
     assert exit_info.value.code == 2
     assert "part-mb" in capsys.readouterr().err
+
+
+def test_model_download_checks_checksum_before_rename(tmp_path, server):
+    import hashlib
+    downloader = load_downloader()
+    output = tmp_path / 'model.gguf'
+    with pytest.raises(RuntimeError, match='sha256'):
+        downloader.download(server, output, 3, 1, 1, sha256='0' * 64)
+    assert not output.exists()
+    assert downloader.download(server, output, 3, 1, 1, sha256=hashlib.sha256(PAYLOAD).hexdigest()) == output
+
+
+def test_remote_plain_http_is_refused_before_any_request(tmp_path):
+    downloader = load_downloader()
+    with pytest.raises(ValueError, match='https'):
+        downloader.download('http://example.org/model.gguf', tmp_path/'model.gguf', 1, 1, 1, sha256='0'*64)
+
+
+def test_whisper_model_bin_also_requires_checksum(tmp_path, server):
+    downloader = load_downloader()
+    with pytest.raises(ValueError, match='sha256'):
+        downloader.download(server, tmp_path/'model.bin', 1, 1, 1)
+
+
+def test_bad_cached_part_is_invalidated_after_checksum_mismatch(tmp_path, server):
+    downloader = load_downloader()
+    output = tmp_path/'model.gguf'
+    parts = tmp_path/'model.gguf.parts'
+    parts.mkdir()
+    (parts/'part0000.bin').write_bytes(b'Z' * (1 << 20))  # correct size, wrong bytes
+    digest = hashlib.sha256(PAYLOAD).hexdigest()
+    with pytest.raises(RuntimeError, match='sha256'):
+        downloader.download(server, output, 3, 1, 1, sha256=digest)
+    assert not (parts/'part0000.bin').exists()
+    downloader.download(server, output, 3, 1, 1, sha256=digest)
+    assert output.read_bytes() == PAYLOAD

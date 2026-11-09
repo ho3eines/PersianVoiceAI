@@ -89,7 +89,7 @@ Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama
 
 برای خروج Ctrl+C بزنید. **تاریخچهٔ مکالمه با خروج پاک نمی‌شود و اجرای بعدی همان نشست را ادامه
 می‌دهد**: با `PVAI_HISTORY_PERSIST=true` در `data/conversations/<session_id>.jsonl` می‌ماند و
-`PVAI_HISTORY_RESUME=on` (پیش‌فرض) هنگام شروع، آخرین نشست را می‌خواند؛ پیام‌ها در startup چاپ
+`PVAI_HISTORY_RESUME=on` (پیش‌فرض) هنگام شروع، آخرین نشست محلی دارای پیشوند `pc-` را می‌خواند؛ پیام‌ها در startup چاپ
 می‌شوند (`ادامهٔ نشست «…» با N پیام قبلی`). برای شروع تازه `PVAI_HISTORY_RESUME=off` بگذارید یا
 `python -m server.sessions delete-all` را اجرا کنید. با `PVAI_VOICE_SESSION_ID` می‌توانید یک
 شناسهٔ ثابت انتخاب کنید. بازبینی/حذف: `python -m server.sessions list|show|delete|delete-all`.

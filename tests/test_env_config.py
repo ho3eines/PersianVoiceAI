@@ -287,6 +287,7 @@ def test_launch_command_uses_the_configured_flags() -> None:
         "models/x.gguf",
         "-c",
         "2048",
+        "--jinja",
         "--host",
         "127.0.0.1",
         "--port",

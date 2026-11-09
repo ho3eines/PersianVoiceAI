@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
 from .config import Settings
-from .conversation import STATUS_COMPLETE, Conversation, open_store, purge_expired
+from .conversation import STATUS_COMPLETE, Conversation, open_store, purge_expired, SessionInUse
 from .metrics import Metrics
 from .protocol import check_token
 from .security import PUBLIC_PATHS, RateLimiter, _bearer_token
@@ -98,6 +98,16 @@ def _sse(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+async def periodic_retention(settings: Settings, store: Any, interval_s: float = 86400) -> None:
+    """Purge plain-text transcripts once daily without blocking API requests."""
+    while True:
+        await asyncio.sleep(interval_s)
+        try:
+            await asyncio.to_thread(purge_expired, settings, store)
+        except OSError:
+            logger.exception("periodic session retention failed")
+
+
 def create_app(
     settings: Settings | None = None,
     llm: LlamaServerClient | Any | None = None,
@@ -121,8 +131,8 @@ def create_app(
         app.state.started_at = time.time()
         app.state.llm = llm or LlamaServerClient(resolved)
         app.state.store = open_store(resolved)
-        # Retention is enforced at startup, not in a timer: transcripts are
-        # plain text on disk and an untouched PC must still age them out.
+        # Retention runs now and on a daily task: transcripts are plain text
+        # on disk even when the server has not restarted for weeks.
         removed = purge_expired(resolved, app.state.store)
         if removed:
             logger.info(
@@ -149,12 +159,17 @@ def create_app(
             __version__,
             resolved.model_path,
         )
-        yield
-        await app.state.llm.aclose()
+        retention_task = asyncio.create_task(periodic_retention(resolved, app.state.store))
+        try:
+            yield
+        finally:
+            retention_task.cancel()
+            await asyncio.gather(retention_task, return_exceptions=True)
+            await app.state.llm.aclose()
 
     app = FastAPI(
         title="Persian Voice AI",
-        description="Local Persian LLM core (llama.cpp). Lesson 1: text chat + local API.",
+        description="Local Persian LLM and voice API (llama.cpp).",
         version=__version__,
         lifespan=lifespan,
     )
@@ -269,7 +284,6 @@ def create_app(
         return {
             "service": "Persian Voice AI",
             "version": __version__,
-            "lesson": 1,
             "docs": "/docs",
             "health": "/health",
         }
@@ -294,6 +308,11 @@ def create_app(
         """Full readiness checklist; never raises on a broken installation."""
         backend = await request.app.state.llm.health()
         report = collect_readiness(request.app.state.settings, backend=backend)
+        if backend.get("reachable") and backend.get("model_available"):
+            probe = getattr(request.app.state.llm, "probe_no_thinking", None)
+            if callable(probe):
+                report["checks"]["thinking"] = await probe()
+                report["ready"] = report["ready"] and bool(report["checks"]["thinking"]["ok"])
         status_code = 200 if report["ready"] else 503
         return JSONResponse(
             status_code=status_code,
@@ -444,7 +463,7 @@ def create_app(
         )
 
     # ------------------------------------------------------------- sessions
-    def _conversation(session_id: str | None) -> Conversation:
+    def _conversation(session_id: str | None, *, write: bool = False) -> Conversation:
         """Load a persisted session, or build a RAM-only conversation."""
         options = {
             "max_messages": resolved.history_max_messages,
@@ -453,9 +472,19 @@ def create_app(
         }
         if not session_id:
             return Conversation(store=None, **options)
+        lease = None
         try:
-            return Conversation.load(request_store(), session_id, **options)
-        except ValueError as exc:  # invalid identifier (path traversal etc.)
+            store = request_store()
+            if write and getattr(store, "enabled", False):
+                lease = store.claim(session_id)
+            conversation = Conversation.load(store, session_id, **options)
+            conversation._lease = lease
+            return conversation
+        except (ValueError, SessionInUse) as exc:
+            if lease is not None:
+                lease.close()
+            if isinstance(exc, SessionInUse):
+                raise HTTPException(status_code=409, detail="session_in_use") from exc
             raise HTTPException(status_code=400, detail="شناسهٔ نشست نامعتبر است.") from exc
 
     def request_store():
@@ -485,7 +514,10 @@ def create_app(
 
     @app.delete("/api/sessions/{session_id}", tags=["sessions"])
     async def delete_session(session_id: str, request: Request) -> dict[str, Any]:
-        deleted = request_store().delete(session_id)
+        try:
+            deleted = request_store().delete(session_id, raise_on_locked=True)
+        except SessionInUse as exc:
+            raise HTTPException(status_code=409, detail="session_in_use") from exc
         if not deleted:
             raise HTTPException(status_code=404, detail="نشست پیدا نشد.")
         return {"deleted": True, "session_id": session_id}
@@ -493,29 +525,32 @@ def create_app(
     # -------------------------------------------------------- simple endpoint
     @app.post("/api/chat", tags=["simple"])
     async def simple_chat(payload: SimpleChatRequest, request: Request) -> dict[str, Any]:
-        conversation = _conversation(payload.session_id)
-        turn_id = conversation.new_turn_id()
-        conversation.add_user(payload.message, turn_id=turn_id)
-        messages = conversation.context_with_system(payload.system or resolved.system_prompt)
+        conversation = _conversation(payload.session_id, write=True)
+        try:
+            turn_id = conversation.new_turn_id()
+            conversation.add_user(payload.message, turn_id=turn_id)
+            messages = conversation.context_with_system(payload.system or resolved.system_prompt)
 
-        result = await request.app.state.llm.chat(
-            messages,
-            model=payload.model,
-            temperature=payload.temperature,
-            max_tokens=payload.max_tokens,
-        )
-        conversation.finish_assistant(
-            result.content, status=STATUS_COMPLETE, turn_id=turn_id
-        )
-        body: dict[str, Any] = {
-            "reply": result.content,
-            "model": result.model,
-            "finish_reason": result.finish_reason,
-            "timings": result.timings.as_dict(),
-        }
-        if payload.session_id:
-            body["session"] = conversation.summary()
-        return body
+            result = await request.app.state.llm.chat(
+                messages,
+                model=payload.model,
+                temperature=payload.temperature,
+                max_tokens=payload.max_tokens,
+            )
+            conversation.finish_assistant(
+                result.content, status=STATUS_COMPLETE, turn_id=turn_id
+            )
+            body: dict[str, Any] = {
+                "reply": result.content,
+                "model": result.model,
+                "finish_reason": result.finish_reason,
+                "timings": result.timings.as_dict(),
+            }
+            if payload.session_id:
+                body["session"] = conversation.summary()
+            return body
+        finally:
+            conversation.close()
 
     return app
 

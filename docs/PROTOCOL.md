@@ -198,3 +198,22 @@ device            server(PC)                llama-server      piper
    تنها حلقهٔ باقی‌مانده `pong` در firmware است.
 3. OTA و مدیریت نسخهٔ firmware (شروع نشده).
 4. سنجش RTT/LAN jitter واقعی با `ping/pong` روی سخت‌افزار — **NOT MEASURED**.
+
+### HTTPS / WSS در LAN
+
+با `PVAI_SSL_CERTFILE` و `PVAI_SSL_KEYFILE` روی uvicorn، دستگاه به
+`wss://host:port/ws/voice` وصل می‌شود. اگر گواهی را در reverse proxy پایان
+می‌دهید، API را فقط روی `127.0.0.1:8000` نگه دارید و توکن REST و دستگاه را
+حفظ کنید. نمونهٔ Caddy (دامنه و گواهی معتبر خودتان):
+
+```caddy
+voice.example.internal {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+برای nginx نیز `proxy_pass http://127.0.0.1:8000`،
+`proxy_set_header Upgrade $http_upgrade` و `proxy_set_header Connection "upgrade"`
+در location `/ws/voice` ضروری است. اتصال دستگاه `wss://` باشد؛ در شبکهٔ
+غیرمطمئن `ws://` توکن hello و صوت را آشکار می‌کند. گواهی خودامضا نیاز به
+نصب CA روی firmware دارد؛ بدون آن اعتبارسنجی TLS را خاموش نکنید.

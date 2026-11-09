@@ -123,7 +123,7 @@ def client(settings: Settings, fake_llm: FakeLLM):
 def test_root(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
-    assert response.json()["lesson"] == 1
+    assert response.json()["service"] == "Persian Voice AI"
 
 
 def test_health_ok(client: TestClient) -> None:

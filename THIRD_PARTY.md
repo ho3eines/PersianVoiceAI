@@ -36,11 +36,11 @@ shipping a binary that links it.
 
 ## Model weights
 
-| Model | Default path | Licence | Notes |
-|---|---|---|---|
-| Qwen3-4B (GGUF) | `models/Qwen3-4B-Q4_K_M.gguf` | Apache-2.0 | Apache-2.0 is GPLv3-compatible; safe to ship alongside this code. Quantised re-uploads inherit the base licence. |
-| Whisper `small` weights | `models/whisper-small` | MIT | OpenAI releases both code and weights under MIT; `faster-whisper` conversions keep it. |
-| Piper Persian voice | `models/piper/fa_IR.onnx` | **varies per voice — check** | The voice file is a separate work from the Piper engine. See below. |
+| Model | Default path | Licence | SHA-256 of exact weight | Notes |
+|---|---|---|---|---|
+| Qwen3-4B (GGUF) | `models/Qwen3-4B-Q4_K_M.gguf` | Apache-2.0 | NOT VERIFIED (revision-dependent) | Apache-2.0 is GPLv3-compatible; safe to ship alongside this code. Quantised re-uploads inherit the base licence. |
+| Whisper `small` weights | `models/whisper-small` | MIT | NOT VERIFIED (conversion-dependent) | OpenAI releases both code and weights under MIT; `faster-whisper` conversions keep it. |
+| Piper Persian voice | `models/piper/fa_IR.onnx` | **varies per voice — check** | NOT VERIFIED (voice-dependent) | The voice file is a separate work from the Piper engine. See below. |
 
 ### The Piper voice licence trap
 
@@ -108,3 +108,16 @@ PY
 
 Model licences must be read from each model's card on its hosting page; they are
 not machine-readable in a way that can be trusted here.
+
+## Checksums for externally downloaded weights
+
+No fixed model SHA-256 is asserted by this repository: a GGUF quantisation,
+Whisper conversion or Piper voice revision changes its digest. Hashes are
+**NOT VERIFIED** without an exact publisher URL/revision. Obtain the published
+SHA-256 for the exact file from the model publisher (or a separately trusted
+signed manifest), verify its licence/model card above, then pass that digest via
+`tools/download_parallel.py --url https://... --output models/... --sha256 <64-hex>`.
+The downloader checks bytes **before** replacing the destination. A checksum
+copied from the same untrusted download endpoint does not authenticate a model.
+`model.bin`, `.gguf` and `.onnx` require `--sha256`; TLS is required except
+loopback-only test sources. Do not claim a model's licence from its extension.

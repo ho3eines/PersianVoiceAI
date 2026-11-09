@@ -59,7 +59,7 @@
 
 | متغیر | پیش‌فرض | معنا |
 |---|---|---|
-| `PVAI_HOST` | `127.0.0.1` | آدرس bind. `0.0.0.0` فقط در شبکهٔ خصوصی و با در نظر گرفتن نبود احراز هویت |
+| `PVAI_HOST` | `127.0.0.1` | آدرس bind. `0.0.0.0` فقط با توکن REST و در شبکهٔ خصوصی |
 | `PVAI_PORT` | `8000` | پورت API |
 | `PVAI_LOG_LEVEL` | `INFO` | سطح لاگ |
 
@@ -80,7 +80,7 @@
 | `PVAI_ASR_COMPRESSION_RATIO` | `2.4` | بالاتر از این = حلقهٔ تکرار، دور ریخته می‌شود |
 | `PVAI_ASR_MAX_NO_SPEECH_PROB` | `0.75` | اگر `no_speech_prob` سگمنت از این بیشتر باشد، **کل سگمنت** حذف می‌شود |
 | `PVAI_ASR_HALLUCINATION_PHRASES` | فهرست فارسی/انگلیسی | عبارت‌های توهمی روی سکوت/نویز، جداشده با ویرگول. خالی = فیلتر خاموش (توصیه نمی‌شود) |
-| `PVAI_ASR_PARTIAL_WINDOW_S` | `6.0` | طول پنجرهٔ هم‌پوشان برای partial؛ cost هر decode را ثابت نگه می‌دارد. باید ≥ ۲× `PVAI_VOICE_ASR_INTERVAL` باشد |
+| `PVAI_ASR_PARTIAL_WINDOW_S` | `3.0` | طول پنجرهٔ هم‌پوشان برای partial؛ cost هر decode را ثابت نگه می‌دارد. باید ≥ ۲× `PVAI_VOICE_ASR_INTERVAL` باشد |
 | `PVAI_ASR_MAX_FINAL_JOBS` | `16` | آستانهٔ هشدار عمق صف final؛ **هیچ final حذف نمی‌شود** |
 | `PVAI_ASR_WARMUP` | `true` | لود و warmup مدل در startup به‌جای اولین utterance |
 
@@ -200,7 +200,7 @@ AEC فقط با ۱۶kHz و بلوک ۲۰ms معنا دارد؛ `GET /ready` ای
 | `PVAI_HISTORY_INCLUDE_INTERRUPTED` | `false` | آیا پاسخ قطع‌شده در context مدل بیاید (برای بازبینی همیشه ذخیره می‌شود) |
 | `PVAI_HISTORY_RESUME` | `on` | `on`: مسیر زندهٔ محلی در هر اجرا نشستِ قبلی را ادامه می‌دهد (الزام ۱۷). `off`: هر اجرا نشست تازه؛ `session_id` صریح همیشه resume می‌شود |
 | `PVAI_VOICE_SESSION_ID` | (خالی) | اگر تنظیم شود، نشستِ ثابتی است که مسیر زندهٔ محلی همیشه در آن می‌نویسد (فقط `[A-Za-z0-9_-]`) |
-| `PVAI_HISTORY_RETENTION_DAYS` | `0` | `0` = نگه‌داشتن همه. با مقدار مثبت، نشست‌هایی که این تعداد روز دست‌نخورده مانده‌اند در startup و با `python -m server.sessions purge` پاک می‌شوند |
+| `PVAI_HISTORY_RETENTION_DAYS` | `30` | `0` = نگه‌داشتن همه. با مقدار مثبت، نشست‌هایی که این تعداد روز دست‌نخورده مانده‌اند در startup و هر ۲۴ ساعت و با `python -m server.sessions purge` پاک می‌شوند |
 
 ## ۱۰. انتقال صوتی WebSocket (LAN)
 
@@ -257,7 +257,7 @@ AEC فقط با ۱۶kHz و بلوک ۲۰ms معنا دارد؛ `GET /ready` ای
 PVAI_MODEL_PATH=models/Qwen3-4B-Q4_K_M.gguf
 PVAI_N_THREADS=2
 PVAI_ASR_THREADS=2
-PVAI_ASR_PARTIAL_WINDOW_S=6
+PVAI_ASR_PARTIAL_WINDOW_S=3
 PVAI_TTS_VOICE=female
 PVAI_TTS_MODEL_FEMALE=models/piper/fa_IR_female.onnx
 PVAI_TTS_MODEL_MALE=models/piper/fa_IR_male.onnx
@@ -269,3 +269,14 @@ PVAI_HISTORY_PERSIST=true
 ```
 
 پس از تغییر، `GET /ready` را ببینید: هر متغیر نادرست به‌صورت خطای فارسی با نام همان بخش گزارش می‌شود.
+
+
+### TLS مستقیم روی API/WS
+
+| متغیر | پیش‌فرض | کاربرد |
+|---|---|---|
+| `PVAI_SSL_CERTFILE` | خالی | مسیر گواهی TLS برای uvicorn (همراه KEYFILE) |
+| `PVAI_SSL_KEYFILE` | خالی | کلید خصوصی TLS؛ در git نگذارید |
+
+هر دو را با هم تنظیم کنید؛ در LAN آدرس `https://` و `wss://` می‌شود.
+`PVAI_API_TOKEN` و توکن per-device همچنان اجباری هستند؛ TLS جای احراز هویت نیست.

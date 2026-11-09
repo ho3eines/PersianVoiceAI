@@ -130,7 +130,7 @@ Copy-Item .env.example .env
 .\tools\chat.ps1
 .\tools\chat.ps1 --once "سلام! خودت را معرفی کن"
 
-# تست‌ها (بدون مدل) — باید همیشه سبز باشد: ۶۰۶ passed، ۵ skipped
+# تست‌ها (بدون مدل) — باید همیشه سبز باشد: نتیجهٔ جاری را با pytest ببینید
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m pytest
 
@@ -140,7 +140,7 @@ curl http://127.0.0.1:8000/ready
 
 # سنجش کیفیت/سرعت پاسخ
 .\tools\benchmark.ps1
-.\.venv\Scripts\python.exe tools\verify_lesson01.py
+# ابزار قدیمی در docs/legacy بایگانی شده است
 ```
 
 **Linux / macOS / bash**

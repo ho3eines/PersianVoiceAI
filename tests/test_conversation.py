@@ -529,3 +529,102 @@ def test_live_loop_applies_retention_before_starting(
 
     assert not path.exists()
     assert "1 نشست قدیمی‌تر از 7 روز حذف شد." in capsys.readouterr().out
+
+
+def test_session_listing_reuses_lightweight_message_count_cache(tmp_path, monkeypatch):
+    store = ConversationStore(tmp_path)
+    store.append('a', {'kind': 'message', 'id': 1, 'role': 'user', 'content': 'x'})
+    original = store._count_messages
+    calls = []
+    def counted(path):
+        calls.append(path)
+        return original(path)
+    monkeypatch.setattr(store, '_count_messages', counted)
+    assert store.sessions()[0]['messages'] == 1
+    assert store.sessions()[0]['messages'] == 1
+    assert len(calls) == 1
+    store.append('a', {'kind': 'message', 'id': 2, 'role': 'assistant', 'content': 'y'})
+    assert store.sessions()[0]['messages'] == 2
+
+
+def test_local_resume_never_selects_latest_websocket_session(tmp_path):
+    from server.conversation import resume_target, open_store
+    settings = Settings(data_dir=str(tmp_path), history_persist=True)
+    store = open_store(settings)
+    store.append('pc-local', {'kind': 'message', 'id': 1, 'role': 'user', 'content': 'local'})
+    store.append('ws-private', {'kind': 'message', 'id': 1, 'role': 'user', 'content': 'private'})
+    assert resume_target(settings, store, None, local=True) == 'pc-local'
+    assert store.latest_session(prefix='pc-') == 'pc-local'
+    assert create_conversation(settings, local=True).session_id == 'pc-local'
+
+
+def test_fresh_local_session_has_distinct_prefix(tmp_path):
+    settings = Settings(data_dir=str(tmp_path), history_persist=True, history_resume='off')
+    assert create_conversation(settings, local=True).session_id.startswith('pc-')
+
+
+def test_session_lease_refuses_second_thread_and_process(tmp_path):
+    import subprocess
+    import sys
+    store = ConversationStore(tmp_path)
+    lease = store.claim('shared')
+    try:
+        with pytest.raises(Exception, match='session_in_use'):
+            store.claim('shared')
+        code = ("from server.conversation import ConversationStore; "
+                f"ConversationStore({str(tmp_path)!r}).claim('shared')")
+        completed = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True)
+        assert completed.returncode != 0
+        assert 'session_in_use' in completed.stderr
+    finally:
+        lease.close()
+    with store.claim('shared'):
+        pass
+
+
+def test_session_lease_does_not_follow_lockfile_symlink(tmp_path):
+    if __import__('os').name == 'nt':
+        pytest.skip('O_NOFOLLOW is POSIX-only')
+    victim = tmp_path / 'victim.txt'
+    victim.write_text('keep this file')
+    (tmp_path / 'unsafe.lock').symlink_to(victim)
+    store = ConversationStore(tmp_path)
+    with pytest.raises(OSError):
+        store.claim('unsafe')
+    assert victim.read_text() == 'keep this file'
+
+
+def test_case_collision_is_rejected_even_when_uppercase_path_exists_on_windows(tmp_path, monkeypatch):
+    store = ConversationStore(tmp_path)
+    assert store.append('abc', {'kind': 'message', 'id': 1})
+    original = Path.exists
+    monkeypatch.setattr(Path, 'exists', lambda path: True if path.name == 'AbC.jsonl' else original(path))
+    assert store.append('AbC', {'kind': 'message', 'id': 2}) is False
+    assert [record['id'] for record in store.load('abc')] == [1]
+
+
+def test_session_lease_is_exclusive_across_threads(tmp_path):
+    import threading
+    store = ConversationStore(tmp_path)
+    failures = []
+    with store.claim('threaded'):
+        def compete():
+            try:
+                with ConversationStore(tmp_path).claim('threaded'):
+                    failures.append('unexpected second owner')
+            except SessionInUse:
+                failures.append('session_in_use')
+        from server.conversation import SessionInUse
+        thread = threading.Thread(target=compete)
+        thread.start(); thread.join(timeout=2)
+        assert not thread.is_alive()
+    assert failures == ['session_in_use']
+
+
+def test_delete_can_surface_lock_conflict_without_shared_error_state(tmp_path):
+    from server.conversation import SessionInUse
+    store = ConversationStore(tmp_path)
+    assert store.append('locked', {'kind': 'message', 'id': 1})
+    with store.claim('locked'):
+        with pytest.raises(SessionInUse):
+            store.delete('locked', raise_on_locked=True)
