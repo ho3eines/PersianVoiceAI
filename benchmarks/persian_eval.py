@@ -50,7 +50,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:  # allow `python benchmarks/persian_eval.py`
     sys.path.insert(0, str(ROOT))
 
-from server.persian import evaluate_detailed  # noqa: E402
+from server.persian import (  # noqa: E402
+    evaluate_detailed,
+    false_accept_examples,
+    false_accept_rate,
+)
 
 DEFAULT_SET = Path(__file__).resolve().parent / "persian_eval_set.json"
 
@@ -66,7 +70,12 @@ def load_set(path: str | Path = DEFAULT_SET) -> dict[str, Any]:
     for entry in sentences:
         identifier = str(entry.get("id", "")).strip()
         text = str(entry.get("text", "")).strip()
-        if not identifier or not text:
+        kind = str(entry.get("kind", "speech")).strip()
+        if kind not in {"speech", "no_speech"}:
+            raise ValueError(f"unknown entry kind {kind!r} in {entry!r}")
+        # A no-speech clip (silence, room noise) legitimately has no text: the
+        # point of the entry is that transcribing it *is* the failure.
+        if not identifier or (kind == "speech" and not text):
             raise ValueError(f"invalid evaluation entry: {entry!r}")
         if identifier in seen:
             raise ValueError(f"duplicate evaluation id: {identifier}")
@@ -75,7 +84,17 @@ def load_set(path: str | Path = DEFAULT_SET) -> dict[str, Any]:
 
 
 def references(data: dict[str, Any]) -> dict[str, str]:
-    return {str(item["id"]): str(item["text"]) for item in data["sentences"]}
+    """Reference text for the *speech* entries; no-speech clips are excluded.
+
+    Including them would make every hallucination an insertion and drag WER
+    below a meaningful reading; they are scored separately by
+    :func:`score_no_speech`.
+    """
+    return {
+        str(item["id"]): str(item["text"])
+        for item in data["sentences"]
+        if str(item.get("kind", "speech")) != "no_speech"
+    }
 
 
 # -------------------------------------------------------------------- scoring
@@ -131,6 +150,8 @@ def score_by_category(
     """Per-category error rates (the categories are the ones in the JSON)."""
     categories: dict[str, list[tuple[str, str]]] = {}
     for entry in data["sentences"]:
+        if str(entry.get("kind", "speech")) == "no_speech":
+            continue  # scored as a false accept, not as an error rate
         identifier = str(entry["id"])
         text = hypothesis.get(identifier)
         if text is None:
@@ -188,6 +209,53 @@ def transcribe_with_local_model(
     return hypotheses, missing
 
 
+def transcribe_no_speech(audio_dir: Path, settings: Any) -> dict[str, Any]:
+    """Transcribe real silence/noise clips and report the false-accept rate.
+
+    Every ``*.wav`` in the directory is expected to contain no speech (a silent
+    room, a fan, a TV).  Nothing is scored with WER: there is no reference text.
+    What matters is whether the assistant would have started a turn.
+    """
+    from server.voice import LocalAudio, VoiceError
+
+    files = sorted(audio_dir.glob("*.wav"))
+    transcripts: list[str] = []
+    unreadable: list[str] = []
+    if files:
+        audio = LocalAudio(settings)
+        audio.validate()
+    for path in files:
+        try:
+            transcripts.append(audio.transcribe_pcm(read_wav_mono16k(path)))
+        except (ValueError, VoiceError) as exc:
+            unreadable.append(f"{path.name}: {exc}")
+    report = false_accept_rate(transcripts)
+    report["examples"] = false_accept_examples(transcripts)
+    report["unreadable"] = unreadable
+    return report
+
+
+def score_no_speech(
+    data: dict[str, Any], hypothesis: dict[str, str]
+) -> dict[str, Any]:
+    """False-accept rate on the negative set (entries with empty ``text``).
+
+    WER cannot express this: an empty reference makes every hypothesis an
+    insertion, and the ratio says nothing about how *often* it happened.  The
+    negative entries carry ``"text": ""`` and describe silence, room noise or a
+    TV — the cases where Whisper invents a sentence and the assistant answers
+    a question nobody asked.
+    """
+    clips: list[str] = []
+    for entry in data.get("sentences", []):
+        if str(entry.get("kind", "speech")) != "no_speech":
+            continue
+        clips.append(hypothesis.get(str(entry["id"]), ""))
+    report = false_accept_rate(clips)
+    report["examples"] = false_accept_examples(clips)
+    return report
+
+
 # ---------------------------------------------------------------------- CLI
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
@@ -198,6 +266,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--hypotheses", help="JSON transcript file to score")
     parser.add_argument("--audio-dir", help="directory of <id>.wav recordings")
     parser.add_argument("--json-out", help="write the report as JSON")
+    parser.add_argument(
+        "--no-speech-dir",
+        help="directory of silence/noise wavs; reports the false-accept rate",
+    )
     parser.add_argument(
         "--strict", action="store_true", help="fail when any reference id is missing"
     )
@@ -246,6 +318,11 @@ def main(argv: list[str] | None = None) -> int:
     report["normalization_policy"] = data["normalization_policy"]
     report["missing_audio"] = missing_audio
     report["by_category"] = score_by_category(data, hypotheses)
+    report["no_speech"] = score_no_speech(data, hypotheses)
+    if args.no_speech_dir:
+        report["no_speech_audio"] = transcribe_no_speech(
+            Path(args.no_speech_dir), Settings.from_env()
+        )
 
     print("Persian ASR evaluation")
     print(f"  sentences scored : {report['sentences']}")
@@ -260,6 +337,29 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  missing ids      : {len(report['missing_ids'])} (excluded, see --strict)")
     for name, values in report["by_category"].items():
         print(f"    {name:<14} WER {values['wer'] * 100:6.2f} %  CER {values['cer'] * 100:6.2f} %")
+    no_speech = report["no_speech"]
+    if no_speech["measured"]:
+        print(
+            f"  false accepts    : {no_speech['accepted']}/{no_speech['clips']}"
+            f" = {no_speech['false_accept_rate'] * 100:.1f} %"
+            " (no-speech clips that produced text)"
+        )
+        for example in no_speech["examples"][:5]:
+            print(f"    hallucinated   : {example[:70]}")
+    audio_report = report.get("no_speech_audio")
+    if audio_report is not None:
+        if audio_report["measured"]:
+            print(
+                f"  false accepts    : {audio_report['accepted']}/{audio_report['clips']}"
+                f" = {audio_report['false_accept_rate'] * 100:.1f} % (from --no-speech-dir)"
+            )
+        else:
+            print("  false accepts    : NOT MEASURED — no silence/noise wavs found")
+    else:
+        print(
+            "  false accepts    : NOT MEASURED — pass --no-speech-dir with silence/"
+            "noise recordings"
+        )
     print(f"  policy           : {data['normalization_policy']}")
 
     if args.json_out:

@@ -1,6 +1,7 @@
 # مستند جامع پروژه Persian Voice AI
 
-**نسخه ۱.۰ — مبنای ادامه توسعه**
+**نسخهٔ سند ۱.۰ — مبنای ادامه توسعه.** (این شماره نسخهٔ همین سند است، نه نسخهٔ نرم‌افزار؛
+نسخهٔ سرویس `server/__init__.py::__version__` است و در `/` و `/health` برمی‌گردد.)
 
 این سند مرجع تصمیم‌های تثبیت‌شدهٔ پروژه است. تغییر هر بند آن نیازمند دستور صریح کاربر است.
 برای وضعیت واقعی پیاده‌سازی به [`STATUS.md`](STATUS.md) و برای قرارداد کار عوامل به
@@ -293,6 +294,10 @@ PersianVoiceAI/
     iot/
   tests/
   requirements.txt
+  requirements-dev.txt
+  requirements-voice.txt
+  LICENSE
+  THIRD_PARTY.md
   models/
   config/
   tools/

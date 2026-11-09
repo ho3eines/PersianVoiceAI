@@ -7,6 +7,10 @@
 تست پایه پیش از تغییر: `53 passed, 2 skipped` (تست‌های native AEC skip می‌شوند).
 تست پس از مرحلهٔ تکمیلی: `237 passed, 2 skipped` (۲ skip فقط native AEC در sandbox بدون کتابخانه).
 
+> **این عدد تاریخی است** و به لحظهٔ همان مرحله مربوط می‌شود. شمار تست‌های جاری در
+> `docs/STATUS.md` است (اکنون `606 passed, 5 skipped`). برای دیدن عدد امروز،
+> `python -m pytest` را اجرا کنید — عدد داخل سند به‌صورت خودکار به‌روز نمی‌شود.
+
 ---
 
 ## خلاصهٔ شدت
@@ -84,7 +88,7 @@
 - **ریشه:** payload فقط `messages` تاریخچه + پیام کاربر بود؛ `Settings.system_prompt` هرگز
   در مسیر زنده به مدل نمی‌رسید (فقط مسیر متنی از `LlamaServerClient` آن را تزریق می‌کرد).
 - **رفع:** `messages = [system] + context` در مسیر صوتی؛ قابل تنظیم با `PVAI_SYSTEM_PROMPT`.
-- **تست:** `tests/test_utterance_lifecycle.py::test_system_prompt_is_sent`
+- **تست:** `tests/test_utterance_lifecycle.py::test_system_prompt_is_sent_to_the_model`
 - **وضعیت:** رفع‌شده + تست
 
 ### P1-02 — نبود ماشین حالت و یکسان‌بودن لغو در پنج وضعیت
@@ -332,7 +336,7 @@
 
 | مورد | وضعیت |
 |---|---|
-| `docs/CONFIGURATION.md` (مرجع کامل ۴۸ متغیر `PVAI_*`) | افزوده شد (قبلاً `config.py` به آن ارجاع می‌داد ولی وجود نداشت) |
+| `docs/CONFIGURATION.md` (مرجع کامل `PVAI_*`؛ در آن زمان ۴۸ متغیر، اکنون ۸۲) | افزوده شد (قبلاً `config.py` به آن ارجاع می‌داد ولی وجود نداشت) |
 | `docs/PROTOCOL.md` (قرارداد WebSocket/ESP32) | به‌روزرسانی شد: transport سرور پیاده‌شده، firmware همچنان نشده |
 | `docs/TROUBLESHOOTING.md` | افزوده شد؛ نگاشت پیام واقعی کد به راه‌حل |
 | `docs/HARDWARE_VALIDATION.md` | افزوده شد؛ چک‌لیست ۱۴ مرحله‌ای سناریوی پذیرش |
@@ -382,3 +386,339 @@
 
 - **رفع:** تست ASGI سطح‌پایین `tests/test_api.py::test_sse_client_disconnect_cancels_upstream_generation`
   پس از `http.disconnect` بررسی می‌کند که generator بالادست بسته و تولید متوقف شود.
+
+---
+
+## مرحلهٔ سوم — بازتولید و رفع چهار باگ (۸ نوامبر ۲۰۲۶)
+
+هر چهار مورد **ابتدا با اجرای واقعی بازتولید شد** (اسکریپت بازتولید، خروجی ثبت‌شده)، بعد رفع و
+تست شد. فایل‌های تغییر‌یافته: `server/vad.py`, `server/streaming_voice.py`, `server/metrics.py`.
+
+### B1-01 — پاسخ دستیار بی‌صدا گم می‌شد (نویز کوتاه، utterance ردشده)
+
+- **فایل:** `server/vad.py` (`EnergyVAD._finish`), `server/streaming_voice.py` (`feed`, `_on_final`)
+- **ریشه:** `_finish` گفتار کوتاه‌تر از `min_voiced_frames` (پیش‌فرض ۸ فریم = ۱۶۰ms) را دور
+  می‌ریخت و فقط `(False, None)` برمی‌گرداند — همان چیزی که «هیچ اتفاقی نیفتاد» را هم نشان
+  می‌داد. ولی onset از ۳ فریم فعال شده بود و `_begin_utterance` یک utterance ساخته،
+  `_latest_utterance_id` را بالا برده و state را `LISTENING` کرده بود. نتیجهٔ بازتولید‌شده:
+  صدا زدن `feed_utterance(speech=20, silence=32)` سپس `feed_utterance(speech=4, silence=32)`
+  با ASR مسدود → فقط `response_skipped`، بدون `tts_start`، `state=listening` و
+  `utterance.id=2` که هرگز بسته نمی‌شد.
+- **رفع:**
+  - `EnergyVAD.feed_event()` مرز صریح برمی‌گرداند: `onset` / `segment` / `rejected`
+    (‏`feed()` قدیمی سازگار ماند). `rejected_utterances` هم شمرده می‌شود.
+  - `Pipeline._reject_utterance()`: utterance لغو، partial دور ریخته، رویداد
+    `utterance_rejected` منتشر، و `_settle_after_utterance()` به `IDLE` (یا `TRANSCRIBING`
+    اگر final در صف است) برمی‌گردد.
+  - `_latest_utterance_id` فقط در `_on_final` با متن معتبر جلو می‌رود؛ onset دیگر آن را
+    بالا نمی‌برد. skip فقط وقتی رخ می‌دهد که نوبت جدیدتر **پاسخ گرفته باشد**
+    (`response_skipped` با `reason=newer_final_answered`).
+  - utterance بعدی که خالی/ناموفق بود در `_pending_answers` می‌ماند (کران‌دار) و
+    `start_next_pending()` پاسخ آخرین پیام بی‌پاسخ را می‌دهد (`response_recovered`)،
+    با تشخیص «قبلاً پاسخ گرفته» از خود `Conversation` تا پاسخ تکراری ساخته نشود.
+- **تست:** `tests/test_short_noise_utterance.py` (۳ سناریوی الزامی: نویز کوتاه، نویز با ASR
+  خالی، نویز بعد از final + دو حالت تکمیلی)، `tests/test_vad.py` (دو تست مرز صریح)،
+  و به‌روزرسانی `test_final_asr_in_flight_survives_new_speech_onset` (که قبلاً رفتار باگ‌دار
+  را assert می‌کرد).
+- **وضعیت:** رفع‌شده + تست
+
+### B2-01 — مسیر exception در `Pipeline.play` نوبت را در `SPEAKING` رها می‌کرد
+
+- **فایل:** `server/streaming_voice.py` → `Pipeline.play`
+- **ریشه:** شاخهٔ exception فقط `_commit_turn(..., failed)` می‌کرد، `token.set()` می‌زد و
+  `continue` می‌کرد؛ state در `SPEAKING` می‌ماند و `turn.current` هم (اگر جمله نیمه‌کاره بود)
+  پاک نمی‌شد. بازتولید: `state=speaking`، و گفتار بعدی رویداد `interrupted` با `turn_id=0`
+  تولید می‌کرد.
+- **ریشهٔ دوم (همان اجرا پیدا شد):** توکن سراسری `self.cancel` set می‌شد و جایگزین نمی‌شد؛
+  هر پاسخ بعدی در اولین `token.is_set()` بی‌صدا abort می‌شد — یعنی یک خطای TTS دستیار را
+  برای بقیهٔ نشست لال می‌کرد.
+- **رفع:** مسیر TTS و مسیر LLM هر دو از `_fail_turn()` می‌گذرند: commit یک‌بار با وضعیت
+  `failed`، پاک‌کردن `turn.current`، `turn.token.set()`، جایگزینی `self.cancel` اگر set باشد،
+  حذف نشانگرهای مردهٔ همان نوبت از صف پخش، و `_release_after_failure()` برای گذار به
+  `LISTENING`/`IDLE` وقتی صف خالی و `pending_turn is None` است.
+- **تست:** `tests/test_turn_failures.py::test_tts_failure_leaves_speaking_and_is_not_a_barge_in`,
+  `::test_conversation_recovers_after_a_tts_failure`
+- **وضعیت:** رفع‌شده + تست
+
+### B3-01 — `respond` با پیام‌های خالی: نه commit، نه خروج از `THINKING`
+
+- **فایل:** `server/streaming_voice.py` → `Pipeline.respond`
+- **ریشه:** `if not messages: return` قبل از هر commit/گذار. `pending_turn` می‌ماند، state روی
+  `THINKING` قفل می‌شد و هیچ `response_end` برای نوبتی که `start_reply` اعلام کرده بود منتشر
+  نمی‌شد. (مسیر `context_with_system` که exception بدهد هم چون خارج از `try` بود، task را با
+  استثنای خام می‌کشت.)
+- **رفع:** هر دو حالت (context خالی، خطای ساخت تاریخچه) به `_fail_turn()` با دلیل صریح
+  (`empty_context` / `history_error`) می‌روند: `response_end` با وضعیت `failed`، پاک‌شدن
+  `pending_turn`، خروج از `THINKING`، و رویداد `error` قابل‌فهم. هیچ درخواستی به مدل نمی‌رود.
+- **تست:** `tests/test_turn_failures.py::test_empty_context_fails_the_turn_instead_of_wedging_thinking`,
+  `::test_history_failure_is_a_failed_turn_not_a_stuck_state`,
+  `::test_empty_context_turn_does_not_block_the_next_utterance`
+- **وضعیت:** رفع‌شده + تست
+
+### P0-04 — final پشت partial در حال decode معطل می‌ماند (بدون سنجه و بدون راه فرار)
+
+- **فایل:** `server/streaming_voice.py` → `AsrScheduler`, `Pipeline.recognize`
+- **ریشه:** یک actor تنها برای Whisper (الزام CPU دوهسته‌ای) یعنی partialی که شروع شده تا پایان
+  decode خودش (تا `PVAI_ASR_PARTIAL_WINDOW_S` = ۶ ثانیه صوت) قابل توقف نبود؛ final پشت آن
+  می‌ماند. تأخیر هم قابل انتساب نبود: `asr_final_latency_ms` انتظار صف، انتظار پشت partial و
+  خود decode را در یک عدد جمع می‌کرد.
+- **رفع:**
+  - `AsrJob.started_at` + سه سنجه: `asr_final_dispatch_wait_ms`،
+    `asr_final_wait_behind_partial_ms`، `asr_final_decode_ms` (به‌علاوهٔ
+    `asr_partial_decode_ms`, `asr_partial_wasted_ms`).
+  - `AsrScheduler.preempt()`/`begin()`/`end()`: به‌محض صف‌شدن final، توکن partial در حال اجرا
+    set می‌شود؛ backendی که `transcribe_pcm(pcm, token, job)` را می‌پذیرد همان‌جا متوقف
+    می‌شود (`asr_partial_preempted`/`asr_partial_cancelled`). backend قدیمی
+    `transcribe_pcm(pcm)` سازگار می‌ماند: نتیجه‌اش دور ریخته می‌شود و همان تأخیر ثبت می‌شود.
+  - partial منسوخ (final همان utterance یا جدیدتر در صف) در `submit_partial` رد می‌شود.
+  - flag فقط با «همان jobی که preempt شده» تفسیر می‌شود، پس یک partial سالم که هم‌زمان با
+    رسیدن partial جدید تمام شده، دور ریخته نمی‌شود.
+- **تست:** `tests/test_asr_preemption.py` (۵ تست). عدد SIMULATED در sandbox: با partial
+  ۲ ثانیه‌ای، پاسخ از **۱۹۶۵ms به ۳ms** رسید. عدد دستگاه واقعی **NOT MEASURED**.
+- **وضعیت:** رفع‌شده + تست (SIMULATED)
+
+---
+
+## مرحلهٔ چهارم — بازتولید و رفع چهار باگ مسیر صوتی (۸ نوامبر ۲۰۲۶)
+
+فایل‌ها: `server/audio_io.py` (`stream_forever`, `pump`)، `server/aec.py` (`DuplexAudio`)،
+`server/streaming_voice.py` (`Pipeline.reset`). هر چهار مورد **اول بازتولید شد** (خروجی در متن)،
+بعد رفع و تست شد. تست‌ها: `tests/test_audio_io.py` (+۱۱ تست جدید).
+
+### A1-01 — حلقهٔ بازگشایی بی‌پایان برای دستگاهی که باز می‌شود ولی فریم نمی‌دهد
+
+- **فایل:** `server/audio_io.py` → `stream_forever`
+- **ریشه:** `attempts = 0` بلافاصله داخل `with sd.RawStream(...)` اجرا می‌شد، یعنی به‌محض
+  موفقیت `__enter__` و **قبل** از آنکه معلوم شود دستگاه واقعاً صدا می‌دهد. میکروفون mute،
+  دستگاه exclusive یا هدست بلوتوثی که کانال ورودی را واگذار کرده، هر بار `AudioStalled`
+  می‌داد و هر بار شمارنده صفر می‌شد؛ پس `PVAI_AUDIO_REOPEN_ATTEMPTS` هرگز پر نمی‌شد.
+- **بازتولید:** fake sd که باز می‌شود و ۳ فریم می‌دهد و بعد ساکت می‌شود، با سقف ۲ →
+  در ۳ ثانیه **۱۲ بار** باز شد و همچنان ادامه داشت (اجرای مقایسه‌ای old/new هم همین را نشان داد:
+  `old: STILL LOOPING (12 opens, cap 2)` در برابر `new: VoiceError after 3 opens`).
+- **رفع:** سهمیهٔ تلاش‌ها فقط وقتی ریست می‌شود که همان تلاش دست‌کم
+  `PVAI_AUDIO_REOPEN_STABLE_FRAMES` فریم **واقعی** تحویل داده باشد (پیش‌فرض ۵۰ = ۱ ثانیه).
+  بعد از سقف، `VoiceError` فارسی و عملی می‌آید که دقیقاً همین سه علت را نام می‌برد
+  (mute / exclusive / هدست) و به `PVAI_AUDIO_INPUT_DEVICE` ارجاع می‌دهد. تابع `_retry()`
+  این تفکیک را انجام می‌دهد: «دستگاهی که کار می‌کرد و مرد» یک بازگشایی می‌گیرد،
+  «دستگاهی که هرگز یک فریم هم نداد» سهمیه را مصرف می‌کند.
+- **تست:** `test_silent_device_exhausts_the_reopen_budget_instead_of_looping_forever`,
+  `test_a_short_burst_of_frames_does_not_refund_the_reopen_budget`,
+  `test_a_device_that_delivered_real_frames_earns_a_fresh_budget`,
+  `test_stable_frames_threshold_is_configurable`
+- **وضعیت:** رفع‌شده + تست (hardware: NOT TESTED)
+
+### A2-01 — دو ساعت متفاوت در سنجش stall (`monotonic` در برابر `perf_counter`)
+
+- **فایل:** `server/audio_io.py` → `pump`، `server/aec.py` → `DuplexAudio._measure`
+- **ریشه:** watchdog با `time.monotonic() - last_frame_at` حساب می‌کرد ولی
+  `_measure` مقدار `last_frame_at` را با `time.perf_counter()` می‌نوشت. مبدأ `perf_counter`
+  تعریف‌نشده است و روی Windows (سیستم هدف) با `monotonic` هم‌مبدأ نیست؛ نتیجه بسته به علامت
+  اختلاف می‌تواند «stall کاذب روی stream سالم» یا «پذیرش بی‌صدای دستگاه مرده» باشد.
+- **رفع:** همهٔ مُهرهای زمانی این مسیر از `time.monotonic` می‌آیند (`DuplexAudio._measure`,
+  `opened()`, `pump`). `_stall_baseline()` تنها جایی است که watchdog ساعت می‌خواند.
+- **تست:** `test_callback_timestamps_share_the_watchdogs_clock` (با `perf_counter` جابه‌جاشده،
+  مهر زمانی باید داخل بازهٔ `monotonic` قبل/بعد بماند)
+  و `test_healthy_stream_is_not_stalled_when_perf_counter_has_another_origin`.
+- **وضعیت:** رفع‌شده + تست
+
+### A3-01 — دستگاهی که هرگز callback نمی‌دهد هیچ‌وقت stall تشخیص داده نمی‌شد
+
+- **فایل:** `server/audio_io.py` → `pump`، `server/aec.py` → `DuplexAudio.opened`
+- **ریشه:** شرط `if last is not None and ...` باعث می‌شد تا اولین callback، `last_frame_at`
+  همیشه `None` باشد؛ پس «میکروفونی که stream باز می‌کند و هیچ فریمی نمی‌دهد» و
+  «دستگاه سالم» از نظر watchdog یکسان بودند. باگ A1-01 هم دقیقاً به همین دلیل بی‌پایان می‌شد.
+- **بازتولید:** fake sd بدون هیچ callback با سقف ۳ → فقط ۱ بار باز شد و تا ابد منتظر ماند.
+- **رفع:** دو مبنا: `DuplexAudio.opened()` لحظهٔ باز شدن stream را ثبت می‌کند و
+  `stall_baseline()` بین «آخرین فریم» و «لحظهٔ باز شدن» انتخاب می‌کند؛ در `pump` هم اگر
+  هیچ مبنایی نبود، لحظهٔ شروع خود watchdog مبنا می‌شود (هرگز بررسی غیرفعال نمی‌شود).
+- **تست:** `test_pump_detects_a_stream_that_never_delivered_a_frame`,
+  `test_stall_is_measured_from_stream_open_not_only_from_the_first_frame`
+- **وضعیت:** رفع‌شده + تست
+
+### A4-01 — بازگشایی stream، حالت VAD/Pipeline و AEC را ریست نمی‌کرد
+
+- **فایل:** `server/audio_io.py` → `stream_forever`/`reset_stream_state`،
+  `server/aec.py` → `DuplexAudio.reset_state`، `server/streaming_voice.py` → `Pipeline.reset`
+- **ریشه:** فقط مسیر overflow ریست می‌کرد. بعد از reopen، detector ممکن بود نیمهٔ یک utterance
+  را از قبل از قطعی نگه دارد و با صدای بعد از gap کاملش کند (ترنسکریپت ساختگی)، و فیلتر AEC
+  مسیر پژواکِ دستگاهی را که دیگر وجود ندارد نگه می‌داشت.
+- **بازتولید:** fake sd که یک فریم می‌دهد و می‌میرد → `detector.reset: 0 | aec.reset: 0`.
+- **رفع:** `reset_stream_state()` روی هر reopen صدا زده می‌شود: `DuplexAudio.reset_state()`
+  (خالی‌کردن صف capture و پاک‌کردن مهرهای زمانی)، `aec.reset()`، و `Pipeline.reset()`
+  که utterance ناتمام و partial را رها می‌کند، رویداد `input_reset` می‌دهد، به `IDLE`
+  برمی‌گردد — و **به صف final دست نمی‌زند** (همان قرارداد `overflow`).
+- **تست:** `test_reopen_resets_detector_aec_and_buffered_audio`,
+  `test_reset_stream_state_handles_plain_fakes`,
+  `test_pipeline_reset_abandons_the_unfinished_utterance_but_keeps_finals`
+- **وضعیت:** رفع‌شده + تست
+
+سنجه‌های تازه: `audio_reopen_count`, `audio_reopen_attempts`, `audio_reopen_reset_count`.
+
+## مرحلهٔ پنجم — بازتولید و رفع باگ «نشستِ resum‌شدهٔ خالی» (۸ نوامبر ۲۰۲۶)
+
+### C1-01 — `create_conversation` هرگز فایل موجود را نمی‌خواند: context از دست می‌رفت و شناسه‌ها تکرار می‌شدند
+
+- **فایل:** `server/conversation.py` → `create_conversation`, `Conversation.load`؛
+  `server/streaming_voice.py` → `Pipeline.__init__`, `create_pipeline`؛
+  `server/ws_voice.py` → `_open_pipeline`
+- **ریشه:** فقط `Conversation.load` فایل JSONL را می‌خواند و تنها `/api/chat` از آن استفاده
+  می‌کرد. `create_conversation(settings, session_id="demo")` یک `Conversation` **خالی** می‌ساخت
+  و همان `session_id` را به فایل موجود می‌چسباند. نتیجه سه‌گانه بود:
+  1. `messages` خالی ⇒ context مدل فقط نوبت جدید بود (الزام ۱۷ در `docs/STATUS.md` نقض می‌شد)،
+  2. `_next_id`/`_next_turn` از ۱ شروع می‌شد ⇒ `id` و `turn_id` تکراری در همان فایل،
+  3. مجموعهٔ dedupe خالی بود ⇒ `utterance_id`های ذخیره‌شده دوباره پذیرفته می‌شدند.
+  علاوه بر این `Pipeline._next_utterance_id` همیشه از ۱ شروع می‌شد، پس در نشست resum‌شده
+  **اولین utterance تازه** شناسه‌ای می‌گرفت که از قبل در فایل بود و بی‌صدا به‌عنوان «تکرار»
+  دور انداخته می‌شد — رویداد `transcript_final` می‌آمد ولی نه پیام کاربر و نه پاسخی ثبت نمی‌شد.
+- **بازتولید:** `/tmp/repro_conv.py` (دو بار `create_conversation(settings, session_id="demo")`)
+  ⇒ نشست دوم `messages: []`، `next id 1`، فایل `ids: [1, 2, 1, 2]`، `turn_ids: [None, 1, None, 1]`،
+  context فقط شامل دو پیام جدید. `/tmp/repro_utt.py` ⇒ `NEW UTTERANCE DROPPED`.
+- **رفع:**
+  - `create_conversation` هر نشستی را که قرار است در آن نوشته شود از `Conversation.load`
+    می‌خواند (`resume_target` انتخاب می‌کند کدام نشست)؛ بنابراین `_next_id`، `_next_turn`،
+    مجموعهٔ dedupe و `_next_utterance_id` همه از حداکثر موجود ادامه می‌یابند.
+  - `Conversation.next_utterance_id()` افزوده شد و `Pipeline` شمارندهٔ utterance خود را از آن
+    می‌گیرد (نشست تازه همان `1` می‌ماند؛ تست جداگانه تضمینش می‌کند).
+  - **تصمیم دربارهٔ پیش‌فرض resume (مستندشده):** `PVAI_HISTORY_RESUME=on` پیش‌فرض است و فقط
+    مسیر **زندهٔ محلی** را تحت تأثیر می‌گذارد: با نبود `session_id`، نشستِ
+    `PVAI_VOICE_SESSION_ID` (اگر تنظیم شده باشد) وگرنه آخرین نشست نوشته‌شده ادامه می‌یابد.
+    `PVAI_HISTORY_RESUME=off` رفتار قدیمی (هر اجرا نشست تازه) را برمی‌گرداند.
+    `session_id` صریح همیشه resume می‌شود، مستقل از این کلید.
+  - **استثنای لازم برای انزوا:** `ws_voice._open_pipeline` با `resume=False` صدا می‌زند، پس
+    دستگاهی که `session_id` نمی‌فرستد هرگز به نشست محلی/دستگاه دیگر نمی‌چسبد
+    (`test_device_without_a_session_id_never_joins_the_last_local_session`).
+    `/api/chat` بدون `session_id` هم دست‌نخورده می‌ماند (همیشه RAM-only).
+- **تست:** `test_create_conversation_resumes_an_explicit_session`,
+  `test_resumed_conversation_deduplicates_stored_utterances`,
+  `test_resume_defaults_to_the_last_session_for_the_local_loop`,
+  `test_history_resume_off_keeps_every_start_fresh`,
+  `test_voice_session_id_pins_the_local_session`,
+  `test_resume_with_persistence_off_starts_fresh`,
+  `test_streaming_voice.py::test_resumed_pipeline_continues_ids_and_keeps_the_first_new_utterance`,
+  `test_streaming_voice.py::test_fresh_pipeline_still_starts_its_utterance_ids_at_one`,
+  `test_ws_voice.py::test_device_resumes_a_session_with_its_earlier_context`,
+  `test_ws_voice.py::test_resumed_device_session_context_reaches_the_model`
+- **وضعیت:** رفع‌شده + تست (هر ۱۰ تست روی کد قدیم شکست می‌خورند)
+
+### C1-02 — `ConversationStore.sanitize` حروف/ارقام یونیکد و نام‌های رزروشدهٔ ویندوز را می‌پذیرفت
+
+- **فایل:** `server/conversation.py` → `sanitize`, `append`
+- **ریشه:** `char.isalnum()` حروف فارسی/عربی و ارقام فارسی را قبول می‌کرد و آن‌ها داخل نام فایل
+  می‌رفتند؛ روی ویندوز (case folding و نرمال‌سازی یونیکد) دو شناسهٔ متفاوت می‌توانند یک فایل
+  شوند. نام‌های دستگاه (`CON`, `NUL`, `AUX`, `COM1`…) هم پذیرفته می‌شدند، در حالی که
+  `<name>.jsonl` روی ویندوز ساخته نمی‌شود.
+- **بازتولید:** `sanitize('CON')`, `sanitize('café')`, `sanitize('sess-١٢٣')` همه پذیرفته می‌شدند.
+- **رفع:** الفبای مجاز فقط `[A-Za-z0-9_-]` (`SESSION_ID_ALPHABET`)؛ `WINDOWS_RESERVED_NAMES`
+  (شامل `COM1`–`COM9`, `LPT1`–`LPT9`, `clock$`) رد می‌شود؛ و چون `S-DEMO`/`s-demo` روی
+  فایل‌سیستم حساس‌نبودن به بزرگی/کوچکی یک فایل‌اند، `append` شناسه‌ای را که فقط در بزرگی/کوچکی
+  با نشست موجود فرق دارد رد می‌کند (`store.error` توضیح می‌دهد) تا لاگ دو نشست قاطی نشود.
+- **تست:** `test_session_id_rejects_non_ascii_letters_and_digits`,
+  `test_session_id_rejects_windows_reserved_device_names`,
+  `test_session_id_keeps_the_documented_alphabet`,
+  `test_case_insensitive_collision_is_refused_instead_of_sharing_a_file`,
+  `test_settings_reject_an_invalid_voice_session_id`
+- **وضعیت:** رفع‌شده + تست. **سازگاری:** شناسه‌های غیر‑ASCII که قبلاً ذخیره شده‌اند دیگر از طریق
+  API/CLI قابل خواندن نیستند؛ چنین نشستی فقط با تغییر نام فایل به الفبای مجاز بازیابی می‌شود.
+
+### C1-03 — `sessions()` برای شمردن پیام‌ها کل فایل را JSON-parse می‌کرد و event loop را می‌بست
+
+- **فایل:** `server/conversation.py` → `sessions`, `count_messages`؛ `server/main.py` → `GET /api/sessions`
+- **ریشه:** در هندلر async، `sessions()` هر فایل را کامل می‌خواند و هر خط را `json.loads`
+  می‌کرد فقط برای شمردن `kind == "message"`. یک فایل ۱۱ مگابایتی ۲۰٬۰۰۰ پیامی ۶۲٫۵ms طول
+  می‌کشید و همان‌جا روی event loop اجرا می‌شد (صدای زنده و WebSocket پشت آن می‌ماند).
+- **رفع:** `count_messages` (و `_count_messages`) با خواندن باینری خط‌به‌خط و تست پیشوند/پسوند
+  `{"kind": "message"…}` می‌شمارد؛ هر خط غیرمنتظره (خط پارهٔ آخر فایل، فایل دست‌کاری‌شده) به
+  مسیر دقیق `json.loads` می‌رود تا شمارش هرگز بیشتر از واقع نشود. هندلر هم با
+  `asyncio.to_thread(store.sessions)` اجرا می‌شود.
+- **اندازه‌گیری (همان فایل در sandbox):** ۶۲٫۵ms → ۱۳٫۹ms، با شمارش درست ۲۰٬۰۰۰.
+- **تست:** `test_session_listing_counts_messages_without_parsing_the_whole_file`,
+  `test_latest_session_follows_the_write_time`
+- **وضعیت:** رفع‌شده + تست
+
+### C1-04 — `history_persist=true` متن کامل گفتار را بی‌پایان نگه می‌داشت
+
+- **فایل:** `server/config.py`, `server/conversation.py` → `purge_older_than`/`purge_expired`,
+  `server/main.py` (startup), `server/sessions.py` → `purge`
+- **ریشه:** `PVAI_HISTORY_PERSIST` پیش‌فرض روشن است و هر ترنسکریپت به‌صورت متن ساده در JSONL
+  می‌ماند؛ هیچ سیاست نگه‌داری‌ای نبود، پس هم مسئلهٔ حریم خصوصی بود و هم دیسک، بدون آنکه کاربر
+  بدون اجرای CLI ببیند.
+- **رفع:** `PVAI_HISTORY_RETENTION_DAYS` (پیش‌فرض `0` = نگه‌داشتن همه، سازگار با رفتار قبلی).
+  با مقدار مثبت، نشست‌هایی که mtime آن‌ها قدیمی‌تر است در startup API پاک می‌شوند
+  (`purge_expired`) و با `python -m server.sessions purge [--days N]` دستی هم اجرا می‌شود.
+- **تست:** `test_retention_purges_only_sessions_older_than_the_limit`,
+  `test_retention_zero_keeps_everything_and_disabled_persistence_is_a_no_op`,
+  `test_env_history_resume_and_retention_are_parsed`
+- **وضعیت:** رفع‌شده + تست
+
+## مرحلهٔ ششم — بازتولید و رفع باگ‌های `.env` (۸ نوامبر ۲۰۲۶)
+
+### D1-01 — کامنت هم‌خط در `.env` جزو مقدار می‌شد و مقدار عددی بی‌صدا به پیش‌فرض برمی‌گشت
+
+- **فایل:** `server/config.py` → `load_dotenv`, `_env_int/_env_float/_env_optional_bool/_env_choice`
+- **ریشه:** `load_dotenv` خط را فقط با `strip()` تمیز می‌کرد و کل باقیمانده را مقدار می‌گذاشت، در حالی که
+  خودِ `.env.example` چند متغیر را با توضیح هم‌خط مستند کرده است:
+  `PVAI_N_THREADS=2          # 0 = auto…`. با `Copy-Item .env.example .env` (همان قدم اول README)
+  مقدار رشتهٔ `'2          # 0 = auto…'` می‌شد؛ `int(...)` خطا می‌داد و `_env_int` **بی‌صدا**
+  پیش‌فرض را برمی‌گرداند. نتیجه: `PVAI_N_THREADS=2` عملاً `0` بود. همین برای
+  `PVAI_N_GPU_LAYERS`, `PVAI_VOICE_RECORD_SECONDS` و `PVAI_AEC_DELAY_MS` صادق بود — کسی که
+  `PVAI_AEC_DELAY_MS` را کالیبره می‌کرد و کنارش کامنت می‌گذاشت، مقدارش را از دست می‌داد.
+- **بازتولید:** کپی `.env.example` به `.env` و `Settings.from_env()` ⇒
+  `n_threads=0` (فایل: 2)، `n_gpu_layers=0` (فایل: 7)، `voice_record_seconds=5.0` (فایل: 7)،
+  `aec_delay_ms=40` (فایل: 55) — هر چهار مقدار نادیده.
+- **رفع:** `strip_inline_comment()` کامنت را حذف می‌کند: `#` فقط در ابتدای مقدار یا بعد از فاصله
+  کامنت است و هرگز داخل کوتیشن نیست، پس `PVAI_SYSTEM_PROMPT="یک # دو"` سالم می‌ماند و
+  `abc#def` یک مقدار است. `.env.example` هم بازنویسی شد (توضیح‌ها به خط جدا) و
+  `tests/test_env_config.py::test_env_example_has_no_inline_comments_left_to_bite_anyone`
+  جلوگیری می‌کند دوباره برنگردد.
+- **تست:** `test_copying_env_example_produces_the_values_it_documents` (هر ۱۳ متغیر عددی)،
+  `test_strip_inline_comment` (۹ حالت)، `test_commented_values_survive_a_round_trip`
+- **وضعیت:** رفع‌شده + تست
+
+### D1-02 — مقدار نامعتبر یا کلمپ‌شده هیچ اثری از خود نمی‌گذاشت
+
+- **فایل:** `server/config.py` → `ENV_ISSUES`, `Settings.env_issues`, `Settings.config_errors`
+- **ریشه:** `_env_int/_env_float/_env_optional_bool` در هر سه حالت (غیرعددی، بولی نامفهوم، خارج از
+  بازه) به مقدار پیش‌فرض یا حد مجاز برمی‌گشتند و **هیچ** لاگ/خطایی تولید نمی‌کردند. یعنی یک
+  `.env` کاملاً غلط از یک `.env` درست قابل تشخیص نبود.
+- **رفع:** هر رد/کلمپ با `logger.warning` (شامل نام متغیر و دلیل) لاگ می‌شود، در
+  `ENV_ISSUES` ثبت و در `Settings.from_env()` به `Settings.env_issues` منتقل می‌شود (بعد از هر
+  فراخوانی پاک می‌شود تا در یک پروسهٔ طولانی انبار نشود)، و `config_errors()` آن‌ها را برمی‌گرداند —
+  بنابراین `GET /ready` (بخش `configuration`) و پیام startup مسیر زنده نشانش می‌دهند.
+- **تست:** `test_invalid_number_is_reported_not_silently_defaulted`,
+  `test_clamped_value_is_reported`, `test_invalid_boolean_and_choice_are_reported`,
+  `test_a_clean_environment_reports_nothing`, `test_issues_do_not_accumulate_across_calls`,
+  `test_ready_endpoint_surfaces_rejected_values`
+- **وضعیت:** رفع‌شده + تست
+
+### D1-03 — `.env` فقط از پوشهٔ جاری خوانده می‌شد
+
+- **فایل:** `server/config.py` → `load_dotenv`, `dotenv_candidates`, `PROJECT_ROOT`
+- **ریشه:** `env_path = Path.cwd() / ".env"`. اجرا از هر مسیری غیر از ریشهٔ پروژه (Task Scheduler،
+  IDE، اسکریپت داخل `tools/`) یعنی `.env` **بی‌صدا** نادیده گرفته می‌شد و سرویس با پیش‌فرض‌ها
+  بالا می‌آمد.
+- **رفع:** `dotenv_candidates()` اول `.env` پوشهٔ جاری را می‌بیند و بعد `.env` ریشهٔ پروژه
+  (`PROJECT_ROOT`) را؛ اولین فایل موجود برنده است، پس `cd` به یک پوشهٔ استقرار هنوز اولویت دارد.
+  مسیر خوانده‌شده در `DOTENV_LOADED` ثبت می‌شود.
+- **تست:** `test_dotenv_is_found_from_any_working_directory`,
+  `test_current_directory_env_wins_over_the_project_root`, `test_explicit_path_is_used_verbatim`
+- **وضعیت:** رفع‌شده + تست
+
+### D1-04 — `PVAI_N_THREADS` / `PVAI_N_GPU_LAYERS` / `PVAI_N_CTX` هیچ‌جا استفاده نمی‌شدند
+
+- **فایل:** `server/config.py` → `llama_server_command`, `_print_launch`؛ `tools/start_llama.ps1`
+- **ریشه:** این سه فیلد فقط در dataclass تعریف شده بودند و هیچ مصرف‌کننده‌ای نداشتند؛ کلاینت HTTP
+  آن‌ها را نمی‌فرستد (llama-server مسیر مدل و تعداد thread را خودش تعیین می‌کند). در همان حال
+  README دستور دستی با `-t 4` داشت ولی `.env.example` می‌گفت ۲ — یعنی مستندات دو چیز متفاوت
+  می‌گفتند و هیچ‌کدام از `.env` اثر نمی‌گرفت.
+- **رفع:** `Settings.llama_server_command()` همین تنظیمات را به `-m/-c/--host/--port/-t/-ngl`
+  تبدیل می‌کند (`-t` فقط وقتی `n_threads>0` باشد؛ `0` = خودِ llama-server) و
+  `python -m server.config --launch [--launch-json]` آن را چاپ می‌کند.
+  `tools/start_llama.ps1` همان خروجی JSON را می‌خواند و سرور را اجرا می‌کند (`-DryRun` برای
+  دیدن دستور، `-Exe` برای مسیر باینری). مستندات یکسان شدند: `.env.example` روی
+  `PVAI_N_THREADS=4` (۲ هستهٔ فیزیکی × ۲ رشتهٔ منطقی، همان پیکربندی `docs/SPEC.md`) و
+  README/PC_VOICE دیگر `-t 4` را دستی تکرار نمی‌کنند.
+- **تست:** `test_launch_command_uses_the_configured_flags`,
+  `test_launch_command_omits_threads_when_auto`,
+  `test_the_file_flags_and_the_documented_manual_command_agree`,
+  `test_launch_cli_prints_the_command`, `test_launch_cli_warns_about_rejected_values`
+- **وضعیت:** رفع‌شده + تست (اجرای واقعی PowerShell در sandbox تست نشده؛ **NOT MEASURED**)

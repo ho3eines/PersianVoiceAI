@@ -1,0 +1,6 @@
+# Development and test dependencies. Install on top of requirements.txt:
+#   python -m pip install -r requirements-dev.txt
+# Never needed in a deployment.
+-r requirements.txt
+
+pytest==9.2.0

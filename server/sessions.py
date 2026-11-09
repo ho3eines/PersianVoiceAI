@@ -10,6 +10,7 @@ Usage::
     python -m server.sessions show s-1a2b3c
     python -m server.sessions delete s-1a2b3c
     python -m server.sessions delete-all
+    python -m server.sessions purge
 """
 
 from __future__ import annotations
@@ -52,6 +53,18 @@ def delete_all(settings: Settings | None = None) -> int:
     return _store(settings).delete_all()
 
 
+def purge(settings: Settings | None = None, days: int | None = None) -> list[str]:
+    """Delete sessions older than ``days`` (default: ``PVAI_HISTORY_RETENTION_DAYS``)."""
+    resolved = settings or Settings.from_env()
+    limit = int(days if days is not None else resolved.history_retention_days)
+    if limit <= 0:
+        raise VoiceError(
+            "مدت نگه‌داری تعیین نشده است؛ PVAI_HISTORY_RETENTION_DAYS را تنظیم کنید "
+            "یا از --days استفاده کنید."
+        )
+    return _store(resolved).purge_older_than(limit)
+
+
 def _format(message: dict[str, Any]) -> str:
     role = {"user": "شما", "assistant": "دستیار"}.get(str(message.get("role")), "?")
     status = message.get("status", "complete")
@@ -68,6 +81,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     delete = sub.add_parser("delete", help="حذف یک نشست")
     delete.add_argument("session_id")
     sub.add_parser("delete-all", help="حذف همهٔ نشست‌ها")
+    purge_parser = sub.add_parser(
+        "purge", help="حذف نشست‌های قدیمی‌تر از PVAI_HISTORY_RETENTION_DAYS"
+    )
+    purge_parser.add_argument(
+        "--days", type=int, default=None, help="جایگزینی موقت PVAI_HISTORY_RETENTION_DAYS"
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     try:
@@ -92,6 +111,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             deleted = delete_session(args.session_id)
             print("حذف شد." if deleted else "نشست پیدا نشد.")
             return 0 if deleted else 1
+        if args.command == "purge":
+            removed = purge(days=args.days)
+            print(f"{len(removed)} نشست حذف شد.")
+            return 0
         removed = delete_all()
         print(f"{removed} نشست حذف شد.")
         return 0
