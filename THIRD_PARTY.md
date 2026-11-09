@@ -26,6 +26,7 @@ Verified from PyPI package metadata and the upstream repositories.
 | `soundfile` | >=0.13,<1 | BSD-3-Clause | optional voice stack |
 | `numpy` | >=1.26,<3 | BSD-3-Clause and others | optional voice stack |
 | `scipy` | >=1.11,<2 | BSD-3-Clause | optional voice stack |
+| `librosa` | >=0.10.2,<1 | ISC | optional voice stack; local file decoding/downmix/resampling |
 
 `faster-whisper` in turn depends on `ctranslate2` (MIT) and `onnxruntime` (MIT),
 which `piper-tts` also uses.

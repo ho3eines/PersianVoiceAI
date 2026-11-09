@@ -48,7 +48,7 @@ Queue محدود  ──►  AEC (SpeexDSP)  ──►  EnergyVAD  ──►  Pi
                         ┌──────────────────────────────┼──────────────────────────────┐
                         ▼                              ▼                              ▼
                   onset: Utterance(id)         partial هر 0.8s               endpoint/max_segment
-                  barge-in فقط اگر            پنجرهٔ هم‌پوشان ۶s             audio کامل بخش
+                  barge-in فقط اگر            پنجرهٔ هم‌پوشان ۳s             audio کامل بخش
                   THINKING/SPEAKING           → mailbox یک‌جا               → صف FIFO final
                         │                              │                              │
                         └──────────────► AsrScheduler ◄┘                              │
@@ -74,7 +74,7 @@ Queue محدود  ──►  AEC (SpeexDSP)  ──►  EnergyVAD  ──►  Pi
 تقریباً درجه‌دوم رشد می‌کرد. اکنون:
 
 - **final**: کل PCM بخش (بدون برش، فقط حذف سکوت پایانی اضافی) — دقت حفظ می‌شود.
-- **partial**: پنجرهٔ هم‌پوشان با سقف `PVAI_ASR_PARTIAL_WINDOW_S` (پیش‌فرض ۶ ثانیه)؛
+- **partial**: پنجرهٔ هم‌پوشان با سقف `PVAI_ASR_PARTIAL_WINDOW_S` (پیش‌فرض ۳ ثانیه)؛
   هزینهٔ هر decode تقریباً ثابت است.
 - ترتیب اولویت: صف final **همیشه** قبل از partial سرو می‌شود؛ partial معلق با رسیدن final
   همان utterance منسوخ می‌شود.

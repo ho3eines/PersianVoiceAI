@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import wave
 from pathlib import Path
@@ -64,14 +65,24 @@ DEFAULT_SET = Path(__file__).resolve().parent / "persian_eval_set.json"
 def load_set(path: str | Path = DEFAULT_SET) -> dict[str, Any]:
     """Load and validate the evaluation set."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("evaluation set must be a JSON object")
     sentences = data.get("sentences")
     if not isinstance(sentences, list) or not sentences:
         raise ValueError("evaluation set has no sentences")
     seen: set[str] = set()
     for entry in sentences:
-        identifier = str(entry.get("id", "")).strip()
-        text = str(entry.get("text", "")).strip()
-        kind = str(entry.get("kind", "speech")).strip()
+        if not isinstance(entry, dict):
+            raise ValueError("each evaluation entry must be an object")
+        if not isinstance(entry.get("id"), str) or not isinstance(entry.get("text"), str):
+            raise ValueError("evaluation id and text must be strings")
+        identifier = entry["id"]
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", identifier):
+            raise ValueError(f"unsafe evaluation id: {identifier!r}")
+        text = entry["text"].strip()
+        kind = entry.get("kind", "speech")
+        if kind == "no_speech" and text:
+            raise ValueError("no_speech entries must have empty text")
         if kind not in {"speech", "no_speech"}:
             raise ValueError(f"unknown entry kind {kind!r} in {entry!r}")
         # A no-speech clip (silence, room noise) legitimately has no text: the
@@ -105,14 +116,22 @@ def load_hypotheses(path: str | Path) -> dict[str, str]:
     if isinstance(raw, dict):
         candidates = raw.get("hypotheses", raw) if isinstance(raw.get("hypotheses"), dict) else raw
         if isinstance(candidates, dict):
-            return {str(key): str(value) for key, value in candidates.items()}
+            if any(not isinstance(key, str) or not key.strip() or not isinstance(value, str)
+                   for key, value in candidates.items()):
+                raise ValueError("hypotheses must map non-empty string ids to string text")
+            return candidates
         raise ValueError("hypotheses JSON object must map id -> text")
     if isinstance(raw, list):
         mapping: dict[str, str] = {}
         for item in raw:
             if not isinstance(item, dict) or "id" not in item or "text" not in item:
                 raise ValueError("each hypothesis needs an id and a text field")
-            mapping[str(item["id"])] = str(item["text"])
+            identifier, text = item["id"], item["text"]
+            if not isinstance(identifier, str) or not identifier.strip() or not isinstance(text, str):
+                raise ValueError("hypothesis id and text must be strings (id non-empty)")
+            if identifier in mapping:
+                raise ValueError(f"duplicate hypothesis id: {identifier}")
+            mapping[identifier] = text
         return mapping
     raise ValueError("hypotheses file must be a JSON object or list")
 
@@ -293,13 +312,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    data = load_set(args.set)
+    try:
+        data = load_set(args.set)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    data.setdefault("normalization_policy", "server.persian.normalize_for_eval")
     reference = references(data)
 
     if args.list:
-        print(f"# {len(reference)} sentences — policy: {data['normalization_policy']}")
+        print(f"# {len(reference)} sentences — policy: {data.get('normalization_policy', 'server.persian.normalize_for_eval')}")
         for entry in data["sentences"]:
-            print(f"{entry['id']}\t{entry['category']}\t{entry['text']}")
+            print(f"{entry['id']}\t{entry.get('category', 'other')}\t{entry['text']}")
         return 0
 
     if not args.hypotheses and not args.audio_dir:
@@ -321,7 +345,11 @@ def main(argv: list[str] | None = None) -> int:
             print("NOT MEASURED — no <id>.wav recordings found in", args.audio_dir)
             return 3
     else:
-        hypotheses = load_hypotheses(args.hypotheses)
+        try:
+            hypotheses = load_hypotheses(args.hypotheses)
+        except (OSError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
 
     try:
         report = score(reference, hypotheses)
@@ -339,6 +367,8 @@ def main(argv: list[str] | None = None) -> int:
     report["no_speech"] = score_no_speech(data, hypotheses)
     report["speech_rejections"] = score_speech_rejections(data, hypotheses)
     if args.no_speech_dir:
+        from server.config import Settings
+
         report["no_speech_audio"] = transcribe_no_speech(
             Path(args.no_speech_dir), Settings.from_env()
         )

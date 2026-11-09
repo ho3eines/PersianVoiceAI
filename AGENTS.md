@@ -63,6 +63,8 @@ PersianVoiceAI/
 ├─ requirements-dev.txt   ← pytest (فقط توسعه)
 ├─ requirements-voice.txt ← پشتهٔ صوتی اختیاری
 ├─ docs/
+│  ├─ PROJECT_GUIDE.md    ← راهنمای یکپارچه؛ تولید با tools/build_docs.py
+│  ├─ DATASETS.md         ← دادهٔ سفارشی و اعتبارسنجی manifest (بدون trainer)
 │  ├─ SPEC.md             ← مستند جامع v1.0 (مرجع تصمیم‌ها)
 │  ├─ STATUS.md           ← وضعیت اجرایی، تست‌ها، نگاشت ۲۰ الزام به تست
 │  ├─ ISSUE_REGISTER.md   ← دفترچهٔ ایرادها: ریشه، رفع، تست، وضعیت
@@ -237,3 +239,11 @@ AEC مرجع `docs/AEC.md`: مرجع فقط از PCM ارسال‌شده در ca
 6. **firmware ESP32 هنوز وجود ندارد** (`/api/protocol` → `transport_implemented: true`,
    `firmware_implemented: false`). تا پیاده‌سازی
    transport، در README/STATUS «پیاده‌شده» نوشته نشود.
+
+
+## هم‌گام‌سازی مستندات
+
+نقطهٔ ورود یکپارچه: [docs/PROJECT_GUIDE.md](docs/PROJECT_GUIDE.md).
+این فایل از راهنماهای موجود تولید می‌شود؛ پس از ویرایش منبع،
+`python tools/build_docs.py` و `python tools/build_docs.py --check` را اجرا کنید.
+ابزار `tools/prepare_dataset.py` فقط اعتبارسنجی محلی JSON/JSONL/CSV است؛ trainer نداریم.

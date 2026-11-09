@@ -1,8 +1,8 @@
 # Platform support
 
 The Python code is portable: it is developed and tested on Linux with no
-platform-specific imports, and runs on Windows (the original target), Linux and
-macOS. The gap was never the code — it was the tooling, which shipped only
+platform-specific imports in its core. Windows (the original target), Linux and
+macOS are intended platforms; this session only exercised the Linux sandbox. The gap was never the code — it was the tooling, which shipped only
 PowerShell. That is now fixed, with two deliberate exceptions listed below.
 
 ## What runs where
@@ -11,13 +11,13 @@ PowerShell. That is now fixed, with two deliberate exceptions listed below.
 |---|---|---|---|
 | Server, REST, WebSocket | yes | yes | `python -m server` / `uvicorn server.main:app` |
 | Chat client | yes | yes | `python -m server.cli` |
-| Test suite | yes | yes | 560 pass in both; 5 skips explained in `docs/STATUS.md` |
+| Test suite | yes | yes | run `python -m pytest -rs`; Windows/macOS execution not verified here |
 | llama-server launcher | `tools/start_llama.ps1` | `tools/start_llama.sh` | both read `python -m server.config --launch` |
 | Server launcher | `tools/start_server.ps1` | `tools/start_server.sh` | |
 | Chat launcher | `tools/chat.ps1` | `tools/chat.sh` | |
 | Chat benchmark | `tools/benchmark.ps1` | `tools/benchmark.sh` | |
 | Large-file download | `tools/download_parallel.py` | `tools/download_parallel.py` | one Python implementation, both platforms |
-| SpeexDSP AEC | needs a built DLL | needs a built `.so` | see `docs/AEC.md`; not a pip install |
+| SpeexDSP AEC | needs a built DLL | needs a built `.so` / `.dylib` | see `docs/AEC.md`; not a pip install |
 | Audio I/O | WASAPI via `sounddevice` | ALSA/PulseAudio via `sounddevice` | device names differ; check `/ready` |
 
 Every `.ps1` in `tools/` has a `.sh` twin, and
@@ -25,8 +25,8 @@ Every `.ps1` in `tools/` has a `.sh` twin, and
 
 ## Choosing the interpreter
 
-The shell scripts look for `.venv` next to the repository. Set `PVAI_PYTHON` to
-point somewhere else:
+The shell scripts look for `.venv` next to the repository. For bash scripts, set `PVAI_PYTHON` to
+point somewhere else (PowerShell scripts use `.venv\Scripts\python.exe`):
 
 ```bash
 PVAI_PYTHON=/opt/pvai/bin/python ./tools/start_server.sh
