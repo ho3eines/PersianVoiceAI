@@ -260,10 +260,18 @@ class ModelPool:
 
     def reset(self) -> None:
         with self._lock:
+            audio = self._audio
             self._audio = None
             self.asr_metrics = None
             self._voices.clear()
             self._voice_locks.clear()
+        if audio is not None:
+            closer = getattr(audio, "close", None)
+            if callable(closer):
+                closer()
+        from .voice import release_inference_memory
+
+        release_inference_memory()
 
 
 MODEL_POOL = ModelPool()
@@ -439,7 +447,7 @@ class VoiceWebSocket:
         self.frames_sent = 0
         self._frames_sent_at_turn_start = 0
         self._play_start_turn: int | None = None  # last turn that got play_start
-        self._frame_stamps: list[float] = []  # capture arrivals, for the rate cap
+        self._frame_stamps: deque[float] = deque()  # capture arrivals, for the rate cap
         self._serve_task: asyncio.Task[Any] | None = None
         try:
             self._loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
@@ -1100,13 +1108,16 @@ class VoiceWebSocket:
             return True
         now = time.monotonic()
         window = 1.0
-        # Sliding-window count: drop samples older than one second.
+        # Sliding-window count: drop samples older than one second before appending
+        # so a flood cannot grow _frame_stamps without bound.
         stamps = self._frame_stamps
-        stamps.append(now)
         cutoff = now - window
         while stamps and stamps[0] < cutoff:
-            stamps.pop(0)
-        return len(stamps) <= max(1.0, limit)
+            stamps.popleft()
+        if len(stamps) >= max(1.0, limit):
+            return False
+        stamps.append(now)
+        return True
 
     async def _heartbeat(self) -> None:
         """Ping an otherwise silent connection; never let it die unnoticed.
@@ -1219,6 +1230,8 @@ class VoiceWebSocket:
         # connection.
         self._release_session()
         self.sink.close()
+        self._frame_stamps.clear()
+        self._overflow.clear()
         try:
             if self._send_task is not None:
                 self._send_task.cancel()

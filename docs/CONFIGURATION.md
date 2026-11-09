@@ -69,7 +69,7 @@
 | متغیر | پیش‌فرض | معنا |
 |---|---|---|
 | `PVAI_ASR_MODEL_PATH` | `models/whisper-small` | پوشهٔ مدل CTranslate2 شامل `model.bin`؛ دانلود خودکار مسدود است (`local_files_only=True`) |
-| `PVAI_ASR_DEVICE` | `cpu` | `cpu`، `auto`، `cuda` یا `mps`؛ تشخیص CUDA با CTranslate2. نبود CUDA یا شکست بارگذاری GPU به CPU/int8 با لاگ برمی‌گردد؛ MPS پشتیبانی نمی‌شود و به CPU/int8 برمی‌گردد. CUDA واقعی روی 940MX تأیید نشده |
+| `PVAI_ASR_DEVICE` | `cpu` | `cpu`، `auto`، `cuda` یا `mps`؛ مقدار دیگر (`gpu` و مانند آن) در `env_issues`/`/ready` گزارش و به پیش‌فرض `cpu` برگردانده می‌شود. تشخیص CUDA با CTranslate2؛ نبود CUDA یا شکست بارگذاری GPU به CPU/int8 با لاگ برمی‌گردد؛ MPS پشتیبانی نمی‌شود و به CPU/int8 برمی‌گردد. CUDA واقعی روی 940MX تأیید نشده |
 | `PVAI_ASR_COMPUTE_TYPE` | `int8` | `int8` روی CPU؛ `float16` فقط با GPU معتبر |
 | `PVAI_ASR_THREADS` | `2` | بودجهٔ thread مخصوص Whisper، جدا از `PVAI_N_THREADS` (هدف: ۲ هستهٔ فیزیکی) |
 | `PVAI_ASR_BEAM_SIZE` | `1` | beam search؛ ۱ سریع‌ترین، بیشتر = دقیق‌تر و کندتر |

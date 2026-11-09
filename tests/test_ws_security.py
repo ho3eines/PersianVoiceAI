@@ -1213,3 +1213,85 @@ def test_three_second_idle_gap_cannot_burst_hundred_frames_in_300ms(tmp_path: Pa
             await session._send_playback_frame()
     asyncio.run(run())
     assert len(sent) <= 200 / 20 + 15, f'burst sent {len(sent)} frames'
+
+
+def test_capture_rate_window_stays_bounded_under_a_flood(tmp_path: Path) -> None:
+    """The sliding window must not grow with the flood it is measuring.
+
+    ``_frame_stamps`` was an unbounded list: a device that ignored the limit
+    still appended a timestamp per frame, so the memory used to *detect* the
+    abuse grew with the abuse.
+    """
+    session = VoiceWebSocket(
+        websocket=None, settings=settings(tmp_path, ws_frame_rate_per_s=10.0)
+    )
+    session.pipeline = type("P", (), {"feed": lambda self, pcm: None})()
+
+    async def flood() -> None:
+        for sequence in range(2000):
+            await session._handle_binary(capture(sequence))
+
+    asyncio.run(flood())
+    # One second of allowance plus the frames appended while it fills: bounded
+    # by the configured rate, not by how many frames arrived.
+    assert len(session._frame_stamps) <= 10
+    assert session.counters.frames_rate_limited >= 1900
+
+
+def test_close_releases_the_capture_window_and_overflow_state(tmp_path: Path) -> None:
+    """Teardown must leave no queued state behind on the connection object."""
+
+    async def scenario() -> None:
+        class Pipeline:
+            def feed(self, pcm: bytes) -> None:
+                return None
+
+            async def close(self) -> None:
+                return None
+
+        session = VoiceWebSocket(
+            websocket=None, settings=settings(tmp_path, ws_frame_rate_per_s=10.0)
+        )
+        session.pipeline = Pipeline()
+        for sequence in range(40):
+            await session._handle_binary(capture(sequence))
+        session._overflow.append(None)  # a critical message that found the queue full
+        assert len(session._frame_stamps) > 0 and len(session._overflow) > 0
+        await session.close()
+        assert len(session._frame_stamps) == 0
+        assert len(session._overflow) == 0
+
+    asyncio.run(scenario())
+
+
+def test_resetting_the_model_pool_releases_the_whisper_model(tmp_path: Path) -> None:
+    """``reset()`` must close the shared model, not just forget the pointer.
+
+    The pool keeps one process-wide ``LocalAudio``; dropping the reference
+    without closing left the weights resident (and the allocator's buffers
+    un-reclaimed), so a reload after a settings change doubled the footprint.
+    """
+    import server.voice as voice_module
+    from server.metrics import Metrics
+    from server.ws_voice import ModelPool
+
+    closed: list[bool] = []
+
+    class FakeLocalAudio:
+        def __init__(self, settings_obj=None, metrics=None) -> None:
+            self.metrics = metrics
+
+        def close(self) -> None:
+            closed.append(True)
+
+    original = voice_module.LocalAudio
+    voice_module.LocalAudio = FakeLocalAudio  # type: ignore[assignment]
+    try:
+        pool = ModelPool()
+        pool.audio(settings(tmp_path), Metrics())
+        pool.reset()
+    finally:
+        voice_module.LocalAudio = original  # type: ignore[assignment]
+
+    assert closed == [True]
+    assert pool._audio is None and pool.asr_metrics is None

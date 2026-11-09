@@ -1,6 +1,8 @@
 # Development and test dependencies. Install on top of requirements.txt:
 #   python -m pip install -r requirements-dev.txt
-# Never needed in a deployment.
+# Add -r requirements-voice.txt to run audio-file conversion tests in
+# tests/test_inference_safety.py. Never needed in a deployment.
 -r requirements.txt
 
 pytest==9.2.0
+starlette==1.10.0

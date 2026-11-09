@@ -55,6 +55,15 @@ class RateLimiter:
     rate: float
     burst: int
     now: object = time.monotonic
+    max_keys: int = 1024
+    """Upper bound on tracked client addresses.
+
+    The bucket map is keyed by client address, so a scanner walking the network
+    (or a spoofed ``X-Forwarded-For``) would otherwise grow it without limit —
+    a slow memory leak in a process that is meant to run for days.  When the
+    map is full the least recently seen buckets are dropped, which only grants
+    a full bucket to an address that has been idle long enough to refill anyway.
+    """
     _buckets: dict[str, tuple[float, float]] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -69,10 +78,23 @@ class RateLimiter:
             tokens = min(capacity, tokens + (now - updated) * self.rate)
             if tokens < 1.0:
                 self._buckets[key] = (tokens, now)
+                self._trim()
                 missing = 1.0 - tokens
                 return False, missing / self.rate
             self._buckets[key] = (tokens - 1.0, now)
+            self._trim()
             return True, 0.0
+
+    def _trim(self) -> None:
+        """Keep the bucket map bounded (caller holds the lock)."""
+        limit = max(1, int(self.max_keys))
+        overflow = len(self._buckets) - limit
+        if overflow <= 0:
+            return
+        # Oldest ``updated`` first: an idle address has refilled to capacity, so
+        # forgetting it does not weaken the limit.
+        for key in sorted(self._buckets, key=lambda item: self._buckets[item][1])[:overflow]:
+            del self._buckets[key]
 
     def reset(self) -> None:
         with self._lock:

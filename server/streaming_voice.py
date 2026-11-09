@@ -780,59 +780,69 @@ class Pipeline:
         number that cannot be acted on.
         """
         while True:
-            dequeued = await self.scheduler.next()
-            started_at = self.clock()
-            job = dequeued.queued(started_at)
-            token = self.scheduler.begin(job)
-            self.metrics.set("asr_queue_depth", self.scheduler.depth)
-            if job.final:
-                self._observe_final_wait(job, started_at)
-            else:
-                self._partial_started_at = started_at
+            dequeued = None
+            job = None
+            token = None
             try:
-                text = await self._transcribe(job, token)
-            except asyncio.CancelledError:
-                self.scheduler.end(job)
-                raise
-            except Exception as exc:  # noqa: BLE001 - a decode failure is a metric
+                dequeued = await self.scheduler.next()
+                started_at = self.clock()
+                job = dequeued.queued(started_at)
+                dequeued = None
+                token = self.scheduler.begin(job)
+                self.metrics.set("asr_queue_depth", self.scheduler.depth)
+                if job.final:
+                    self._observe_final_wait(job, started_at)
+                else:
+                    self._partial_started_at = started_at
+                try:
+                    text = await self._transcribe(job, token)
+                except asyncio.CancelledError:
+                    self.scheduler.end(job)
+                    raise
+                except Exception as exc:  # noqa: BLE001 - a decode failure is a metric
+                    if not job.final:
+                        self._last_partial_end = self.clock()
+                    preempted = self.scheduler.end(job)
+                    if preempted:
+                        # Expected: the worker stopped a partial because a final
+                        # was waiting.  Not an ASR error, and definitely not a
+                        # reason to report a broken Whisper model.
+                        self.metrics.increment("asr_partial_cancelled")
+                        self.event(
+                            "asr_partial_cancelled",
+                            utterance_id=job.utterance_id,
+                            reason="final_waiting",
+                            exception=type(exc).__name__,
+                        )
+                        continue
+                    self.metrics.increment("asr_errors")
+                    if job.final:
+                        self._on_final_failure(job, exc)
+                    continue
+                elapsed = (self.clock() - started_at) * 1000
                 if not job.final:
                     self._last_partial_end = self.clock()
-                preempted = self.scheduler.end(job)
-                if preempted:
-                    # Expected: the worker stopped a partial because a final
-                    # was waiting.  Not an ASR error, and definitely not a
-                    # reason to report a broken Whisper model.
+                if self.scheduler.end(job):
                     self.metrics.increment("asr_partial_cancelled")
                     self.event(
                         "asr_partial_cancelled",
                         utterance_id=job.utterance_id,
                         reason="final_waiting",
-                        exception=type(exc).__name__,
+                        asr_ms=round(elapsed, 2),
                     )
                     continue
-                self.metrics.increment("asr_errors")
+                self.metrics.observe("asr_ms", elapsed)
+                self.metrics.observe("asr_rtf", elapsed / job.decoded_ms)
                 if job.final:
-                    self._on_final_failure(job, exc)
-                continue
-            elapsed = (self.clock() - started_at) * 1000
-            if not job.final:
-                self._last_partial_end = self.clock()
-            if self.scheduler.end(job):
-                self.metrics.increment("asr_partial_cancelled")
-                self.event(
-                    "asr_partial_cancelled",
-                    utterance_id=job.utterance_id,
-                    reason="final_waiting",
-                    asr_ms=round(elapsed, 2),
-                )
-                continue
-            self.metrics.observe("asr_ms", elapsed)
-            self.metrics.observe("asr_rtf", elapsed / job.decoded_ms)
-            if job.final:
-                self.metrics.observe("asr_final_decode_ms", elapsed)
-                await self._on_final(job, text)
-            else:
-                self._on_partial(job, text, elapsed)
+                    self.metrics.observe("asr_final_decode_ms", elapsed)
+                    await self._on_final(job, text)
+                else:
+                    self._on_partial(job, text, elapsed)
+            finally:
+                # Release references (including raw PCM bytes) before suspending idle.
+                dequeued = None
+                job = None
+                token = None
 
     @staticmethod
     def _accepts_cancellation(func: Any) -> bool:
@@ -1119,7 +1129,7 @@ class Pipeline:
             "temperature": self.settings.temperature,
             "max_tokens": self.settings.max_tokens,
         }
-        buffer, pieces = "", []
+        buffer = ""
         completed = False
         try:
             async with self.client.stream(
@@ -1163,7 +1173,6 @@ class Pipeline:
                                 turn_id=turn.turn_id,
                                 endpoint_ms=round(ttft, 2),
                             )
-                        pieces.append(piece)
                         turn.text += piece
                         self.event("response_delta", turn_id=turn.turn_id, text=piece)
                         ready, buffer = sentences(buffer + piece)
@@ -1501,6 +1510,11 @@ class Pipeline:
         finally:
             self.actors = []
             self.reply = None
+            self.scheduler.finals.clear()
+            self.scheduler.partial = None
+            self._drain_speech()
+            self.detector.reset()
+            self.utterance = None
             self.conversation.close()
 
 
@@ -1564,6 +1578,7 @@ async def run_live(settings: Settings) -> None:
         if settings.aec_enabled
         else None
     )
+    speaker: Any = None
     try:
         try:
             speaker = Speaker(settings, duplex=duplex)
@@ -1634,6 +1649,13 @@ async def run_live(settings: Settings) -> None:
             finally:
                 await asyncio.gather(pipeline.close(), return_exceptions=True)
     finally:
+        if speaker is not None:
+            closer = getattr(speaker, "close", None)
+            if callable(closer):
+                closer()
+        closer = getattr(audio, "close", None)
+        if callable(closer):
+            closer()
         duplex.close()
         if aec:
             aec.close()

@@ -18,6 +18,8 @@ moments that used to be conflated:
 
 from __future__ import annotations
 
+import json
+import logging
 import math
 import re
 import threading
@@ -27,7 +29,9 @@ from typing import Any
 
 from .config import Settings
 from .vad import EnergyVAD
-from .voice import VoiceError, dependency
+from .voice import AudioValidationError, ModelLoadError, VoiceError, dependency
+
+logger = logging.getLogger("persian_voice_ai.tts")
 
 SENTENCE_END = re.compile(r"[.!؟?\n؛](?:\s|$)")
 MAX_CHUNK_CHARS = 180
@@ -89,10 +93,11 @@ def sentences(buffer: str, final: bool = False) -> tuple[list[str], str]:
     return ready, buffer
 
 
-from .voice import ModelLoadError
-
-
 def _validate_tts_model(path: str) -> None:
+    if not isinstance(path, str) or not path.strip():
+        raise ModelLoadError(
+            "مسیر مدل Piper تنظیم نشده است؛ PVAI_TTS_MODEL_PATH یا صدای انتخاب‌شده را تنظیم کنید."
+        )
     model = Path(path)
     if not model.is_file():
         raise ModelLoadError(
@@ -104,6 +109,16 @@ def _validate_tts_model(path: str) -> None:
         raise ModelLoadError(
             "فایل تنظیمات مدل Piper (.onnx.json) موجود نیست؛ بستهٔ وزن فارسی کامل نیست."
         )
+    try:
+        config_data = json.loads(config.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ModelLoadError(
+            f"فایل تنظیمات مدل Piper (.onnx.json) نامعتبر است: {config}"
+        ) from exc
+    if not isinstance(config_data, dict):
+        raise ModelLoadError(
+            f"ساختار فایل تنظیمات مدل Piper (.onnx.json) نامعتبر است: {config}"
+        )
 
 
 def load_piper_voice(settings: Settings, voice: str) -> Any:
@@ -114,8 +129,12 @@ def load_piper_voice(settings: Settings, voice: str) -> Any:
     """
     path = settings.tts_model_for(voice)
     _validate_tts_model(path)
+    started = time.perf_counter()
+    logger.info("Loading Piper voice=%s from %s", voice, path)
     try:
-        return dependency("piper.voice").PiperVoice.load(path)
+        loaded = dependency("piper.voice").PiperVoice.load(path)
+        logger.info("Piper voice=%s ready in %.1f ms", voice, (time.perf_counter() - started) * 1000)
+        return loaded
     except VoiceError:
         raise
     except Exception as exc:
@@ -158,6 +177,11 @@ class Speaker:
     def describe(self) -> dict[str, str]:
         return {"voice": self.voice, "model": self.model_path}
 
+    def close(self) -> None:
+        """Drop references to the TTS model and duplex device."""
+        self.model = None
+        self.duplex = None
+
     def _mono_16k(self, chunk) -> bytes:  # noqa: ANN001 - Piper AudioChunk
         return self._to_mono_rate(chunk, 16000)
 
@@ -169,18 +193,42 @@ class Speaker:
         16 kHz stream plays the reply ~27 % too fast and at the wrong pitch —
         a real defect the previous implementation had on the speaker-only path.
         """
+        raw = chunk.audio_int16_bytes
+        if not isinstance(raw, (bytes, bytearray, memoryview)):
+            raise AudioValidationError("بافر خروجی Piper از نوع بایتی معتبر نیست.")
+        try:
+            channels = int(getattr(chunk, "sample_channels", 1))
+            rate = int(getattr(chunk, "sample_rate", 16000))
+            target = int(target_rate)
+        except (TypeError, ValueError) as exc:
+            raise AudioValidationError("مشخصات نرخ نمونه‌برداری یا کانال خروجی Piper نامعتبر است.") from exc
+        if channels <= 0 or rate <= 0 or target <= 0:
+            raise AudioValidationError(
+                f"نرخ نمونه‌برداری یا تعداد کانال خروجی Piper نامعتبر است (rate={rate}, channels={channels}, target={target})."
+            )
+        if not raw:
+            return b""
+        if len(raw) % (2 * channels):
+            raise AudioValidationError("طول بافر PCM خروجی Piper با تعداد کانال‌ها هم‌تراز نیست.")
         np = dependency("numpy")
-        samples = np.frombuffer(chunk.audio_int16_bytes, dtype="<i2").astype(np.float32)
-        channels = int(getattr(chunk, "sample_channels", 1) or 1)
-        if channels > 1:
-            samples = samples.reshape(-1, channels).mean(axis=1)
-        rate = int(getattr(chunk, "sample_rate", 16000))
-        target = int(target_rate)
-        if rate != target:
-            resample_poly = dependency("scipy.signal").resample_poly
-            divisor = math.gcd(rate, target)
-            samples = resample_poly(samples, target // divisor, rate // divisor)
-        return np.clip(np.rint(samples), -32768, 32767).astype("<i2").tobytes()
+        samples = None
+        try:
+            samples = np.frombuffer(raw, dtype="<i2").astype(np.float32)
+            if channels > 1:
+                samples = samples.reshape(-1, channels).mean(axis=1, dtype=np.float32)
+            if rate != target:
+                resample_poly = dependency("scipy.signal").resample_poly
+                divisor = math.gcd(rate, target)
+                samples = resample_poly(samples, target // divisor, rate // divisor)
+            if not np.isfinite(samples).all():
+                raise AudioValidationError("تبدیل خروجی Piper مقدار نامعتبر NaN/Inf تولید کرد.")
+            return np.clip(np.rint(samples), -32768, 32767).astype("<i2").tobytes()
+        except AudioValidationError:
+            raise
+        except Exception as exc:
+            raise AudioValidationError(f"تبدیل نرخ نمونه‌برداری یا کانال خروجی Piper ناموفق بود: {exc}") from exc
+        finally:
+            del samples
 
     # ---------------------------------------------------------------- synthesis
     def speak(
@@ -200,6 +248,7 @@ class Speaker:
         played_blocks = 0
         first_frame: float | None = None
         self._output = None
+        chunks = None
         try:
             chunks = self._synthesize(text)
             if getattr(self, "duplex", None) is None:
@@ -211,6 +260,8 @@ class Speaker:
                 if cancel.is_set():
                     break
                 pcm, rate, channels = self._chunk_pcm(chunk)
+                if not pcm:
+                    continue
                 sample_width = 2 * max(1, channels)
                 block = max(1, int(rate * OUTPUT_BLOCK_SECONDS)) * sample_width
                 stopped = False
@@ -228,6 +279,12 @@ class Speaker:
                 if stopped:
                     break
         finally:
+            closer = getattr(chunks, "close", None)
+            if callable(closer):
+                try:
+                    closer()
+                except Exception:
+                    pass
             output = self._output
             if output is not None:
                 try:
@@ -251,16 +308,27 @@ class Speaker:
         chunks = self.model.synthesize(text)
         lock = getattr(self, "_model_lock", None)  # absent on partially built Speakers
         if lock is None:
-            yield from chunks
+            try:
+                yield from chunks
+            finally:
+                closer = getattr(chunks, "close", None)
+                if callable(closer):
+                    closer()
             return
         iterator = iter(chunks)
-        while True:
-            with lock:
-                try:
-                    chunk = next(iterator)
-                except StopIteration:
-                    return
-            yield chunk
+        try:
+            while True:
+                with lock:
+                    try:
+                        chunk = next(iterator)
+                    except StopIteration:
+                        return
+                yield chunk
+        finally:
+            closer = getattr(chunks, "close", None)
+            if callable(closer):
+                with lock:
+                    closer()
 
     # --------------------------------------------------------------- audio I/O
     def _output_rate(self) -> int:
@@ -287,12 +355,23 @@ class Speaker:
                 + ", ".join(missing)
                 + "). نسخهٔ piper-tts و وزن .onnx را بررسی کنید."
             )
+        try:
+            rate = int(chunk.sample_rate)
+            channels = int(chunk.sample_channels)
+        except (TypeError, ValueError) as exc:
+            raise AudioValidationError("مشخصات نرخ نمونه‌برداری یا کانال خروجی Piper نامعتبر است.") from exc
+        if rate <= 0 or channels <= 0:
+            raise AudioValidationError(
+                f"نرخ نمونه‌برداری یا تعداد کانال خروجی Piper نامعتبر است (rate={rate}, channels={channels})."
+            )
+        pcm = chunk.audio_int16_bytes
+        if not isinstance(pcm, (bytes, bytearray, memoryview)):
+            raise AudioValidationError("بافر خروجی Piper از نوع بایتی معتبر نیست.")
+        if len(pcm) % (2 * channels):
+            raise AudioValidationError("طول بافر PCM خروجی Piper با تعداد کانال‌ها هم‌تراز نیست.")
         target = self._output_rate()
-        native = (
-            int(chunk.sample_rate) == target and int(chunk.sample_channels) == 1
-        )
-        if native:  # already the stream format: no numpy/scipy needed
-            return chunk.audio_int16_bytes, target, 1
+        if rate == target and channels == 1:
+            return bytes(pcm), target, 1
         return self._to_mono_rate(chunk, target), target, 1
 
     def _write(self, pcm: bytes, cancel: threading.Event) -> None:

@@ -313,35 +313,37 @@ def scenario_asr(report: Report, settings: Settings, seconds: float) -> None:
 
     audio = LocalAudio(settings)
     try:
-        audio.validate()
-    except VoiceError as exc:
-        report.add("asr", "asr_ms", None, "ms", NOT_MEASURED, str(exc).split("؛")[0])
-        return
-    try:
-        audio.warmup()
-    except VoiceError as exc:
-        report.add("asr", "asr_ms", None, "ms", NOT_MEASURED, f"warmup failed: {exc}")
-        return
-    pcm = frame(600)
-    durations = [1.0, 3.0, 6.0]
-    for duration in durations:
-        samples = int(16000 * duration)
-        payload = pcm * (samples // FRAME_SAMPLES)
-        started = time.perf_counter()
         try:
-            audio.transcribe_pcm(payload)
+            audio.validate()
         except VoiceError as exc:
-            report.add("asr", f"asr_ms@{duration:g}s", None, "ms", NOT_MEASURED, str(exc))
+            report.add("asr", "asr_ms", None, "ms", NOT_MEASURED, str(exc).split("؛")[0])
             return
-        elapsed = (time.perf_counter() - started) * 1000
-        report.add(
-            "asr", f"asr_ms@{duration:g}s", elapsed, "ms", MEASURED,
-            "synthetic tone; timing only, not transcription quality",
-        )
-        report.add(
-            "asr", f"asr_rtf@{duration:g}s", elapsed / (duration * 1000), "x", MEASURED,
-            "compute time / audio duration; <1 is faster than real time",
-        )
+        try:
+            audio.warmup()
+        except VoiceError as exc:
+            report.add("asr", "asr_ms", None, "ms", NOT_MEASURED, f"warmup failed: {exc}")
+            return
+        pcm = frame(600)
+        for duration in (1.0, 3.0, 6.0):
+            samples = int(16000 * duration)
+            payload = pcm * (samples // FRAME_SAMPLES)
+            started = time.perf_counter()
+            try:
+                audio.transcribe_pcm(payload)
+            except VoiceError as exc:
+                report.add("asr", f"asr_ms@{duration:g}s", None, "ms", NOT_MEASURED, str(exc))
+                return
+            elapsed = (time.perf_counter() - started) * 1000
+            report.add(
+                "asr", f"asr_ms@{duration:g}s", elapsed, "ms", MEASURED,
+                "synthetic tone; timing only, not transcription quality",
+            )
+            report.add(
+                "asr", f"asr_rtf@{duration:g}s", elapsed / (duration * 1000), "x", MEASURED,
+                "compute time / audio duration; <1 is faster than real time",
+            )
+    finally:
+        _close_quietly(audio)
 
 
 def scenario_llm(report: Report, settings: Settings, seconds: float) -> None:
@@ -418,13 +420,16 @@ def scenario_tts(report: Report, settings: Settings, seconds: float) -> None:
         report.add("tts", "tts_first_chunk_ms", None, "ms", NOT_MEASURED, str(exc).split("؛")[0])
         return
     started = time.perf_counter()
-    speaker.speak(
-        "سلام، این یک جملهٔ آزمایشی فارسی است.",
-        threading.Event(),
-        on_first_chunk=chunks.append,
-        on_first_frame=frames.append,
-        on_complete=lambda at, played: completed.append(played),
-    )
+    try:
+        speaker.speak(
+            "سلام، این یک جملهٔ آزمایشی فارسی است.",
+            threading.Event(),
+            on_first_chunk=chunks.append,
+            on_first_frame=frames.append,
+            on_complete=lambda at, played: completed.append(played),
+        )
+    finally:
+        _close_quietly(speaker)
     if chunks:
         report.add("tts", "tts_first_chunk_ms", (chunks[0] - started) * 1000, "ms", MEASURED)
     else:
@@ -477,9 +482,13 @@ def scenario_combined(
     async def run() -> None:
         metrics = Metrics()
         client = client_factory()
-        events, total_ms = await _one_turn(
-            settings, asr=asr, speaker=speaker, client=client, metrics=metrics
-        )
+        try:
+            events, total_ms = await _one_turn(
+                settings, asr=asr, speaker=speaker, client=client, metrics=metrics
+            )
+        finally:
+            _close_quietly(asr)
+            _close_quietly(speaker)
         snapshot = metrics.flat()
         for name in ("asr_ms", "asr_final_latency_ms", "llm_ttft_ms", "first_audible_ms",
                      "playback_duration_ms", "vad_start_ms", "vad_end_ms"):
@@ -531,13 +540,16 @@ def scenario_asr_llm(report: Report, settings: Settings, seconds: float) -> None
 
     async def run() -> None:
         metrics = Metrics()
-        events, total_ms = await _one_turn(
-            settings,
-            asr=asr,
-            speaker=NullSpeaker(),
-            client=client_factory(),
-            metrics=metrics,
-        )
+        try:
+            events, total_ms = await _one_turn(
+                settings,
+                asr=asr,
+                speaker=NullSpeaker(),
+                client=client_factory(),
+                metrics=metrics,
+            )
+        finally:
+            _close_quietly(asr)
         flat = metrics.flat()
         report.add(
             "asr_llm", "asr_ms", flat.get("asr_ms.last", flat.get("asr_ms")), "ms",
@@ -604,6 +616,8 @@ def scenario_duplex(report: Report, settings: Settings, seconds: float) -> None:
         finally:
             await pipeline.close()
             await pipeline.client.aclose()
+            _close_quietly(asr)
+            _close_quietly(speaker)
 
         report.add("duplex", "turns", float(turns), "count", MEASURED)
         report.add(
@@ -672,6 +686,8 @@ def scenario_bargein(report: Report, settings: Settings, seconds: float) -> None
         finally:
             await pipeline.close()
             await pipeline.client.aclose()
+            _close_quietly(asr)
+            _close_quietly(speaker)
         latency = metrics.summary("barge_in_latency_ms").last
         interrupted = any(event["type"] == "interrupted" for event in events)
         if latency == 0 and not interrupted:
@@ -696,6 +712,25 @@ def _percentile(values: list[float], percentile: float) -> float | None:
     return ordered[index]
 
 
+def _close_quietly(obj: Any) -> None:
+    """Release a real component's model memory; missing ``close`` is fine.
+
+    Every scenario builds real ``LocalAudio``/``Speaker`` objects when the
+    weights exist.  Without this the benchmark process kept both models
+    resident after the numbers were printed (and after ``--json-out``), which
+    made a repeated run measure a different machine than the first one.
+    """
+    if obj is None:
+        return
+    closer = getattr(obj, "close", None)
+    if not callable(closer):
+        return
+    try:
+        closer()
+    except Exception:  # noqa: BLE001 - cleanup must not fail a measurement
+        pass
+
+
 def _delta(before: float | None, after: float | None) -> float | None:
     if before is None or after is None:
         return None
@@ -715,6 +750,9 @@ def _maybe_real_asr(settings: Settings, report: Report) -> tuple[str, str, Any]:
         audio.validate()
         audio.warmup()
     except VoiceError as exc:
+        # The half-initialised model must not be left loaded next to the
+        # simulated stand-in.
+        _close_quietly(audio)
         return SIMULATED, f"simulated ASR ({str(exc).split('؛')[0]})", SimulatedAsr()
     return MEASURED, "", audio
 

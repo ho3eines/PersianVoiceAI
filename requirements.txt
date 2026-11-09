@@ -1,5 +1,18 @@
-# Runtime dependencies only: what the server and CLI import to run.
-# Test tooling lives in requirements-dev.txt so a deployment never installs it.
+# Core runtime dependencies only: what the FastAPI server and text CLI import.
+# Optional voice/audio dependencies live in requirements-voice.txt and test
+# tooling lives in requirements-dev.txt so deployments stay minimal.
+#
+# System-level requirements (not installed via pip):
+#   - llama-server (from llama.cpp): standalone local LLM binary accessed over
+#     HTTP/SSE (llama-cpp-python is not used).
+#   - FFmpeg (ffmpeg): mandatory at system level when decoding compressed audio
+#     files via the optional audio stack in requirements-voice.txt and for
+#     normalizing custom WAV datasets to 16 kHz mono PCM16.
+#   - PortAudio & SpeexDSP: native audio/AEC libraries required only when using
+#     the live voice stack in requirements-voice.txt (see docs/AEC.md).
+#   - Note: PyTorch (torch), transformers, and torchaudio are NOT used anywhere
+#     in this codebase (local ASR/TTS use CTranslate2/ONNX via the voice stack).
 fastapi==0.162.0
+pydantic==2.14.3
 uvicorn[standard]==0.54.0
 httpx==0.28.1

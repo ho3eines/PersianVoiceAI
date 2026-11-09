@@ -202,6 +202,37 @@ $ python -m pytest
 - تست‌های ساختگی: `tests/test_dataset_preparation.py`؛ کیفیت دادهٔ واقعی و آموزش
   **NOT MEASURED**.
 
+## بازبینی چرخهٔ عمر منابع و پیکربندی — ۹ نوامبر ۲۰۲۶
+
+هدف این گذر «حافظهٔ نامحدود و مقدار نامعتبرِ خاموش» بود: هر جا عددی رشد می‌کرد
+بدون سقف، یا مقداری از محیط بدون اعتبارسنجی به کتابخانه می‌رسید، همان‌جا بسته شد.
+
+- `PVAI_ASR_DEVICE` فقط `cpu`/`auto`/`cuda`/`mps` را می‌پذیرد؛ مقدار دیگر
+  (`gpu`، فاصله‌های اضافی، رشتهٔ خالی) به پیش‌فرض `cpu` برمی‌گردد و در
+  `env_issues` + `/ready` با نام همان متغیر گزارش می‌شود، نه با خطای دیرهنگام CTranslate2.
+- `LocalAudio.close()` و `Speaker.close()` اضافه شدند و `ModelPool.reset()`،
+  `run_live` و `benchmarks/persian_eval.py`/`tools/benchmark_voice.py` در `finally:`
+  آن‌ها را صدا می‌زنند؛ مدل Whisper/Piper پس از پایان کار یا بازنشانی pool باقی نمی‌ماند.
+- `RateLimiter` سقف `max_keys` دارد (پیش‌فرض ۱۰۲۴) و قدیمی‌ترین bucket را دور می‌ریزد؛
+  پویش شبکه دیگر دیکشنری را بی‌کران بزرگ نمی‌کند. `VoiceWebSocket._frame_stamps`
+  از list به `deque` با پنجرهٔ یک‌ثانیه‌ای تبدیل شد و سقف نرخ **پیش از** append
+  بررسی می‌شود، پس سیل فریم حافظهٔ آشکارساز را بزرگ نمی‌کند.
+- `Pipeline.close()` صف پخش، صف final و utterance نیمه‌کاره را خالی می‌کند ولی
+  `conversation.messages` و `reply` را دست نمی‌زند (تست‌های shutdown و
+  `test_turn_failures.py` هر دو باید سبز بمانند). حلقهٔ ASR ارجاع job/PCM را در هر
+  تکرار آزاد می‌کند و `respond()` فهرست بلااستفادهٔ `pieces` را نگه نمی‌دارد.
+- `check_tts` و `LocalAudio.validate()` فایل `.onnx.json` را واقعاً parse می‌کنند
+  (شیء JSON لازم است)؛ `read_wav_mono16k` فایل خالی/بریده/غیر-WAV را با
+  `ValueError` و نام همان فایل رد می‌کند. سیاست سخت‌گیرانهٔ WAV (بدون resample خودکار)
+  تغییر نکرده است.
+- `_chunk_pcm`/`_to_mono_rate` در `server/live_voice.py` نرخ/کانال نامعتبر، بافر
+  غیربایتی، طول ناهم‌تراز و NaN/Inf را با `VoiceError` رد می‌کنند و generator تنبل
+  Piper در لغو barge-in صریحاً `close()` می‌شود.
+- تست‌های جدید در `tests/test_inference_safety.py`، `test_streaming_voice.py`،
+  `test_tts.py`، `test_ws_security.py`، `test_env_config.py` و
+  `test_benchmark_tools.py`؛ همه بدون مدل/دستگاه واقعی. GPU، MPS، Piper واقعی و
+  رفتار Windows **NOT MEASURED**.
+
 ## یکپارچه‌سازی مستندات — ۹ نوامبر ۲۰۲۶
 
 `docs/PROJECT_GUIDE.md` نسخهٔ تک‌فایلی همهٔ راهنماهای فعال و پیوست‌های تاریخی است؛

@@ -242,3 +242,115 @@ def test_text_benchmark_standalone_script_imports_local_auth_helper():
     result = subprocess.run([sys.executable, 'benchmarks/bench_chat.py', '--help'], cwd=root,
                             capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
+
+
+# ------------------------------------------------------- recording integrity
+def test_read_wav_accepts_exactly_the_documented_format(persian_eval, tmp_path: Path) -> None:
+    import warnings
+
+    import numpy as np
+    import soundfile as sf
+
+    path = tmp_path / "fa-001.wav"
+    sf.write(path, np.zeros(1600, dtype=np.float32), 16000, subtype="PCM_16")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # soundfile bit-depth chatter
+        frames = persian_eval.read_wav_mono16k(path)
+    assert len(frames) == 1600 * 2  # 16-bit mono
+
+
+@pytest.mark.parametrize("kind", ["empty", "truncated", "not-a-wav", "stereo", "resampled"])
+def test_unusable_recordings_name_the_file(persian_eval, tmp_path: Path, kind: str) -> None:
+    """A broken recording must be a clear ``ValueError``, not a raw traceback.
+
+    ``persian_eval --audio-dir`` used to die with ``wave.Error``/``EOFError``
+    halfway through a scoring run, with nothing saying which of the forty
+    recordings was the problem.  Stereo and non-16 kHz files are rejected on
+    purpose: the documented policy is to refuse a format the pipeline does not
+    produce (see ``docs/PC_VOICE.md``), never to silently resample it.
+    """
+    import numpy as np
+    import soundfile as sf
+
+    path = tmp_path / "fa-001.wav"
+    if kind == "empty":
+        sf.write(path, np.zeros(0, dtype=np.float32), 16000, subtype="PCM_16")
+    elif kind == "truncated":
+        sf.write(path, np.zeros(1600, dtype=np.float32), 16000, subtype="PCM_16")
+        data = path.read_bytes()
+        path.write_bytes(data[: len(data) // 2])
+    elif kind == "not-a-wav":
+        path.write_bytes(b"RIFF-not-really-a-wave-file")
+    elif kind == "stereo":
+        sf.write(path, np.zeros((1600, 2), dtype=np.float32), 16000, subtype="PCM_16")
+    else:
+        sf.write(path, np.zeros(4410, dtype=np.float32), 44100, subtype="PCM_16")
+
+    with pytest.raises(ValueError) as excinfo:
+        persian_eval.read_wav_mono16k(path)
+    assert path.name in str(excinfo.value)
+
+
+def test_audio_dir_scoring_closes_the_model(persian_eval, tmp_path: Path, monkeypatch) -> None:
+    """The real Whisper model is released after a scoring run.
+
+    Without this the tool left the model loaded, so an operator who reran it
+    (or ran the benchmark afterwards) measured a machine that already held
+    hundreds of megabytes of weights.
+    """
+    from types import SimpleNamespace
+
+    import numpy as np
+    import soundfile as sf
+
+    import server.voice as voice_module
+
+    closed: list[bool] = []
+
+    class FakeAudio:
+        def __init__(self, settings_obj=None, metrics=None) -> None:
+            pass
+
+        def validate(self) -> None:
+            pass
+
+        def transcribe_pcm(self, pcm, *args, **kwargs) -> str:
+            return "سلام"
+
+        def close(self) -> None:
+            closed.append(True)
+
+    monkeypatch.setattr(voice_module, "LocalAudio", FakeAudio)
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+    sf.write(audio_dir / "fa-001.wav", np.zeros(1600, dtype=np.float32), 16000, subtype="PCM_16")
+
+    hypotheses, missing = persian_eval.transcribe_with_local_model(
+        audio_dir, {"fa-001": "سلام"}, SimpleNamespace()
+    )
+    assert hypotheses == {"fa-001": "سلام"} and missing == []
+    assert closed == [True]
+
+
+def test_benchmark_closes_real_components(benchmark_voice) -> None:
+    """``_close_quietly`` must release models and tolerate a missing ``close``."""
+    released: list[str] = []
+
+    class Component:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def close(self) -> None:
+            released.append(self.name)
+
+    benchmark_voice._close_quietly(Component("asr"))
+    benchmark_voice._close_quietly(Component("tts"))
+    benchmark_voice._close_quietly(object())  # no close method: not an error
+    benchmark_voice._close_quietly(None)
+
+    class Broken:
+        def close(self) -> None:
+            raise RuntimeError("device gone")
+
+    benchmark_voice._close_quietly(Broken())  # cleanup never fails a run
+    assert released == ["asr", "tts"]

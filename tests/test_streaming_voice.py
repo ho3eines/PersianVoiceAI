@@ -481,3 +481,101 @@ def test_fresh_pipeline_still_starts_its_utterance_ids_at_one() -> None:
         make_settings(), None, None, None, lambda event: None
     )
     assert pipeline._next_utterance_id == 1
+
+
+# ------------------------------------------------------- shutdown hygiene
+def test_close_drains_transient_audio_but_keeps_the_transcript() -> None:
+    """Shutdown releases buffers *and* the closing session's history.
+
+    ``Pipeline.close`` used to keep the queued playback sentences and the
+    half-finished utterance alive for as long as anything referenced the
+    pipeline object (the LAN transport keeps one per connection).  Draining
+    them is what makes the object collectable; the recorded messages must
+    survive, because the last turn is exactly what a restart resumes.
+    """
+
+    async def scenario() -> None:
+        events: list[dict] = []
+        speaker = FakeSpeaker()
+        async with httpx.AsyncClient(
+            base_url="http://127.0.0.1",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, text=sse("درود! ", "خوبی؟"))
+            ),
+        ) as client:
+            pipeline, _ = make_pipeline(speaker=speaker, client=client, events=events)
+            pipeline.start()
+            for _ in range(20):
+                pipeline.feed(frame())
+            for _ in range(32):
+                pipeline.feed(frame(0))
+            await until(lambda: any(e["type"] == "response_end" for e in events))
+            recorded = list(pipeline.conversation.messages)
+            pipeline.speech.put_nowait("یک جملهٔ پخش‌نشده")
+            await pipeline.close()
+        assert pipeline.speech.empty()
+        assert len(pipeline.scheduler.finals) == 0
+        assert pipeline.scheduler.partial is None
+        assert pipeline.utterance is None
+        assert pipeline.conversation.messages == recorded
+        assert any(message.role == "assistant" for message in recorded)
+
+    asyncio.run(scenario())
+
+
+def test_recognize_releases_each_job_before_decoding_the_next() -> None:
+    """The ASR worker must not pin the previous job's PCM while it waits.
+
+    A final job carries the whole utterance as bytes.  Keeping the last one in a
+    loop variable meant the single ASR actor held up to a full utterance of
+    audio while idle on every connection — unexplained RSS growth on a long run.
+    """
+
+    async def scenario() -> None:
+        import gc
+        import weakref
+
+        from server.streaming_voice import AsrJob
+
+        class Pcm(bytearray):
+            """Markable payload: it must be collectable once decoded."""
+
+        async with httpx.AsyncClient(
+            base_url="http://127.0.0.1",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, text=sse("درود!"))
+            ),
+        ) as client:
+            pipeline, events = make_pipeline(client=client)
+            payload = Pcm(640)
+            marker = weakref.ref(payload)
+            pipeline.start()
+            try:
+                pipeline.scheduler.submit_final(
+                    AsrJob(utterance_id=1, pcm=payload, final=True,
+                           submitted_at=0.0, total_frames=1)
+                )
+                del payload
+                await until(lambda: any(e["type"] == "response_end" for e in events))
+                await until(lambda: pipeline.state.value in {"idle", "listening"})
+                gc.collect()
+                assert marker() is None, "the decoded utterance's PCM is still referenced"
+            finally:
+                await pipeline.close()
+
+    asyncio.run(scenario())
+
+
+def test_respond_does_not_copy_every_token_into_a_list() -> None:
+    """A long reply must be assembled as one string, not as a piece list.
+
+    ``respond`` kept every SSE delta in a list that was never read; a 400-token
+    answer therefore retained hundreds of tiny strings per turn for no reason.
+    """
+    import inspect
+
+    from server.streaming_voice import Pipeline as PipelineClass
+
+    source = inspect.getsource(PipelineClass.respond)
+    assert "pieces = []" not in source
+    assert "pieces.append" not in source
