@@ -89,16 +89,19 @@ def sentences(buffer: str, final: bool = False) -> tuple[list[str], str]:
     return ready, buffer
 
 
+from .voice import ModelLoadError
+
+
 def _validate_tts_model(path: str) -> None:
     model = Path(path)
     if not model.is_file():
-        raise VoiceError(
+        raise ModelLoadError(
             "مدل Piper موجود نیست؛ PVAI_TTS_MODEL_PATH (یا PVAI_TTS_MODEL_MALE/"
             "PVAI_TTS_MODEL_FEMALE) را برای صدای انتخاب‌شده تنظیم کنید."
         )
     config = Path(str(model) + ".json")
     if not config.is_file():
-        raise VoiceError(
+        raise ModelLoadError(
             "فایل تنظیمات مدل Piper (.onnx.json) موجود نیست؛ بستهٔ وزن فارسی کامل نیست."
         )
 
@@ -116,7 +119,7 @@ def load_piper_voice(settings: Settings, voice: str) -> Any:
     except VoiceError:
         raise
     except Exception as exc:
-        raise VoiceError(
+        raise ModelLoadError(
             "بارگذاری مدل Piper ناموفق بود؛ سازگاری وزن فارسی و وابستگی onnxruntime را بررسی کنید."
         ) from exc
 
@@ -148,14 +151,7 @@ class Speaker:
             # ONNX session per voice instead of one per device.
             self.model = model
         else:
-            try:
-                self.model = dependency("piper.voice").PiperVoice.load(self.model_path)
-            except VoiceError:
-                raise
-            except Exception as exc:
-                raise VoiceError(
-                    "بارگذاری مدل Piper ناموفق بود؛ سازگاری وزن فارسی و وابستگی onnxruntime را بررسی کنید."
-                ) from exc
+            self.model = load_piper_voice(settings, self.voice)
         self.sd = dependency("sounddevice")
 
     # ------------------------------------------------------------------ helpers

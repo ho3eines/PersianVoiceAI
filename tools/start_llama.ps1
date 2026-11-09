@@ -43,13 +43,17 @@ foreach ($issue in $plan.env_issues) {
 }
 
 $model = $plan.model_path
-if (-not (Test-Path $model) -and -not [System.IO.Path]::IsPathRooted($model)) {
+if (-not (Test-Path -LiteralPath $model -PathType Leaf)) {
     Write-Host "warning: model file not found: $model" -ForegroundColor Yellow
 }
 
 if ($DryRun) {
     Write-Host "DryRun: not starting the server." -ForegroundColor Yellow
     exit 0
+}
+
+if (-not (Test-Path -LiteralPath $model -PathType Leaf)) {
+    throw "Model weights not found: $model (set PVAI_MODEL_PATH)."
 }
 
 & $command[0] $command[1..($command.Length - 1)]

@@ -35,6 +35,65 @@ class VoiceError(RuntimeError):
     """User-facing audio failure."""
 
 
+class ModelLoadError(VoiceError):
+    """Local weights are missing, incompatible, or unreadable."""
+
+
+class AudioValidationError(VoiceError):
+    """Input audio cannot be read or normalized safely."""
+
+
+def asr_device_options(requested: str, compute_type: str) -> tuple[str, str]:
+    """Detect devices using CTranslate2, not an unrelated PyTorch runtime.
+
+    CTranslate2 has no MPS backend. CPU fallback uses portable int8 even when
+    a GPU-only precision was requested. No model/data downloads are allowed.
+    """
+    requested = requested.strip().lower()
+    if requested not in {"auto", "cpu", "cuda", "mps"}:
+        raise ModelLoadError(f"دستگاه ASR نامعتبر است: {requested}")
+    if requested == "cpu":
+        logger.info("ASR device=cpu (configured)")
+        return "cpu", compute_type
+    if requested in {"auto", "cuda"}:
+        try:
+            ct2 = dependency("ctranslate2")
+            if ct2.get_cuda_device_count() > 0:
+                logger.info("ASR device=cuda")
+                return "cuda", compute_type
+        except Exception as exc:
+            logger.warning("CUDA detection failed: %s", exc)
+    logger.warning("ASR device=%s unavailable/unsupported; falling back to CPU (int8)", requested)
+    return "cpu", "int8"
+
+
+def load_asr_audio(source: Path) -> Any:
+    """Decode locally to finite, contiguous float32 mono at 16 kHz."""
+    path = Path(source)
+    if not path.is_file():
+        raise AudioValidationError(f"فایل صوتی موجود نیست یا فایل نیست: {path}")
+    np = dependency("numpy")
+    librosa = dependency("librosa")
+    try:
+        # Preserve native metadata until validated; average channels before resampling.
+        samples, rate = librosa.load(str(path), sr=None, mono=False, dtype=np.float32)
+        if rate <= 0 or samples.size == 0 or samples.ndim not in (1, 2):
+            raise ValueError("empty audio or invalid sample rate/shape")
+        if not np.isfinite(samples).all():
+            raise ValueError("audio contains NaN/Inf")
+        if samples.ndim == 2:
+            logger.info("Downmixing %s channels to mono: %s", samples.shape[0], path)
+            samples = samples.mean(axis=0)
+        if rate != SAMPLE_RATE:
+            logger.info("Resampling audio %s -> %s Hz: %s", rate, SAMPLE_RATE, path)
+            samples = librosa.resample(samples, orig_sr=rate, target_sr=SAMPLE_RATE)
+        if samples.size == 0 or not np.isfinite(samples).all():
+            raise ValueError("resampling produced invalid audio")
+        return np.ascontiguousarray(samples, dtype=np.float32)
+    except Exception as exc:
+        raise AudioValidationError(f"خواندن یا تبدیل فایل صوتی ناموفق بود: {path} ({exc})") from exc
+
+
 def local_api_url(settings: Settings) -> str:
     host = settings.api_host
     if host in {"0.0.0.0", "::"}:
@@ -158,7 +217,7 @@ class LocalAudio:
     def validate(self) -> None:
         path = Path(self.settings.asr_model_path)
         if not path.is_dir() or not (path / "model.bin").is_file():
-            raise VoiceError("مدل Whisper محلی موجود نیست؛ PVAI_ASR_MODEL_PATH را تنظیم کنید.")
+            raise ModelLoadError(f"مدل Whisper محلی موجود نیست؛ PVAI_ASR_MODEL_PATH را تنظیم کنید: {path}")
         tts_path = Path(self.settings.tts_model_for(self.settings.tts_voice))
         if not tts_path.is_file():
             raise VoiceError(
@@ -187,10 +246,16 @@ class LocalAudio:
             return self.model
         with self._lock:
             if self.model is None:
+                path = Path(self.settings.asr_model_path)
+                if not path.is_dir() or not (path / "model.bin").is_file():
+                    raise ModelLoadError(f"مدل Whisper محلی موجود نیست: {path}/model.bin")
                 whisper = dependency("faster_whisper")
+                device, compute_type = asr_device_options(
+                    self.settings.asr_device, self.settings.asr_compute_type)
+
                 options = {
-                    "device": self.settings.asr_device,
-                    "compute_type": self.settings.asr_compute_type,
+                    "device": device,
+                    "compute_type": compute_type,
                     "local_files_only": True,
                     "cpu_threads": self.settings.asr_threads,
                 }
@@ -198,10 +263,18 @@ class LocalAudio:
                 try:
                     self.model = whisper.WhisperModel(self.settings.asr_model_path, **options)
                 except Exception as exc:
-                    raise VoiceError(
-                        "بارگذاری مدل Whisper ناموفق بود؛ قالب CTranslate2 و "
-                        "PVAI_ASR_DEVICE/PVAI_ASR_COMPUTE_TYPE را بررسی کنید."
-                    ) from exc
+                    if device == "cuda":
+                        logger.warning("CUDA model initialization failed; retrying on CPU: %s", exc)
+                        options.update(device="cpu", compute_type="int8")
+                        try:
+                            self.model = whisper.WhisperModel(self.settings.asr_model_path, **options)
+                        except Exception as cpu_exc:
+                            raise ModelLoadError("بارگذاری مدل Whisper روی CPU ناموفق بود؛ وزن‌ها را بررسی کنید.") from cpu_exc
+                    else:
+                        raise ModelLoadError(
+                            "بارگذاری مدل Whisper ناموفق بود؛ قالب CTranslate2 و "
+                            "PVAI_ASR_DEVICE/PVAI_ASR_COMPUTE_TYPE را بررسی کنید."
+                        ) from exc
                 self.loaded_at = time.time()
             return self.model
 
@@ -222,7 +295,7 @@ class LocalAudio:
             raise VoiceError("ضبط ناموفق بود؛ میکروفون و مجوز دسترسی را بررسی کنید.") from exc
 
     def transcribe(self, source: Path) -> str:
-        return self._transcribe(str(source))
+        return self._transcribe(load_asr_audio(source))
 
     def transcribe_pcm(self, pcm: bytes, token: threading.Event | None = None, job: Any = None) -> str:
         """Decode an in-memory PCM window; never write live microphone audio to disk.
@@ -231,6 +304,8 @@ class LocalAudio:
         pipeline; the final decode receives the complete utterance audio, so
         nothing is lost for accuracy while per-decode cost stays predictable.
         """
+        if not pcm or len(pcm) % 2:
+            raise AudioValidationError("دادهٔ PCM باید غیرخالی و شامل نمونه‌های کامل PCM16 mono 16kHz باشد.")
         np = dependency("numpy")
         samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
         return self._transcribe(samples, token=token)
@@ -322,8 +397,14 @@ class LocalAudio:
                 # The generator must be consumed *inside* the lock: faster-whisper
                 # decodes lazily as it is iterated.  Filtering happens while
                 # consuming, so a hallucinated segment never reaches the caller.
-                accepted = self._accepted_segments(segments, token=token)
-                return " ".join(segment.text.strip() for segment in accepted).strip()
+                try:
+                    accepted = self._accepted_segments(segments, token=token)
+                    return " ".join(segment.text.strip() for segment in accepted).strip()
+                finally:
+                    # Release lazy decoder state on success, failure and preemption.
+                    closer = getattr(segments, "close", None)
+                    if closer is not None:
+                        closer()
         except (VoiceError, AsrPreempted):
             raise
         except Exception as exc:

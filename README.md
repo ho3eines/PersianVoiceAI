@@ -3,11 +3,15 @@
 دستیار فارسی آفلاین با پردازش روی PC و هدف توسعهٔ ترمینال ESP32-S3 در LAN.
 هیچ API ابری برای متن یا صوت استفاده نمی‌شود.
 
+**[راهنمای یکپارچهٔ کامل پروژه](docs/PROJECT_GUIDE.md)** — همهٔ راهنماها در یک فایل،
+با فهرست بخش‌ها و تفکیک وضعیت فعلی از سوابق تاریخی. برای به‌روزرسانی پس از تغییر
+اسناد: `python tools/build_docs.py`؛ کنترل هم‌خوانی: `python tools/build_docs.py --check`.
+
 ## مسیر فعلی PC
 
 ```text
 میکروفون پیوسته (20ms) → AEC SpeexDSP → VAD با هیسترزیس و پیش‌رول
-   → partial هم‌پوشان (۶s) + صف final بدون‌افت  →  Whisper محلی
+   → partial هم‌پوشان (۳s پیش‌فرض) + صف final بدون‌افت  →  Whisper محلی
    → AssistantTurn روی llama-server (async SSE)  →  جمله‌بندی تدریجی
    → Piper محلی (زن/مرد) → پخش 20ms در duplex
 ```
@@ -38,6 +42,7 @@ cp .env.example .env
 
 `requirements-voice.txt` فقط وابستگی‌های زمان اجراست. برای اجرای تست‌ها
 `requirements-dev.txt` را هم نصب کنید (pytest فقط همان‌جاست و در deployment لازم نیست).
+تست‌های تبدیل فایل صوتی همچنین به numpy، scipy، soundfile و librosa از پشتهٔ صوتی نیاز دارند.
 
 کتابخانهٔ native **SpeexDSP** را نیز طبق [راهنمای AEC](docs/AEC.md) نصب کنید؛ فقط pip کافی نیست.
 سپس مدل‌های **Qwen3-4B-Q4_K_M GGUF**، **Whisper Small CTranslate2** و **Piper فارسی** را
@@ -65,15 +70,16 @@ cp .env.example .env
 
 > `tools/start_llama.ps1` به‌جای تکرار دستی پرچم‌ها، `python -m server.config --launch` را
 > صدا می‌زند؛ پس `PVAI_N_THREADS` و `PVAI_N_GPU_LAYERS` واقعاً اعمال می‌شوند.
-> اجرای دستی هم ممکن است، ولی باید با `.env` هم‌خوان باشد: مقدار پیش‌فرض `PVAI_N_THREADS=2`
-> برای ۲ هستهٔ فیزیکی است، پس `-t 4` با آن ناسازگار است (خودِ llama-server برنده می‌شود).
+> اجرای دستی هم ممکن است، ولی باید با `.env` هم‌خوان باشد: پیش‌فرض کد `PVAI_N_THREADS=0`
+> است (حذف `-t` و انتخاب توسط llama-server)؛ `.env.example` مقدار پیشنهادی `4` دارد.
+> در اجرای دستی پرچم خودِ llama-server برنده می‌شود.
 
 [راهنمای کامل PC، مدل‌ها، تنظیم حساسیت و محدودیت‌ها](docs/PC_VOICE.md) ·
 [مرجع همهٔ متغیرهای `.env`](docs/CONFIGURATION.md)
 
 ## وضعیت صادقانه
 
-- تست خودکار: **تعداد تست‌ها پویاست؛ `python -m pytest` را اجرا کنید** (بدون مدل/میکروفون/شبکه؛ skipها فقط native SpeexDSP و scipy در این محیط).
+- تست خودکار: **تعداد تست‌ها پویاست؛ `python -m pytest` را اجرا کنید** (بدون مدل/میکروفون/شبکه؛ علت skipها را با `python -m pytest -rs` ببینید).
   این تست‌ها منطق و کنترل جریان را ثابت می‌کنند، نه کیفیت صدا.
 - مدل‌های واقعی (Whisper/Piper/Qwen) در مخزن نیستند؛ در sandbox نصب هم نبودند، پس
   ASR/TTS/LLM واقعی **NOT MEASURED** است.
@@ -99,8 +105,9 @@ cp .env.example .env
 | `POST /api/chat` | پاسخ سادهٔ یک‌پیامی با `session_id` اختیاری |
 | `GET/DELETE /api/sessions[/{id}]` | بازبینی و حذف نشست‌های محلی |
 
-همهٔ مسیرها جز `/health` توکن می‌خواهند: `Authorization: Bearer $PVAI_API_TOKEN`
-(یا `X-API-Key`). روی `PVAI_HOST=0.0.0.0` توکن **الزامی** است وگرنه برنامه بالا نمی‌آید.
+اگر `PVAI_API_TOKEN` تنظیم شده باشد، مسیرهای HTTP جز `/health` و درخواست‌های OPTIONS توکن می‌خواهند: `Authorization: Bearer $PVAI_API_TOKEN`
+(یا `X-API-Key`). با bind فقط loopback و توکن خالی، احراز هویت HTTP غیرفعال است.
+WebSocket از توکن مستقل دستگاه استفاده می‌کند. روی `PVAI_HOST=0.0.0.0` توکن **الزامی** است وگرنه برنامه بالا نمی‌آید.
 
 چت متنی: `python -m server.cli` یا `tools/chat.ps1`.
 مستندات API: `http://127.0.0.1:8000/docs`.
@@ -126,7 +133,7 @@ FastAPI از طریق **async HTTP به llama-server** متصل می‌شود؛ 
 
 اعداد sandbox و روش‌شناسی در [BENCHMARKS](docs/BENCHMARKS.md) است؛ اعداد i7-6500U تا اجرای
 واقعی `NOT MEASURED` نوشته می‌شوند. دادهٔ خصوصی و وزن‌ها وارد Git نشوند.
-هیچ وزن یا داده‌ای در مخزن نیست؛ مجوز کد GPL-3.0-or-later و مجوز هر مدل/صدا در
+وزن و ضبط خصوصی در مخزن نیست؛ مجموعهٔ متن ارزیابی و نتایج نمونه موجودند؛ مجوز کد GPL-3.0-or-later و مجوز هر مدل/صدا در
 [THIRD_PARTY.md](THIRD_PARTY.md) آمده است.
 
 ## مستندات
@@ -155,3 +162,9 @@ FastAPI از طریق **async HTTP به llama-server** متصل می‌شود؛ 
 وزن مدل‌ها در مخزن نیستند و مجوز هرکدام جداست: Qwen3-4B با Apache-2.0، وزن‌های
 Whisper با MIT، و صدای Piper فارسی بسته به فایل صدا متفاوت است — پیش از عرضه،
 `MODEL_CARD` همان صدا را بخوانید.
+
+### دادهٔ سفارشی و آماده‌سازی آموزش
+
+مخزن فعلی inference/evaluation است و trainer ندارد. برای قرارداد JSON/JSONL/CSV،
+اعتبارسنجی صوت محلی و روش آماده‌سازی splitهای سفارشی به
+[راهنمای داده‌ها](docs/DATASETS.md) و `python tools/prepare_dataset.py --help` مراجعه کنید.

@@ -173,3 +173,33 @@ def test_current_docs_do_not_pin_a_stale_pytest_pass_count() -> None:
         text = (ROOT / name).read_text(encoding='utf-8').translate(
             str.maketrans('۰۱۲۳۴۵۶۷۸۹', '0123456789'))
         assert not re.search(r'\d+\s+passed', text), name
+
+
+def test_unified_guide_is_up_to_date() -> None:
+    from tools.build_docs import OUTPUT, render
+    assert OUTPUT.read_text(encoding='utf-8') == render(), 'Run python tools/build_docs.py'
+
+
+def test_numeric_configuration_defaults_match_code() -> None:
+    """Prevent hand-maintained numeric default tables from drifting again."""
+    text = (ROOT / 'docs/CONFIGURATION.md').read_text(encoding='utf-8')
+    tree = ast.parse((ROOT / 'server/config.py').read_text(encoding='utf-8'))
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id in {'_env_int', '_env_float'} and len(node.args) >= 2
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[1], ast.Constant)):
+            continue
+        name, default = node.args[0].value, node.args[1].value
+        row = re.search(r'\| `' + name + r'` \| `([^`]+)`', text)
+        assert row is not None, f'No numeric default documented for {name}'
+        assert float(row.group(1)) == default, (name, row.group(1), default)
+
+
+def test_voice_requirements_are_in_license_table() -> None:
+    text = (ROOT / 'THIRD_PARTY.md').read_text(encoding='utf-8')
+    for line in (ROOT / 'requirements-voice.txt').read_text(encoding='utf-8').splitlines():
+        if not line or line.startswith(('#', '-')):
+            continue
+        package = re.split(r'[<>=!~\[]', line)[0]
+        assert f'`{package}`' in text, f'Missing licence entry: {package}'

@@ -8,7 +8,7 @@
 `PCM زنده → snapshot هم‌پوشان → ASR partial/final → async SSE → صف جمله → Piper PCM`
 
 بدون Enter صحبت کنید. تقریباً هر ۰٫۸ ثانیه از بخش گفتار در حال دریافت یک snapshot برای Whisper
-فرستاده می‌شود و `transcript_partial` در همان حین نمایش داده می‌شود. بعد از حدود ۵۰۰ms سکوت،
+فرستاده می‌شود و `transcript_partial` در همان حین نمایش داده می‌شود. بعد از ۶۰۰ms سکوت (پیش‌فرض قابل تنظیم)،
 متن final تولید و درخواست مدل شروع می‌شود. Whisper ذاتاً streaming نیست؛ این یک adapter افزایشی با
 بازشناسی تکراری و توافق دو decode است. فاصلهٔ ۰٫۸ ثانیه زمان‌بندی است، نه تضمین آماده‌شدن نتیجه.
 هر بخش حداکثر ۱۵ ثانیه است؛ اگر گفتار ادامه یابد بخش بعدی ساخته می‌شود و **هیچ بخشی دور ریخته
@@ -71,7 +71,7 @@ PVAI_VOICE_ASR_INTERVAL=0.8
 PVAI_HISTORY_PERSIST=true
 ```
 
-مرجع کامل 82 متغیر و اثر هر کدام: [CONFIGURATION.md](CONFIGURATION.md).
+مرجع کامل متغیرها و اثر هر کدام: [CONFIGURATION.md](CONFIGURATION.md).
 
 Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama-server باید این گزینه را
 پشتیبانی کند. فیلد `reasoning_content` دیگر به‌عنوان جواب یا صدا استفاده نمی‌شود.
@@ -94,7 +94,7 @@ Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama
 `python -m server.sessions delete-all` را اجرا کنید. با `PVAI_VOICE_SESSION_ID` می‌توانید یک
 شناسهٔ ثابت انتخاب کنید. بازبینی/حذف: `python -m server.sessions list|show|delete|delete-all`.
 پنجرهٔ RAM با `PVAI_HISTORY_MAX_STORED` محدود است، فایل دیسک کامل می‌ماند؛ برای جلوگیری از
-نگه‌داشتن بی‌پایان متن گفتار، `PVAI_HISTORY_RETENTION_DAYS` (پیش‌فرض `0` = همه) و
+نگه‌داشتن بی‌پایان متن گفتار، `PVAI_HISTORY_RETENTION_DAYS` (پیش‌فرض `30` روز؛ `0` = همه) و
 `python -m server.sessions purge` را ببینید.
 
 برای فهرست دستگاه‌ها: `python -m server.voice --list-devices`. انتخاب صریح ورودی/خروجی با
@@ -121,7 +121,7 @@ Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama
 ## امنیت و داده
 
 - متن فقط به API محلی/خصوصی می‌رود؛ proxy محیط و redirect کلاینت غیرفعال است.
-- llama-server را محلی نگه دارید و REST را فقط با `PVAI_API_TOKEN` عمومی کنید؛ سرویس روی نشانی غیر-loopback بدون توکن بالا نمی‌آید.
+- llama-server را محلی نگه دارید و REST را فقط با `PVAI_API_TOKEN` در LAN در دسترس قرار دهید؛ سرویس روی نشانی غیر-loopback بدون توکن بالا نمی‌آید.
 - در مسیر زنده **صوت** فقط در RAM است و فایل صوتی ساخته نمی‌شود؛ فقط حالت `--turn-based`
   فایل WAV موقت می‌سازد. اما **متن مکالمه** با `PVAI_HISTORY_PERSIST=true` به‌صورت JSONL محلی
   ذخیره می‌شود (قابل خاموش‌کردن و حذف). هیچ‌چیز به بیرون فرستاده نمی‌شود.
@@ -144,3 +144,18 @@ Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama
 
 تست خودکار از fake استفاده می‌کند. میکروفون واقعی، وزن‌های Whisper/Piper/Qwen و عملکرد
 روی Windows هدف در sandbox تأیید نشده‌اند. Linux ممکن است PortAudio سیستمی لازم داشته باشد.
+
+## ایمنی inference و ورودی فایل
+
+- پیش‌فرض ASR همچنان CPU/int8 است. `PVAI_ASR_DEVICE=auto` وجود CUDA را با
+  CTranslate2 تشخیص می‌دهد؛ `cuda` هم در نبود دستگاه یا شکست بارگذاری مدل GPU با
+  هشدار به CPU/int8 برمی‌گردد. CTranslate2 از MPS پشتیبانی نمی‌کند؛ `mps` نیز به CPU برمی‌گردد.
+  این رفتار فقط ASR است؛ offload مدل GGUF همچنان با تنظیمات مستقل llama-server کنترل می‌شود.
+- `LocalAudio.transcribe(path)` فایل را با librosa محلی به mono/16kHz/float32 تبدیل
+  می‌کند؛ مسیر اشتباه، صوت خالی/خراب و NaN/Inf با `AudioValidationError` رد می‌شوند.
+- مسیر PCM زنده metadata نرخ/کانال ندارد و قرارداد PCM16 mono/16kHz را فرض می‌کند؛
+  فقط ورودی خالی یا نمونهٔ ناقص را رد می‌کند. ابزار ارزیابی WAV عمداً نرخ/کانال/عرض
+  نمونه را سخت‌گیرانه بررسی می‌کند و برخلاف ورودی فایل عمومی، تبدیل خودکار ندارد.
+- وزن ناقص یا ناسازگار با `ModelLoadError` گزارش می‌شود؛ هر دو استثنا زیرکلاس
+  `VoiceError` هستند. generator تنبل ASR هنگام پایان، خطا یا لغو بسته می‌شود؛
+  لغو بین segmentهاست و قطع فوری فراخوانی native را تضمین نمی‌کند.

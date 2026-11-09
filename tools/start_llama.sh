@@ -76,13 +76,18 @@ for issue in ${WARNINGS[@]+"${WARNINGS[@]}"}; do
     echo "warning: $issue"
 done
 
-if [[ ! -f "$MODEL_PATH" && "$MODEL_PATH" != /* ]]; then
+if [[ ! -f "$MODEL_PATH" ]]; then
     echo "warning: model file not found: $MODEL_PATH"
 fi
 
 if [[ $DRY_RUN -eq 1 ]]; then
     echo "DryRun: not starting the server."
     exit 0
+fi
+
+if [[ ! -f "$MODEL_PATH" ]]; then
+    echo "Model weights not found: $MODEL_PATH (set PVAI_MODEL_PATH)." >&2
+    exit 1
 fi
 
 exec "${COMMAND[@]}"
