@@ -32,13 +32,18 @@ Copy-Item .env.example .env
 اگر `.env` موجود است، فقط تنظیمات آن را ویرایش کنید.
 
 ```powershell
-# ترمینال ۱؛ مسیر باینری و مدل متناسب با سیستم خودتان
-D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 127.0.0.1 --port 8080 -t 4
+# ترمینال ۱؛ پرچم‌ها از .env خوانده می‌شوند (PVAI_N_CTX / PVAI_N_THREADS / PVAI_N_GPU_LAYERS)
+.\tools\start_llama.ps1 -Exe D:\Lama.cpp\bin\llama-server.exe
 # ترمینال ۲
 .\tools\start_server.ps1
 # ترمینال ۳
 .\.venv\Scripts\python.exe -m server.voice
 ```
+
+> `tools/start_llama.ps1` به‌جای تکرار دستی پرچم‌ها، `python -m server.config --launch` را
+> صدا می‌زند؛ پس `PVAI_N_THREADS` و `PVAI_N_GPU_LAYERS` واقعاً اعمال می‌شوند.
+> اجرای دستی هم ممکن است، ولی باید با `.env` هم‌خوان باشد: مقدار پیش‌فرض `PVAI_N_THREADS=2`
+> برای ۲ هستهٔ فیزیکی است، پس `-t 4` با آن ناسازگار است (خودِ llama-server برنده می‌شود).
 
 [راهنمای کامل PC، مدل‌ها، تنظیم حساسیت و محدودیت‌ها](docs/PC_VOICE.md) ·
 [مرجع همهٔ متغیرهای `.env`](docs/CONFIGURATION.md)

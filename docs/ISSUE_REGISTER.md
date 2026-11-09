@@ -645,3 +645,76 @@
   `test_retention_zero_keeps_everything_and_disabled_persistence_is_a_no_op`,
   `test_env_history_resume_and_retention_are_parsed`
 - **وضعیت:** رفع‌شده + تست
+
+## مرحلهٔ ششم — بازتولید و رفع باگ‌های `.env` (۸ نوامبر ۲۰۲۶)
+
+### D1-01 — کامنت هم‌خط در `.env` جزو مقدار می‌شد و مقدار عددی بی‌صدا به پیش‌فرض برمی‌گشت
+
+- **فایل:** `server/config.py` → `load_dotenv`, `_env_int/_env_float/_env_optional_bool/_env_choice`
+- **ریشه:** `load_dotenv` خط را فقط با `strip()` تمیز می‌کرد و کل باقیمانده را مقدار می‌گذاشت، در حالی که
+  خودِ `.env.example` چند متغیر را با توضیح هم‌خط مستند کرده است:
+  `PVAI_N_THREADS=2          # 0 = auto…`. با `Copy-Item .env.example .env` (همان قدم اول README)
+  مقدار رشتهٔ `'2          # 0 = auto…'` می‌شد؛ `int(...)` خطا می‌داد و `_env_int` **بی‌صدا**
+  پیش‌فرض را برمی‌گرداند. نتیجه: `PVAI_N_THREADS=2` عملاً `0` بود. همین برای
+  `PVAI_N_GPU_LAYERS`, `PVAI_VOICE_RECORD_SECONDS` و `PVAI_AEC_DELAY_MS` صادق بود — کسی که
+  `PVAI_AEC_DELAY_MS` را کالیبره می‌کرد و کنارش کامنت می‌گذاشت، مقدارش را از دست می‌داد.
+- **بازتولید:** کپی `.env.example` به `.env` و `Settings.from_env()` ⇒
+  `n_threads=0` (فایل: 2)، `n_gpu_layers=0` (فایل: 7)، `voice_record_seconds=5.0` (فایل: 7)،
+  `aec_delay_ms=40` (فایل: 55) — هر چهار مقدار نادیده.
+- **رفع:** `strip_inline_comment()` کامنت را حذف می‌کند: `#` فقط در ابتدای مقدار یا بعد از فاصله
+  کامنت است و هرگز داخل کوتیشن نیست، پس `PVAI_SYSTEM_PROMPT="یک # دو"` سالم می‌ماند و
+  `abc#def` یک مقدار است. `.env.example` هم بازنویسی شد (توضیح‌ها به خط جدا) و
+  `tests/test_env_config.py::test_env_example_has_no_inline_comments_left_to_bite_anyone`
+  جلوگیری می‌کند دوباره برنگردد.
+- **تست:** `test_copying_env_example_produces_the_values_it_documents` (هر ۱۳ متغیر عددی)،
+  `test_strip_inline_comment` (۹ حالت)، `test_commented_values_survive_a_round_trip`
+- **وضعیت:** رفع‌شده + تست
+
+### D1-02 — مقدار نامعتبر یا کلمپ‌شده هیچ اثری از خود نمی‌گذاشت
+
+- **فایل:** `server/config.py` → `ENV_ISSUES`, `Settings.env_issues`, `Settings.config_errors`
+- **ریشه:** `_env_int/_env_float/_env_optional_bool` در هر سه حالت (غیرعددی، بولی نامفهوم، خارج از
+  بازه) به مقدار پیش‌فرض یا حد مجاز برمی‌گشتند و **هیچ** لاگ/خطایی تولید نمی‌کردند. یعنی یک
+  `.env` کاملاً غلط از یک `.env` درست قابل تشخیص نبود.
+- **رفع:** هر رد/کلمپ با `logger.warning` (شامل نام متغیر و دلیل) لاگ می‌شود، در
+  `ENV_ISSUES` ثبت و در `Settings.from_env()` به `Settings.env_issues` منتقل می‌شود (بعد از هر
+  فراخوانی پاک می‌شود تا در یک پروسهٔ طولانی انبار نشود)، و `config_errors()` آن‌ها را برمی‌گرداند —
+  بنابراین `GET /ready` (بخش `configuration`) و پیام startup مسیر زنده نشانش می‌دهند.
+- **تست:** `test_invalid_number_is_reported_not_silently_defaulted`,
+  `test_clamped_value_is_reported`, `test_invalid_boolean_and_choice_are_reported`,
+  `test_a_clean_environment_reports_nothing`, `test_issues_do_not_accumulate_across_calls`,
+  `test_ready_endpoint_surfaces_rejected_values`
+- **وضعیت:** رفع‌شده + تست
+
+### D1-03 — `.env` فقط از پوشهٔ جاری خوانده می‌شد
+
+- **فایل:** `server/config.py` → `load_dotenv`, `dotenv_candidates`, `PROJECT_ROOT`
+- **ریشه:** `env_path = Path.cwd() / ".env"`. اجرا از هر مسیری غیر از ریشهٔ پروژه (Task Scheduler،
+  IDE، اسکریپت داخل `tools/`) یعنی `.env` **بی‌صدا** نادیده گرفته می‌شد و سرویس با پیش‌فرض‌ها
+  بالا می‌آمد.
+- **رفع:** `dotenv_candidates()` اول `.env` پوشهٔ جاری را می‌بیند و بعد `.env` ریشهٔ پروژه
+  (`PROJECT_ROOT`) را؛ اولین فایل موجود برنده است، پس `cd` به یک پوشهٔ استقرار هنوز اولویت دارد.
+  مسیر خوانده‌شده در `DOTENV_LOADED` ثبت می‌شود.
+- **تست:** `test_dotenv_is_found_from_any_working_directory`,
+  `test_current_directory_env_wins_over_the_project_root`, `test_explicit_path_is_used_verbatim`
+- **وضعیت:** رفع‌شده + تست
+
+### D1-04 — `PVAI_N_THREADS` / `PVAI_N_GPU_LAYERS` / `PVAI_N_CTX` هیچ‌جا استفاده نمی‌شدند
+
+- **فایل:** `server/config.py` → `llama_server_command`, `_print_launch`؛ `tools/start_llama.ps1`
+- **ریشه:** این سه فیلد فقط در dataclass تعریف شده بودند و هیچ مصرف‌کننده‌ای نداشتند؛ کلاینت HTTP
+  آن‌ها را نمی‌فرستد (llama-server مسیر مدل و تعداد thread را خودش تعیین می‌کند). در همان حال
+  README دستور دستی با `-t 4` داشت ولی `.env.example` می‌گفت ۲ — یعنی مستندات دو چیز متفاوت
+  می‌گفتند و هیچ‌کدام از `.env` اثر نمی‌گرفت.
+- **رفع:** `Settings.llama_server_command()` همین تنظیمات را به `-m/-c/--host/--port/-t/-ngl`
+  تبدیل می‌کند (`-t` فقط وقتی `n_threads>0` باشد؛ `0` = خودِ llama-server) و
+  `python -m server.config --launch [--launch-json]` آن را چاپ می‌کند.
+  `tools/start_llama.ps1` همان خروجی JSON را می‌خواند و سرور را اجرا می‌کند (`-DryRun` برای
+  دیدن دستور، `-Exe` برای مسیر باینری). مستندات یکسان شدند: `.env.example` روی
+  `PVAI_N_THREADS=4` (۲ هستهٔ فیزیکی × ۲ رشتهٔ منطقی، همان پیکربندی `docs/SPEC.md`) و
+  README/PC_VOICE دیگر `-t 4` را دستی تکرار نمی‌کنند.
+- **تست:** `test_launch_command_uses_the_configured_flags`,
+  `test_launch_command_omits_threads_when_auto`,
+  `test_the_file_flags_and_the_documented_manual_command_agree`,
+  `test_launch_cli_prints_the_command`, `test_launch_cli_warns_about_rejected_values`
+- **وضعیت:** رفع‌شده + تست (اجرای واقعی PowerShell در sandbox تست نشده؛ **NOT MEASURED**)

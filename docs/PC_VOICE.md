@@ -59,11 +59,13 @@ PVAI_LLAMA_SERVER_URL=http://127.0.0.1:8080
 PVAI_LLM_ENABLE_THINKING=false
 PVAI_ASR_MODEL_PATH=models/whisper-small
 PVAI_ASR_THREADS=2
-PVAI_TTS_VOICE=female              # male | female
+PVAI_TTS_VOICE=female   # male | female
 PVAI_TTS_MODEL_FEMALE=models/piper/fa_IR_female.onnx
 PVAI_TTS_MODEL_MALE=models/piper/fa_IR_male.onnx
-PVAI_AUDIO_INPUT_DEVICE=Microphone  # زیررشتهٔ نام یا index
+PVAI_AUDIO_INPUT_DEVICE=Microphone
 PVAI_AUDIO_OUTPUT_DEVICE=Speakers
+# توضیح را در خط جدا بنویسید: کامنت هم‌خط حالا حذف می‌شود،
+# ولی نام دستگاه با فاصله داخلی («Realtek Microphone») قربانی می‌شد
 PVAI_VOICE_VAD_THRESHOLD=0.015
 PVAI_VOICE_ASR_INTERVAL=0.8
 PVAI_HISTORY_PERSIST=true
@@ -77,8 +79,8 @@ Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama
 ## اجرا — سه ترمینال
 
 ```powershell
-# ۱: مسیر باینری را مطابق نصب خود تغییر دهید
-D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 127.0.0.1 --port 8080 -t 4
+# ۱: مسیر باینری را مطابق نصب خود تغییر دهید؛ پرچم‌ها از .env می‌آیند
+.\tools\start_llama.ps1 -Exe D:\Lama.cpp\bin\llama-server.exe
 # ۲: API
 .\tools\start_server.ps1
 # ۳: کلاینت صوتی زنده (SpeexDSP نصب و مسیر DLL/SO تنظیم شده باشد)

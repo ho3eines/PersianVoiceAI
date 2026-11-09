@@ -44,16 +44,17 @@
 
 ```text
 $ python -m pytest
-304 passed, 5 skipped in 7.0s
+332 passed, 5 skipped in 6.2s
 ```
 
 - تست‌های native SpeexDSP در sandbox بدون کتابخانهٔ ساخته‌شده صریحاً skip می‌شوند؛ اگر
   `libspeexdsp` نصب باشد اجرا می‌شوند (در اجرای قبلی همین محیط: ۵۴ تست موفق با کتابخانه).
-- تست پایه پیش از این مرحله: `53 passed, 2 skipped`. یعنی ۲۴۹ تست جدید یا گسترش‌یافته؛
+- تست پایه پیش از این مرحله: `53 passed, 2 skipped`. یعنی ۲۷۷ تست جدید یا گسترش‌یافته؛
   آخرین افزوده: ۱۴ تست transport وب‌سوکت + ۱ تست قطع کلاینت SSE + ۲ تست پیکربندی/readiness +
   ۲۷ تست موتور مکالمه و مسیر صوتی + ۲۳ تست مرحلهٔ resume (ادامهٔ نشست از مسیر
   `create_conversation`/`Pipeline`/`WS`، سخت‌گیری شناسهٔ نشست، شمارش سبک فهرست نشست‌ها و
-  سیاست نگه‌داری).
+  سیاست نگه‌داری) + ۲۸ تست پیکربندی `.env` (کامنت هم‌خط، مقدار رد/کلمپ‌شده، محل `.env` و
+  هم‌خوانی پرچم‌های llama-server).
 - ۵ skip این محیط: ۳ تست native SpeexDSP (کتابخانهٔ native ساخته نشده) + ۲ تستی که به numpy نیاز
   دارند و در sandbox نصب نیست. هیچ‌کدام به منطق موتور مکالمه مربوط نیست.
 - **همهٔ تست‌ها fake/ساختگی‌اند**: بدون مدل Whisper/Piper/Qwen، بدون میکروفون و بلندگو، بدون شبکهٔ
@@ -87,6 +88,7 @@ $ python -m pytest
 | ۱۸ | برش توکنی | `test_conversation.py::test_context_is_truncated_by_tokens_not_only_message_count` |
 | ۱۹ | کار آفلاین بدون API خارجی | `test_voice.py::test_whisper_never_downloads`, `test_public_api_rejected` |
 | ۲۰ | نبود صف/حافظهٔ نامحدود | `test_long_run.py` (۲ تست) + `test_conversation.py` (۲ تست bounded-RAM) |
+| ۲۱ | پیکربندی `.env` واقعاً اعمال می‌شود (کامنت هم‌خط، مقدار رد/کلمپ‌شده، محل فایل) | `test_env_config.py::test_copying_env_example_produces_the_values_it_documents`, `test_invalid_number_is_reported_not_silently_defaulted`, `test_ready_endpoint_surfaces_rejected_values`, `test_dotenv_is_found_from_any_working_directory`, `test_the_file_flags_and_the_documented_manual_command_agree` |
 
 ## ۳. اعداد اندازه‌گیری‌شده در sandbox
 

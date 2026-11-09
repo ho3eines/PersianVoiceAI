@@ -6,9 +6,16 @@ code runs on a workstation, in tests, and later on a small local server.
 
 from __future__ import annotations
 
+import logging
 import os
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+logger = logging.getLogger("persian_voice_ai.config")
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+"""(repository root, i.e. the directory that holds ``.env.example``)."""
 
 DEFAULT_MODEL_PATH = str(Path(__file__).resolve().parents[1] / "models" / "Qwen3-4B-Q4_K_M.gguf")
 DEFAULT_LLAMA_SERVER_URL = "http://127.0.0.1:8080"
@@ -25,28 +32,92 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 
+def strip_inline_comment(value: str) -> str:
+    """Drop a trailing `` # comment`` from a ``.env`` value.
+
+    ``.env.example`` documents most variables on the same line
+    (``PVAI_N_THREADS=2   # 0 = auto``).  Keeping the comment as part of the
+    value made every numeric parse fail, and the failure was invisible because
+    the helpers fell back to their default: copying the example to ``.env``
+    silently turned ``n_threads=2`` into ``0``.
+
+    A ``#`` only starts a comment when it is the first non-space character or
+    follows whitespace, and never inside quotes, so a legitimate value such as
+    ``PVAI_SYSTEM_PROMPT="a # b"`` or ``#`` inside a device name survives.
+    """
+    quote: str | None = None
+    for index, char in enumerate(value):
+        if quote is not None:
+            if char == quote:
+                quote = None
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            continue
+        if char == "#" and (index == 0 or value[index - 1].isspace()):
+            # Index 0 means the whole value is a comment (``KEY=  # note``).
+            return value[:index].strip() if index else ""
+    return value.strip()
+
+
+def _unquote(value: str) -> str:
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value
+
+
+def dotenv_candidates(path: Path | None = None) -> list[Path]:
+    """Where ``.env`` is searched for, most specific first.
+
+    ``Path.cwd()`` alone was a trap: running ``python -m server`` from another
+    directory (a scheduled task, an IDE, a script in ``tools/``) silently
+    ignored the project's ``.env`` and started with defaults.  The project root
+    is therefore always searched, after the current directory so an explicit
+    ``cd`` into a deployment folder still wins.
+    """
+    if path is not None:
+        return [Path(path)]
+    seen: list[Path] = []
+    for candidate in (Path.cwd() / ".env", PROJECT_ROOT / ".env"):
+        if candidate not in seen:
+            seen.append(candidate)
+    return seen
+
+
+DOTENV_LOADED: list[str] = []
+"""Paths actually read by :func:`load_dotenv` (diagnostics and tests)."""
+
+
 def load_dotenv(path: Path | None = None) -> None:
     """Load a simple ``KEY=VALUE`` .env file without extra dependencies.
 
     Existing environment variables always win, so explicit shell settings
-    override the file.
+    override the file.  Values may carry an inline ``#`` comment, which is
+    stripped unless it is quoted (see :func:`strip_inline_comment`).
+
+    With no explicit ``path`` both ``.env`` files are tried — the current
+    directory first, then the project root — and the first existing one wins,
+    so the service no longer depends on the working directory.
     """
-    env_path = path or (Path.cwd() / ".env")
-    if not env_path.is_file():
-        return
-    try:
-        lines = env_path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return
-    for raw in lines:
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    for env_path in dotenv_candidates(path):
+        if not env_path.is_file():
             continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = value
+        try:
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for raw in lines:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = _unquote(strip_inline_comment(value))
+            if key and key not in os.environ:
+                os.environ[key] = value
+        DOTENV_LOADED.append(str(env_path))
+        return
 
 
 def _env_str(name: str, default: str) -> str:
@@ -67,26 +138,80 @@ def _env_choice(name: str, default: str, allowed: set[str]) -> str:
     return value if value in allowed else default
 
 
-def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+ENV_ISSUES: list[tuple[str, str]] = []
+"""``(variable, reason)`` for every rejected or clamped environment value.
+
+Module-level rather than per-``Settings`` because the helpers run while the
+dataclass is being constructed; ``Settings.from_env`` snapshots it into
+:attr:`Settings.env_issues` and then clears it, so the problems are reported
+once instead of accumulating in a long-lived process.
+"""
+
+
+def _record(name: str, reason: str) -> None:
+    ENV_ISSUES.append((name, reason))
+    logger.warning("configuration ignored for %s: %s", name, reason)
+
+
+def _env_str(name: str, default: str) -> str:
+    value = os.getenv(name)
+    return value.strip() if value and value.strip() else default
+
+
+def _env_choice(name: str, default: str, allowed: set[str]) -> str:
+    """One of ``allowed`` (lower-cased); an unknown value keeps the default."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in allowed:
+        return value
+    _record(name, f"{raw.strip()!r} is not one of {sorted(allowed)}; using {default!r}")
+    return default
+
+
+def _parse_number(name: str, raw: str, default: float | int, *, cast):
+    """Shared numeric parsing: invalid values are rejected *loudly*."""
+    try:
+        return cast(raw)
+    except ValueError:
+        _record(name, f"{raw!r} is not a valid number; using the default {default!r}")
+        return default
+
+
+def _clamp(name: str, value, minimum, maximum):
+    if minimum is not None and value < minimum:
+        _record(name, f"{value!r} is below the minimum {minimum!r}; clamped")
+        return minimum
+    if maximum is not None and value > maximum:
+        _record(name, f"{value!r} is above the maximum {maximum!r}; clamped")
+        return maximum
+    return value
+
+
+def _env_int(
+    name: str, default: int, *, minimum: int | None, maximum: int | None
+) -> int:
     raw = os.getenv(name)
     if raw is None or not raw.strip():
         return default
-    try:
-        value = int(raw)
-    except ValueError:
-        return default
-    return max(minimum, min(maximum, value))
+    value = _parse_number(name, raw.strip(), default, cast=int)
+    return _clamp(name, value, minimum, maximum)
 
 
-def _env_float(name: str, default: float, *, minimum: float, maximum: float) -> float:
+def _env_float(
+    name: str, default: float, *, minimum: float | None, maximum: float | None
+) -> float:
     raw = os.getenv(name)
     if raw is None or not raw.strip():
         return default
-    try:
-        value = float(raw)
-    except ValueError:
-        return default
-    return max(minimum, min(maximum, value))
+    value = _parse_number(name, raw.strip(), default, cast=float)
+    return _clamp(name, value, minimum, maximum)
+
+
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+_FALSE_VALUES = {"0", "false", "no", "off"}
+_NONE_VALUES = {"none", "auto", "default"}
 
 
 def _env_optional_bool(name: str, default: bool | None) -> bool | None:
@@ -94,16 +219,33 @@ def _env_optional_bool(name: str, default: bool | None) -> bool | None:
     if raw is None or not raw.strip():
         return default
     normalized = raw.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
+    if normalized in _TRUE_VALUES:
         return True
-    if normalized in {"0", "false", "no", "off"}:
+    if normalized in _FALSE_VALUES:
         return False
-    if normalized in {"none", "auto", "default"}:
+    if normalized in _NONE_VALUES:
         return None
+    _record(
+        name,
+        f"{raw.strip()!r} is not a boolean (true/false, 1/0, yes/no, on/off); "
+        f"using the default {default!r}",
+    )
     return default
 
 
 VALID_TTS_VOICES = ("male", "female")
+
+
+def _host_of(url: str) -> str:
+    from urllib.parse import urlsplit
+
+    return urlsplit(url).hostname or "127.0.0.1"
+
+
+def _port_of(url: str) -> int:
+    from urllib.parse import urlsplit
+
+    return urlsplit(url).port or 8080
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,8 +260,12 @@ class Settings:
     model_path: str = DEFAULT_MODEL_PATH
     llama_server_url: str = DEFAULT_LLAMA_SERVER_URL
     n_ctx: int = 4096
-    n_threads: int = 0  # 0 = auto (llama-server side)
-    n_gpu_layers: int = 0  # CPU-only on this laptop
+    # These three are consumed by ``llama_server_command`` / ``tools/start_llama.ps1``
+    # (-c, -t, -ngl).  They are *not* read by the HTTP client: llama-server picks
+    # its own defaults when it is started by hand, so the values here and the
+    # flags you pass must agree or the server wins silently.
+    n_threads: int = 0  # 0 = let llama-server decide (-t omitted)
+    n_gpu_layers: int = 0  # 0 = CPU only; >0 offloads to a supported backend
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     temperature: float = 0.7
     max_tokens: int = 512
@@ -209,7 +355,40 @@ class Settings:
     metrics_enabled: bool = True
     llm_enable_thinking: bool = False
 
+    env_issues: tuple[tuple[str, str], ...] = field(default=(), compare=False)
+    """``(variable, reason)`` for every ``PVAI_*`` value that was rejected or clamped.
+
+    Populated by :meth:`from_env`.  Exposed through :meth:`config_errors` so
+    ``/ready`` and the startup log show *which* variable was wrong — the old
+    behaviour was to fall back to a default in silence, which made a typo (or a
+    whole ``.env`` copy) look like a working configuration.
+    """
+
     # ---------------------------------------------------------------- helpers
+    def llama_server_command(self, executable: str = "llama-server") -> list[str]:
+        """The llama-server command line implied by these settings.
+
+        Used by ``tools/start_llama.ps1`` (``python -m server.config --launch``)
+        so ``PVAI_N_THREADS`` / ``PVAI_N_GPU_LAYERS`` / ``PVAI_N_CTX`` actually
+        take effect instead of sitting unused in the dataclass while the README
+        told the user to pass different flags by hand.
+        """
+        command = [
+            executable,
+            "-m",
+            self.model_path,
+            "-c",
+            str(self.n_ctx),
+            "--host",
+            _host_of(self.llama_server_url),
+            "--port",
+            str(_port_of(self.llama_server_url)),
+        ]
+        if self.n_threads > 0:  # 0 means "llama-server decides"
+            command += ["-t", str(self.n_threads)]
+        command += ["-ngl", str(self.n_gpu_layers)]
+        return command
+
     def tts_model_for(self, voice: str | None = None) -> str:
         """Resolve the Piper model path for a voice name (``male``/``female``)."""
         name = (voice or self.tts_voice or "female").strip().lower()
@@ -253,6 +432,11 @@ class Settings:
                 "PVAI_WS_ENABLED=true بدون PVAI_WS_TOKEN مجاز نیست؛ "
                 "API صوتی بی‌احراز هویت روی شبکه باز نمی‌شود."
             )
+        # Rejected or clamped environment values are reported, not swallowed.
+        # This is the difference between "PVAI_AEC_DELAY_MS=40 # calibrated" (a
+        # typo) and a service that starts with a value the user never chose.
+        for name, reason in self.env_issues:
+            errors.append(f"{name}: {reason}")
         if self.voice_session_id:
             from .conversation import ConversationStore
 
@@ -267,9 +451,15 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        """Build settings from ``PVAI_*`` environment variables."""
+        """Build settings from ``PVAI_*`` environment variables.
+
+        Problems found while parsing (an unparsable number, a clamped value, an
+        unknown enum) are attached as :attr:`env_issues` instead of being
+        silently replaced by a default.
+        """
         load_dotenv()
-        return cls(
+        del ENV_ISSUES[:]  # only this call's problems belong to this instance
+        settings = cls(
             model_path=_env_str("PVAI_MODEL_PATH", DEFAULT_MODEL_PATH),
             llama_server_url=_env_str("PVAI_LLAMA_SERVER_URL", DEFAULT_LLAMA_SERVER_URL).rstrip("/"),
             n_ctx=_env_int("PVAI_N_CTX", 4096, minimum=512, maximum=32768),
@@ -342,3 +532,61 @@ class Settings:
             aec_delay_ms=_env_int("PVAI_AEC_DELAY_MS", 40, minimum=0, maximum=500),
             log_level=_env_str("PVAI_LOG_LEVEL", "INFO").upper(),
         )
+        issues = tuple(ENV_ISSUES)
+        del ENV_ISSUES[:]
+        if not issues:
+            return settings
+        return replace(settings, env_issues=issues)
+
+
+def _print_launch(argv: list[str]) -> int:
+    """``python -m server.config --launch`` — the llama-server command line.
+
+    ``tools/start_llama.ps1`` calls this instead of repeating the flags, so the
+    ``PVAI_N_CTX`` / ``PVAI_N_THREADS`` / ``PVAI_N_GPU_LAYERS`` settings in
+    ``.env`` are the single source of truth for how the model server starts.
+    """
+    executable = "llama-server"
+    json_output = False
+    for argument in argv:
+        if argument == "--launch-json":
+            json_output = True
+        elif argument in {"-h", "--help"}:
+            print("usage: python -m server.config --launch [--exe PATH] [--json]")
+            print("Prints the llama-server command line implied by PVAI_* settings.")
+            return 0
+        elif not argument.startswith("-"):
+            executable = argument
+
+    settings = Settings.from_env()
+    command = settings.llama_server_command(executable)
+    if json_output:
+        import json
+
+        print(
+            json.dumps(
+                {
+                    "command": command,
+                    "model_path": settings.model_path,
+                    "n_ctx": settings.n_ctx,
+                    "n_threads": settings.n_threads,
+                    "n_gpu_layers": settings.n_gpu_layers,
+                    "env_issues": [
+                        {"variable": name, "reason": reason}
+                        for name, reason in settings.env_issues
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        )
+    else:
+        print(" ".join(command))
+    for name, reason in settings.env_issues:
+        print(f"warning: {name}: {reason}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover - thin CLI wrapper
+    import sys
+
+    raise SystemExit(_print_launch(sys.argv[1:]))
