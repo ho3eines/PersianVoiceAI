@@ -15,6 +15,7 @@ readable checklist, not an exception.
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,32 @@ def check_tts(settings: Any) -> dict[str, Any]:
         return {
             "ok": False,
             "detail": f"فایل تنظیمات Piper موجود نیست: {config}",
+            "path": str(path),
+            "voice": settings.tts_voice,
+        }
+    # Presence is not enough: a truncated (or accidentally copied) .json makes
+    # PiperVoice.load fail at startup with a JSON traceback.  Report it here
+    # instead, where the message can name the file.
+    try:
+        parsed = json.loads(config.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        return {
+            "ok": False,
+            "detail": f"فایل تنظیمات Piper خواندنی نیست: {config} ({exc})",
+            "path": str(path),
+            "voice": settings.tts_voice,
+        }
+    except ValueError as exc:  # includes json.JSONDecodeError
+        return {
+            "ok": False,
+            "detail": f"فایل تنظیمات Piper معتبر نیست (JSON خراب): {config} ({exc})",
+            "path": str(path),
+            "voice": settings.tts_voice,
+        }
+    if not isinstance(parsed, dict):
+        return {
+            "ok": False,
+            "detail": f"فایل تنظیمات Piper باید یک شیء JSON باشد: {config}",
             "path": str(path),
             "voice": settings.tts_voice,
         }

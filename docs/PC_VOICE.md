@@ -158,4 +158,11 @@ Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama
   نمونه را سخت‌گیرانه بررسی می‌کند و برخلاف ورودی فایل عمومی، تبدیل خودکار ندارد.
 - وزن ناقص یا ناسازگار با `ModelLoadError` گزارش می‌شود؛ هر دو استثنا زیرکلاس
   `VoiceError` هستند. generator تنبل ASR هنگام پایان، خطا یا لغو بسته می‌شود؛
-  لغو بین segmentهاست و قطع فوری فراخوانی native را تضمین نمی‌کند.
+  لغو بین segmentهاست و قطع فوری فراخوانی native را تضمین نمی‌کند. generator تنبل
+  Piper نیز در barge-in صریحاً `close()` می‌شود.
+- `.onnx.json` نه‌فقط موجود، بلکه یک شیء JSON معتبر لازم است (`/ready` و
+  `LocalAudio.validate()` هر دو parse می‌کنند)؛ chunk خروجی Piper با نرخ/کانال
+  نامعتبر، بافر غیربایتی، طول ناهم‌تراز یا NaN/Inf رد می‌شود.
+- خروج (`close`) مدل‌ها صریح است: `LocalAudio.close()`، `Speaker.close()` و
+  `ModelPool.reset()` حافظهٔ وزن‌ها را آزاد می‌کنند و `run_live`/ابزارهای
+  benchmark/ارزیابی آن‌ها را در `finally:` صدا می‌زنند.

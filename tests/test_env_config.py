@@ -206,6 +206,29 @@ def test_invalid_boolean_and_choice_are_reported(monkeypatch: pytest.MonkeyPatch
     assert {"PVAI_WS_ENABLED", "PVAI_HISTORY_RESUME"} <= reported
 
 
+def test_asr_device_typo_is_reported_at_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``PVAI_ASR_DEVICE=gpu`` must be a named configuration problem.
+
+    The raw value used to reach CTranslate2, which failed later with a message
+    about an unknown device that never mentioned the variable.  The allowed set
+    is now checked while parsing, so ``/ready`` and the startup log say which
+    variable is wrong and what was used instead.
+    """
+    monkeypatch.setenv("PVAI_ASR_DEVICE", "gpu")
+    settings = Settings.from_env()
+    assert settings.asr_device == "cpu"  # documented default, not the typo
+    assert any(name == "PVAI_ASR_DEVICE" for name, _ in settings.env_issues)
+    errors = " ".join(settings.config_errors())
+    assert "PVAI_ASR_DEVICE" in errors and "gpu" in errors
+
+
+def test_known_asr_device_is_accepted_case_insensitively(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PVAI_ASR_DEVICE", " CUDA ")
+    settings = Settings.from_env()
+    assert settings.asr_device == "cuda"
+    assert settings.env_issues == ()
+
+
 def test_a_clean_environment_reports_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PVAI_N_THREADS", "2")
     monkeypatch.setenv("PVAI_AEC_DELAY_MS", "40")

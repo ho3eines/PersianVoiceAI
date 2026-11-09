@@ -273,6 +273,15 @@ def _env_optional_bool(name: str, default: bool | None) -> bool | None:
 
 VALID_TTS_VOICES = ("male", "female")
 
+VALID_ASR_DEVICES = frozenset({"auto", "cpu", "cuda", "mps"})
+"""Devices ``PVAI_ASR_DEVICE`` may name.
+
+A typo such as ``PVAI_ASR_DEVICE=gpu`` used to reach CTranslate2 verbatim and
+fail only when the model was loaded, with a message about an unknown device
+that never mentioned the variable.  Restricting the value here makes the
+mistake visible in ``/ready`` and in the startup log instead.
+"""
+
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "0:0:0:0:0:0:0:1", ""})
 
@@ -670,7 +679,7 @@ class Settings:
             ssl_certfile=_env_str("PVAI_SSL_CERTFILE", ""),
             ssl_keyfile=_env_str("PVAI_SSL_KEYFILE", ""),
             asr_model_path=_env_str("PVAI_ASR_MODEL_PATH", "models/whisper-small"),
-            asr_device=_env_str("PVAI_ASR_DEVICE", "cpu").lower(),
+            asr_device=_env_choice("PVAI_ASR_DEVICE", "cpu", VALID_ASR_DEVICES),
             asr_compute_type=_env_str("PVAI_ASR_COMPUTE_TYPE", "int8"),
             asr_threads=_env_int("PVAI_ASR_THREADS", 2, minimum=1, maximum=32),
             asr_beam_size=_env_int("PVAI_ASR_BEAM_SIZE", 1, minimum=1, maximum=5),

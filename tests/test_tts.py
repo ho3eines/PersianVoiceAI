@@ -247,3 +247,85 @@ def test_native_rate_chunk_is_written_verbatim_without_resampling() -> None:
 def test_non_16k_capture_rate_is_a_configuration_error() -> None:
     problems = Settings(audio_sample_rate=48000).config_errors()
     assert any("16000" in problem for problem in problems)
+
+
+# ------------------------------------------------------- chunk contract / teardown
+@pytest.mark.parametrize(
+    "bad",
+    [
+        SimpleNamespace(sample_rate=0, sample_channels=1, audio_int16_bytes=pcm_block()),
+        SimpleNamespace(sample_rate=16000, sample_channels=0, audio_int16_bytes=pcm_block()),
+        SimpleNamespace(sample_rate=16000, sample_channels=1, audio_int16_bytes=b"1"),
+        SimpleNamespace(sample_rate=16000, sample_channels=1, audio_int16_bytes=object()),
+        SimpleNamespace(sample_rate="fast", sample_channels=1, audio_int16_bytes=pcm_block()),
+    ],
+)
+def test_a_malformed_piper_chunk_is_rejected_with_a_reason(bad) -> None:
+    """A broken chunk must be a ``VoiceError``, not garbage written to the DAC.
+
+    An odd byte count used to be written as-is (half a sample of noise at the
+    start of the next block) and a zero rate produced a division by zero deep
+    inside the resampler.  Both surfaced as a traceback from the audio thread.
+    """
+    speaker = Speaker.__new__(Speaker)
+    speaker.settings = Settings(audio_sample_rate=16000)
+    with pytest.raises(VoiceError):
+        speaker._chunk_pcm(bad)
+
+
+def test_an_empty_chunk_is_skipped_without_touching_the_resampler() -> None:
+    """Piper can emit an empty chunk at a sentence boundary; that is not an error."""
+    speaker = Speaker.__new__(Speaker)
+    speaker.settings = Settings(audio_sample_rate=16000)
+    empty = SimpleNamespace(sample_rate=22050, sample_channels=1, audio_int16_bytes=b"")
+    pcm, rate, channels = speaker._chunk_pcm(empty)
+    assert pcm == b"" and channels == 1
+    assert rate == 16000  # reported at the output contract rate, nothing to convert
+
+
+def test_the_synthesis_generator_is_closed_even_when_playback_is_cancelled() -> None:
+    """Cancelling must close Piper's lazy generator instead of leaving it open.
+
+    ``synthesize`` returns a generator that owns an ONNX inference state.  The
+    barge-in path stopped iterating it without ``close()``, so the session kept
+    the state alive until the garbage collector happened to run.
+    """
+    closed: list[bool] = []
+
+    def synthesize(text: str):
+        try:
+            for _ in range(5):
+                yield chunk()
+        finally:
+            closed.append(True)
+
+    class Output:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def write(self, data: bytes) -> None:
+            token.set()
+
+        def abort(self) -> None:
+            return None
+
+    token = threading.Event()
+
+    speaker = Speaker.__new__(Speaker)
+    speaker.settings = Settings(audio_sample_rate=16000)
+    speaker.sd = SimpleNamespace(RawOutputStream=lambda **kwargs: Output())
+    speaker.model = SimpleNamespace(synthesize=synthesize)
+    speaker.speak("سلام دنیا", token)
+    assert closed == [True]
+
+
+def test_speaker_close_drops_the_model_and_the_device() -> None:
+    speaker = Speaker.__new__(Speaker)
+    speaker.model = object()
+    speaker.duplex = object()
+    speaker.close()
+    assert speaker.model is None and speaker.duplex is None
+    speaker.close()  # idempotent

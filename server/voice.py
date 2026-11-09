@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable
+import gc
 import importlib
 import ipaddress
 import json
 import logging
+import math
 import subprocess
 import sys
 import tempfile
@@ -24,7 +27,7 @@ from .metrics import Metrics
 logger = logging.getLogger("persian_voice_ai.asr")
 
 SAMPLE_RATE = 16000
-""""""  # the ASR/TTS contract of this project is PCM16 mono @ 16 kHz
+# The ASR/TTS contract of this project is PCM16 mono @ 16 kHz.
 
 
 class AsrPreempted(Exception):
@@ -43,55 +46,136 @@ class AudioValidationError(VoiceError):
     """Input audio cannot be read or normalized safely."""
 
 
+def release_inference_memory() -> None:
+    """Reclaim inference buffers and empty PyTorch device caches if already loaded."""
+    gc.collect()
+    torch = sys.modules.get("torch")
+    if torch is None:
+        return
+    for backend in ("cuda", "mps"):
+        module = getattr(torch, backend, None)
+        if module is None:
+            continue
+        if backend == "cuda":
+            is_available = getattr(module, "is_available", None)
+            if callable(is_available):
+                try:
+                    if not is_available():
+                        continue
+                except Exception:
+                    continue
+        empty_cache = getattr(module, "empty_cache", None)
+        if callable(empty_cache):
+            try:
+                empty_cache()
+            except Exception:
+                pass
+
+
 def asr_device_options(requested: str, compute_type: str) -> tuple[str, str]:
     """Detect devices using CTranslate2, not an unrelated PyTorch runtime.
 
     CTranslate2 has no MPS backend. CPU fallback uses portable int8 even when
     a GPU-only precision was requested. No model/data downloads are allowed.
     """
+    if not isinstance(requested, str) or not requested.strip():
+        raise ModelLoadError(f"دستگاه ASR نامعتبر است: {requested!r}")
     requested = requested.strip().lower()
+    precision = compute_type.strip() if isinstance(compute_type, str) and compute_type.strip() else "int8"
     if requested not in {"auto", "cpu", "cuda", "mps"}:
         raise ModelLoadError(f"دستگاه ASR نامعتبر است: {requested}")
     if requested == "cpu":
-        logger.info("ASR device=cpu (configured)")
-        return "cpu", compute_type
-    if requested in {"auto", "cuda"}:
-        try:
-            ct2 = dependency("ctranslate2")
-            if ct2.get_cuda_device_count() > 0:
-                logger.info("ASR device=cuda")
-                return "cuda", compute_type
-        except Exception as exc:
-            logger.warning("CUDA detection failed: %s", exc)
-    logger.warning("ASR device=%s unavailable/unsupported; falling back to CPU (int8)", requested)
+        logger.info("ASR device=cpu compute_type=%s (configured)", precision)
+        return "cpu", precision
+    if requested == "mps":
+        logger.warning(
+            "ASR device=mps is unsupported by CTranslate2; falling back to CPU (int8)"
+        )
+        return "cpu", "int8"
+    try:
+        ct2 = dependency("ctranslate2")
+        device_count = int(ct2.get_cuda_device_count())
+        if device_count > 0:
+            logger.info(
+                "ASR device=cuda available (%d device(s), compute_type=%s)",
+                device_count,
+                precision,
+            )
+            return "cuda", precision
+        logger.warning(
+            "ASR device=%s requested but no CUDA device detected; falling back to CPU (int8)",
+            requested,
+        )
+    except Exception as exc:
+        logger.warning("CUDA detection failed (%s); falling back to CPU (int8)", exc)
     return "cpu", "int8"
 
 
-def load_asr_audio(source: Path) -> Any:
+def load_asr_audio(source: Path | str) -> Any:
     """Decode locally to finite, contiguous float32 mono at 16 kHz."""
-    path = Path(source)
-    if not path.is_file():
+    if source is None or (isinstance(source, str) and not source.strip()):
+        raise AudioValidationError("مسیر فایل صوتی خالی یا نامعتبر است.")
+    try:
+        path = Path(source)
+    except TypeError as exc:
+        raise AudioValidationError(f"مسیر فایل صوتی نامعتبر است: {source!r}") from exc
+    try:
+        is_file = path.is_file()
+    except OSError as exc:
+        raise AudioValidationError(f"دسترسی به فایل صوتی ناموفق بود: {path} ({exc})") from exc
+    if not is_file:
         raise AudioValidationError(f"فایل صوتی موجود نیست یا فایل نیست: {path}")
     np = dependency("numpy")
     librosa = dependency("librosa")
+    samples = None
+    mono = None
+    resampled = None
     try:
         # Preserve native metadata until validated; average channels before resampling.
         samples, rate = librosa.load(str(path), sr=None, mono=False, dtype=np.float32)
-        if rate <= 0 or samples.size == 0 or samples.ndim not in (1, 2):
-            raise ValueError("empty audio or invalid sample rate/shape")
+        if rate is None or float(rate) <= 0 or not np.isfinite(rate):
+            raise AudioValidationError(f"نرخ نمونه‌برداری فایل صوتی نامعتبر است ({rate}): {path}")
+        native_rate = int(round(float(rate)))
+        if native_rate <= 0:
+            raise AudioValidationError(f"نرخ نمونه‌برداری فایل صوتی نامعتبر است ({rate}): {path}")
+        if samples is None or getattr(samples, "size", 0) == 0 or samples.ndim not in (1, 2):
+            raise AudioValidationError(f"فایل صوتی خالی یا دارای ساختار نامعتبر است: {path}")
         if not np.isfinite(samples).all():
-            raise ValueError("audio contains NaN/Inf")
+            raise AudioValidationError(f"فایل صوتی شامل مقادیر نامعتبر NaN/Inf است: {path}")
         if samples.ndim == 2:
-            logger.info("Downmixing %s channels to mono: %s", samples.shape[0], path)
-            samples = samples.mean(axis=0)
-        if rate != SAMPLE_RATE:
-            logger.info("Resampling audio %s -> %s Hz: %s", rate, SAMPLE_RATE, path)
-            samples = librosa.resample(samples, orig_sr=rate, target_sr=SAMPLE_RATE)
-        if samples.size == 0 or not np.isfinite(samples).all():
-            raise ValueError("resampling produced invalid audio")
-        return np.ascontiguousarray(samples, dtype=np.float32)
+            if samples.shape[0] <= 0 or samples.shape[1] <= 0:
+                raise AudioValidationError(f"فایل صوتی کانال یا نمونهٔ معتبری ندارد: {path}")
+            if samples.shape[0] > 1:
+                logger.info("Downmixing %s channels to mono: %s", samples.shape[0], path)
+            mono = samples.mean(axis=0, dtype=np.float32)
+            del samples
+            samples = None
+        else:
+            mono = samples
+            samples = None
+        if native_rate != SAMPLE_RATE:
+            logger.info("Resampling audio %s -> %s Hz: %s", native_rate, SAMPLE_RATE, path)
+            resampled = librosa.resample(mono, orig_sr=native_rate, target_sr=SAMPLE_RATE)
+            del mono
+            mono = None
+        else:
+            resampled = mono
+            mono = None
+        if resampled.size == 0 or not np.isfinite(resampled).all():
+            raise AudioValidationError(f"بازنمونه‌برداری خروجی صوتی نامعتبر تولید کرد: {path}")
+        contiguous = np.ascontiguousarray(resampled, dtype=np.float32)
+        if contiguous is not resampled:
+            del resampled
+            resampled = None
+        return contiguous
+    except AudioValidationError:
+        raise
+    except MemoryError as exc:
+        raise AudioValidationError(f"حافظه برای پردازش فایل صوتی کافی نیست: {path}") from exc
     except Exception as exc:
         raise AudioValidationError(f"خواندن یا تبدیل فایل صوتی ناموفق بود: {path} ({exc})") from exc
+    finally:
+        del samples, mono, resampled
 
 
 def local_api_url(settings: Settings) -> str:
@@ -215,16 +299,25 @@ class LocalAudio:
         self.last_options: dict[str, Any] = {}
 
     def validate(self) -> None:
-        path = Path(self.settings.asr_model_path)
-        if not path.is_dir() or not (path / "model.bin").is_file():
+        raw_asr = (self.settings.asr_model_path or "").strip()
+        path = Path(raw_asr) if raw_asr else Path("")
+        if not raw_asr or not path.is_dir() or not (path / "model.bin").is_file():
             raise ModelLoadError(f"مدل Whisper محلی موجود نیست؛ PVAI_ASR_MODEL_PATH را تنظیم کنید: {path}")
-        tts_path = Path(self.settings.tts_model_for(self.settings.tts_voice))
-        if not tts_path.is_file():
-            raise VoiceError(
+        raw_tts = (self.settings.tts_model_for(self.settings.tts_voice) or "").strip()
+        tts_path = Path(raw_tts) if raw_tts else Path("")
+        if not raw_tts or not tts_path.is_file():
+            raise ModelLoadError(
                 "مدل Piper موجود نیست؛ PVAI_TTS_MODEL_PATH یا مسیر صدای انتخاب‌شده را تنظیم کنید."
             )
-        if not Path(str(tts_path) + ".json").is_file():
-            raise VoiceError("فایل تنظیمات مدل Piper (.onnx.json) موجود نیست.")
+        config_path = Path(str(tts_path) + ".json")
+        if not config_path.is_file():
+            raise ModelLoadError("فایل تنظیمات مدل Piper (.onnx.json) موجود نیست.")
+        try:
+            config_data = json.loads(config_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ModelLoadError(f"فایل تنظیمات مدل Piper (.onnx.json) نامعتبر است: {config_path}") from exc
+        if not isinstance(config_data, dict):
+            raise ModelLoadError(f"ساختار فایل تنظیمات Piper (.onnx.json) نامعتبر است: {config_path}")
 
     # ------------------------------------------------------------- model lifecycle
     def warmup(self) -> None:
@@ -236,18 +329,32 @@ class LocalAudio:
         """
         np = dependency("numpy")
         silence = np.zeros(int(SAMPLE_RATE * 0.2), dtype=np.float32)
-        started = time.perf_counter()
-        self._transcribe(silence)
-        if self.metrics is not None:
-            self.metrics.observe("asr_model_load_ms", (time.perf_counter() - started) * 1000)
+        try:
+            started = time.perf_counter()
+            self._transcribe(silence)
+            if self.metrics is not None:
+                self.metrics.observe("asr_model_load_ms", (time.perf_counter() - started) * 1000)
+        finally:
+            del silence
+
+    def close(self) -> None:
+        """Release cached Whisper weights and reclaim inference memory."""
+        with self._lock:
+            with self._decode_lock:
+                model = self.model
+                self.model = None
+                self.loaded_at = None
+        del model
+        release_inference_memory()
 
     def _ensure_model(self) -> Any:
         if self.model is not None:
             return self.model
         with self._lock:
             if self.model is None:
-                path = Path(self.settings.asr_model_path)
-                if not path.is_dir() or not (path / "model.bin").is_file():
+                raw_path = (self.settings.asr_model_path or "").strip()
+                path = Path(raw_path) if raw_path else Path("")
+                if not raw_path or not path.is_dir() or not (path / "model.bin").is_file():
                     raise ModelLoadError(f"مدل Whisper محلی موجود نیست: {path}/model.bin")
                 whisper = dependency("faster_whisper")
                 device, compute_type = asr_device_options(
@@ -260,22 +367,51 @@ class LocalAudio:
                     "cpu_threads": self.settings.asr_threads,
                 }
                 self.last_options = options
+                started = time.perf_counter()
+                logger.info(
+                    "Loading Whisper model from %s (device=%s, compute_type=%s, threads=%s)",
+                    path,
+                    device,
+                    compute_type,
+                    self.settings.asr_threads,
+                )
                 try:
                     self.model = whisper.WhisperModel(self.settings.asr_model_path, **options)
                 except Exception as exc:
                     if device == "cuda":
-                        logger.warning("CUDA model initialization failed; retrying on CPU: %s", exc)
+                        logger.warning("CUDA model initialization failed; falling back to CPU (int8): %s", exc)
+                        release_inference_memory()
                         options.update(device="cpu", compute_type="int8")
                         try:
                             self.model = whisper.WhisperModel(self.settings.asr_model_path, **options)
                         except Exception as cpu_exc:
                             raise ModelLoadError("بارگذاری مدل Whisper روی CPU ناموفق بود؛ وزن‌ها را بررسی کنید.") from cpu_exc
+                    elif device == "cpu" and compute_type != "int8":
+                        logger.warning(
+                            "CPU model initialization with compute_type=%s failed (%s); falling back to int8",
+                            compute_type,
+                            exc,
+                        )
+                        release_inference_memory()
+                        options.update(compute_type="int8")
+                        try:
+                            self.model = whisper.WhisperModel(self.settings.asr_model_path, **options)
+                        except Exception as cpu_exc:
+                            raise ModelLoadError(
+                                "بارگذاری مدل Whisper روی CPU با int8 ناموفق بود؛ وزن‌ها را بررسی کنید."
+                            ) from cpu_exc
                     else:
                         raise ModelLoadError(
                             "بارگذاری مدل Whisper ناموفق بود؛ قالب CTranslate2 و "
                             "PVAI_ASR_DEVICE/PVAI_ASR_COMPUTE_TYPE را بررسی کنید."
                         ) from exc
                 self.loaded_at = time.time()
+                logger.info(
+                    "Whisper model ready in %.1f ms (device=%s, compute_type=%s)",
+                    (time.perf_counter() - started) * 1000,
+                    options["device"],
+                    options["compute_type"],
+                )
             return self.model
 
     def record(self, destination: Path) -> None:
@@ -295,20 +431,74 @@ class LocalAudio:
             raise VoiceError("ضبط ناموفق بود؛ میکروفون و مجوز دسترسی را بررسی کنید.") from exc
 
     def transcribe(self, source: Path) -> str:
-        return self._transcribe(load_asr_audio(source))
+        samples = load_asr_audio(source)
+        try:
+            return self._transcribe(samples)
+        finally:
+            del samples
 
-    def transcribe_pcm(self, pcm: bytes, token: threading.Event | None = None, job: Any = None) -> str:
+    def transcribe_pcm(
+        self,
+        pcm: bytes,
+        token: threading.Event | None = None,
+        job: Any = None,
+        *,
+        sample_rate: int = SAMPLE_RATE,
+        channels: int = 1,
+    ) -> str:
         """Decode an in-memory PCM window; never write live microphone audio to disk.
 
         Partial windows are bounded by ``PVAI_ASR_PARTIAL_WINDOW_S`` in the
         pipeline; the final decode receives the complete utterance audio, so
         nothing is lost for accuracy while per-decode cost stays predictable.
         """
-        if not pcm or len(pcm) % 2:
+        if not isinstance(pcm, (bytes, bytearray, memoryview)):
+            raise AudioValidationError("دادهٔ PCM باید از نوع بایتی باشد.")
+        try:
+            sample_rate = int(sample_rate)
+            channels = int(channels)
+        except (TypeError, ValueError) as exc:
+            raise AudioValidationError(
+                f"نرخ نمونه‌برداری یا تعداد کانال PCM نامعتبر است ({sample_rate!r}, {channels!r})."
+            ) from exc
+        if sample_rate <= 0 or channels <= 0:
+            raise AudioValidationError("نرخ نمونه‌برداری و تعداد کانال PCM باید مثبت باشد.")
+        frame_bytes = 2 * channels
+        if not pcm or len(pcm) % frame_bytes:
             raise AudioValidationError("دادهٔ PCM باید غیرخالی و شامل نمونه‌های کامل PCM16 mono 16kHz باشد.")
         np = dependency("numpy")
         samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
-        return self._transcribe(samples, token=token)
+        mono = None
+        resampled = None
+        try:
+            if hasattr(np, "isfinite") and hasattr(samples, "dtype") and not np.isfinite(samples).all():
+                raise AudioValidationError("دادهٔ PCM شامل مقادیر نامعتبر NaN/Inf است.")
+            if channels > 1:
+                logger.info("Downmixing %s PCM channels to mono", channels)
+                mono = samples.reshape(-1, channels).mean(axis=1, dtype=np.float32)
+                del samples
+                samples = mono
+                mono = None
+            if sample_rate != SAMPLE_RATE:
+                logger.info("Resampling PCM audio %s -> %s Hz", sample_rate, SAMPLE_RATE)
+                try:
+                    librosa = dependency("librosa")
+                    resampled = librosa.resample(samples, orig_sr=int(sample_rate), target_sr=SAMPLE_RATE)
+                except VoiceError:
+                    resample_poly = dependency("scipy.signal").resample_poly
+                    divisor = math.gcd(int(sample_rate), SAMPLE_RATE)
+                    resampled = resample_poly(
+                        samples, SAMPLE_RATE // divisor, int(sample_rate) // divisor
+                    ).astype(np.float32, copy=False)
+                del samples
+                samples = np.ascontiguousarray(resampled, dtype=np.float32)
+                del resampled
+                resampled = None
+                if samples.size == 0 or not np.isfinite(samples).all():
+                    raise AudioValidationError("بازنمونه‌برداری PCM خروجی نامعتبر تولید کرد.")
+            return self._transcribe(samples, token=token)
+        finally:
+            del samples, mono, resampled
 
     def _transcribe_options(self) -> dict[str, Any]:
         """The ``transcribe`` keyword arguments, built from settings.
@@ -386,6 +576,9 @@ class LocalAudio:
         )
 
     def _transcribe(self, source: Any, token: threading.Event | None = None) -> str:
+        segments = None
+        info = None
+        accepted: list[Any] | None = None
         try:
             if token is not None and token.is_set():
                 raise AsrPreempted()
@@ -393,41 +586,53 @@ class LocalAudio:
             with self._decode_lock:
                 if token is not None and token.is_set():
                     raise AsrPreempted()
-                segments, _ = model.transcribe(source, **self._transcribe_options())
+                segments, info = model.transcribe(source, **self._transcribe_options())
                 # The generator must be consumed *inside* the lock: faster-whisper
                 # decodes lazily as it is iterated.  Filtering happens while
                 # consuming, so a hallucinated segment never reaches the caller.
-                try:
-                    accepted = self._accepted_segments(segments, token=token)
-                    return " ".join(segment.text.strip() for segment in accepted).strip()
-                finally:
-                    # Release lazy decoder state on success, failure and preemption.
-                    closer = getattr(segments, "close", None)
-                    if closer is not None:
-                        closer()
+                accepted = self._accepted_segments(segments, token=token)
+                return " ".join(segment.text.strip() for segment in accepted).strip()
         except (VoiceError, AsrPreempted):
             raise
         except Exception as exc:
             raise VoiceError("تشخیص گفتار ناموفق بود؛ مدل محلی Whisper را بررسی کنید.") from exc
+        finally:
+            # Release lazy decoder state and references on success, failure, and preemption.
+            closer = getattr(segments, "close", None)
+            if callable(closer):
+                closer()
+            del segments, info, accepted
 
     def speak(self, text: str, destination: Path) -> None:
+        if not isinstance(text, str) or not text.strip():
+            raise AudioValidationError("متن ورودی برای تولید گفتار خالی است.")
+        raw_tts = (self.settings.tts_model_for(self.settings.tts_voice) or "").strip()
+        tts_path = Path(raw_tts) if raw_tts else Path("")
+        if not raw_tts or not tts_path.is_file() or not Path(str(tts_path) + ".json").is_file():
+            raise ModelLoadError("مدل Piper یا فایل تنظیمات (.onnx.json) موجود نیست.")
+        samples = None
         try:
             subprocess.run(
-                [sys.executable, "-m", "piper", "--model",
-                 self.settings.tts_model_for(self.settings.tts_voice),
-                 "--output_file", str(destination)],
+                [sys.executable, "-m", "piper", "--model", str(tts_path), "--output_file", str(destination)],
                 input=text, text=True, encoding="utf-8", capture_output=True,
                 timeout=self.settings.request_timeout_s, check=True,
             )
             sd = dependency("sounddevice")
             sf = dependency("soundfile")
+            np = dependency("numpy")
             samples, rate = sf.read(str(destination), dtype="float32")
+            if samples is None or getattr(samples, "size", 0) == 0 or not np.isfinite(samples).all():
+                raise AudioValidationError("خروجی صوتی Piper خالی یا نامعتبر است.")
             sd.play(samples, rate, blocking=True)
         except KeyboardInterrupt:
             dependency("sounddevice").stop()
             raise
+        except VoiceError:
+            raise
         except Exception as exc:
             raise VoiceError("تولید یا پخش صدا ناموفق بود؛ مدل Piper و بلندگو را بررسی کنید.") from exc
+        finally:
+            del samples
 
 
 class VoiceSession:
@@ -477,28 +682,31 @@ def main() -> int:
             run(settings)
             return 0
         audio = LocalAudio(settings)
-        audio.validate()
-        with httpx.Client(base_url=local_api_url(settings), headers=local_client_headers(settings), timeout=settings.request_timeout_s,
-                          trust_env=False, follow_redirects=False) as client:
-            session = VoiceSession(client, audio)
-            print("Enter: ضبط نوبتی | /پاک: حذف تاریخچه | /خروج: خروج | Ctrl+C: توقف")
-            while True:
-                command = input("آماده‌اید؟ ").strip()
-                if command in {"/خروج", "/exit"}:
-                    break
-                if command in {"/پاک", "/clear"}:
-                    session.history.clear()
-                    continue
-                if command:
-                    continue
-                try:
-                    with tempfile.TemporaryDirectory(prefix="pvai-") as directory:
-                        source, output = Path(directory) / "input.wav", Path(directory) / "reply.wav"
-                        print(f"صحبت کنید؛ ضبط {settings.voice_record_seconds:g} ثانیه است…")
-                        audio.record(source)
-                        print(json.dumps(session.turn(source, output), ensure_ascii=False))
-                except VoiceError as exc:
-                    print(str(exc), file=sys.stderr)
+        try:
+            audio.validate()
+            with httpx.Client(base_url=local_api_url(settings), headers=local_client_headers(settings), timeout=settings.request_timeout_s,
+                              trust_env=False, follow_redirects=False) as client:
+                session = VoiceSession(client, audio)
+                print("Enter: ضبط نوبتی | /پاک: حذف تاریخچه | /خروج: خروج | Ctrl+C: توقف")
+                while True:
+                    command = input("آماده‌اید؟ ").strip()
+                    if command in {"/خروج", "/exit"}:
+                        break
+                    if command in {"/پاک", "/clear"}:
+                        session.history.clear()
+                        continue
+                    if command:
+                        continue
+                    try:
+                        with tempfile.TemporaryDirectory(prefix="pvai-") as directory:
+                            source, output = Path(directory) / "input.wav", Path(directory) / "reply.wav"
+                            print(f"صحبت کنید؛ ضبط {settings.voice_record_seconds:g} ثانیه است…")
+                            audio.record(source)
+                            print(json.dumps(session.turn(source, output), ensure_ascii=False))
+                    except VoiceError as exc:
+                        print(str(exc), file=sys.stderr)
+        finally:
+            audio.close()
     except VoiceError as exc:
         print(str(exc), file=sys.stderr)
         return 1

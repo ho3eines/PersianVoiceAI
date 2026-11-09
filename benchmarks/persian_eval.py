@@ -18,8 +18,9 @@ Three modes
    when a human has listened to real recordings and typed what they heard, or
    when an ASR run produced a transcript file.  WER/CER are computed with
    :func:`server.persian.evaluate`, i.e. the documented policy
-   (NFC, Arabic ي/ك → ی/ک, diacritics removed, digits unified, نیم‌فاصله → space,
-   punctuation removed).  Formatting-only differences therefore do **not**
+   (NFC, Arabic ي/ك and أ/إ/ٱ → ی/ک/ا, diacritics removed, invisible characters
+   dropped, digits unified, number separators canonicalised, نیم‌فاصله → space,
+   punctuation → a space).  Formatting-only differences therefore do **not**
    count as recognition errors.
 
 3. ``--audio-dir DIR`` — transcribe ``DIR/<id>.wav`` with the *real* local
@@ -41,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import wave
@@ -191,12 +193,24 @@ def score_by_category(
 
 # ----------------------------------------------------------------- audio mode
 def read_wav_mono16k(path: Path) -> bytes:
-    """Read a PCM16 mono 16 kHz WAV; raise a clear error otherwise."""
-    with wave.open(str(path), "rb") as handle:
-        channels = handle.getnchannels()
-        width = handle.getsampwidth()
-        rate = handle.getframerate()
-        frames = handle.readframes(handle.getnframes())
+    """Read a PCM16 mono 16 kHz WAV; raise a clear error otherwise.
+
+    A truncated or non-WAV file used to escape as a raw ``wave.Error`` /
+    ``EOFError`` traceback in the middle of a scoring run, so the operator got
+    no hint about *which* recording was broken.  Everything unreadable is
+    re-raised as ``ValueError`` naming the file, which is what the callers
+    already handle.  The strict format policy is deliberate (see
+    ``docs/PC_VOICE.md``): no silent resampling, no guessed channel layout.
+    """
+    try:
+        with wave.open(str(path), "rb") as handle:
+            channels = handle.getnchannels()
+            width = handle.getsampwidth()
+            rate = handle.getframerate()
+            declared = handle.getnframes()
+            frames = handle.readframes(declared)
+    except (OSError, EOFError, wave.Error) as exc:
+        raise ValueError(f"{path.name}: unreadable WAV ({exc})") from exc
     if channels != 1 or width != 2:
         raise ValueError(
             f"{path.name}: expected mono 16-bit PCM, got {channels} channel(s), "
@@ -204,6 +218,15 @@ def read_wav_mono16k(path: Path) -> bytes:
         )
     if rate != 16000:
         raise ValueError(f"{path.name}: expected 16000 Hz, got {rate} Hz")
+    if not frames:
+        # Zero samples transcribe to nothing, which would be scored as a silent
+        # false rejection instead of the recording problem it is.
+        raise ValueError(f"{path.name}: WAV contains no audio frames")
+    expected = declared * channels * width
+    if len(frames) != expected:
+        raise ValueError(
+            f"{path.name}: truncated WAV ({len(frames)} of {expected} bytes)"
+        )
     return frames
 
 
@@ -217,15 +240,21 @@ def transcribe_with_local_model(
     audio.validate()
     hypotheses: dict[str, str] = {}
     missing: list[str] = []
-    for identifier in reference:
-        path = audio_dir / f"{identifier}.wav"
-        if not path.is_file():
-            missing.append(identifier)
-            continue
-        try:
-            hypotheses[identifier] = audio.transcribe_pcm(read_wav_mono16k(path))
-        except (ValueError, VoiceError) as exc:
-            raise SystemExit(f"error: {exc}") from exc
+    try:
+        for identifier in reference:
+            path = audio_dir / f"{identifier}.wav"
+            if not path.is_file():
+                missing.append(identifier)
+                continue
+            try:
+                hypotheses[identifier] = audio.transcribe_pcm(read_wav_mono16k(path))
+            except (ValueError, VoiceError) as exc:
+                raise SystemExit(f"error: {exc}") from exc
+    finally:
+        # The model holds hundreds of megabytes; a scoring run must not leak it.
+        close = getattr(audio, "close", None)
+        if callable(close):
+            close()
     return hypotheses, missing
 
 
@@ -241,14 +270,20 @@ def transcribe_no_speech(audio_dir: Path, settings: Any) -> dict[str, Any]:
     files = sorted(audio_dir.glob("*.wav"))
     transcripts: list[str] = []
     unreadable: list[str] = []
-    if files:
-        audio = LocalAudio(settings)
+    audio = LocalAudio(settings) if files else None
+    if audio is not None:
         audio.validate()
-    for path in files:
-        try:
-            transcripts.append(audio.transcribe_pcm(read_wav_mono16k(path)))
-        except (ValueError, VoiceError) as exc:
-            unreadable.append(f"{path.name}: {exc}")
+    try:
+        for path in files:
+            try:
+                transcripts.append(audio.transcribe_pcm(read_wav_mono16k(path)))
+            except (ValueError, VoiceError) as exc:
+                unreadable.append(f"{path.name}: {exc}")
+    finally:
+        if audio is not None:
+            close = getattr(audio, "close", None)
+            if callable(close):
+                close()
     report = false_accept_rate(transcripts)
     report["examples"] = false_accept_examples(transcripts)
     report["unreadable"] = unreadable
@@ -298,7 +333,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Persian ASR evaluation (WER/CER) with the project normalization policy"
     )
-    parser.add_argument("--set", default=str(DEFAULT_SET), help="evaluation set JSON")
+    parser.add_argument(
+        "--set",
+        default=os.getenv("PVAI_EVAL_SET", "").strip() or str(DEFAULT_SET),
+        help=f"evaluation set JSON (default: {DEFAULT_SET}); env: PVAI_EVAL_SET",
+    )
     parser.add_argument("--list", action="store_true", help="print the evaluation set")
     parser.add_argument("--hypotheses", help="JSON transcript file to score")
     parser.add_argument("--audio-dir", help="directory of <id>.wav recordings")
@@ -412,10 +451,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  policy           : {data['normalization_policy']}")
 
     if args.json_out:
-        Path(args.json_out).write_text(
-            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        # Reports are artefacts: honour ${VAR}/~ and create the directory, so a
+        # CI or per-corpus path works without a pre-created tree.
+        output = Path(os.path.expandvars(args.json_out)).expanduser()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-        print(f"  report written   : {args.json_out}")
+        print(f"  report written   : {output}")
 
     if args.strict and (report["missing_ids"] or missing_audio):
         return 1

@@ -37,7 +37,19 @@ from server.voice import local_client_headers, local_api_url  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PROMPTS = ROOT / "benchmarks" / "prompts_fa.json"
-RESULTS_DIR = ROOT / "benchmarks" / "results"
+
+
+def results_dir() -> Path:
+    """Where JSON reports go; ``PVAI_BENCHMARK_OUTPUT_DIR`` overrides the default.
+
+    The default used to be a repository path, which made a CI run write into the
+    checkout.  An environment variable (or ``--out``) keeps the report next to
+    the corpus/CI artefacts instead, and works from any working directory.
+    """
+    override = os.getenv("PVAI_BENCHMARK_OUTPUT_DIR", "").strip()
+    if override:
+        return Path(os.path.expandvars(override)).expanduser()
+    return ROOT / "benchmarks" / "results"
 
 
 def _percentile(values: list[float], fraction: float) -> float:
@@ -132,7 +144,8 @@ def stream_completion(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Persian Voice AI lesson-1 benchmark")
     parser.add_argument("--base-url", default=local_api_url(Settings.from_env()))
-    parser.add_argument("--prompts", type=Path, default=DEFAULT_PROMPTS)
+    parser.add_argument("--prompts", type=Path, default=DEFAULT_PROMPTS,
+                        help="prompt set JSON (default: benchmarks/prompts_fa.json)")
     parser.add_argument("--runs", type=int, default=1, help="repetitions per prompt")
     parser.add_argument("--max-tokens", type=int, default=200)
     parser.add_argument("--temperature", type=float, default=0.7)
@@ -251,8 +264,9 @@ def main(argv: list[str] | None = None) -> int:
         "summary": summary,
     }
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    output = args.out or RESULTS_DIR / f"lesson01-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    directory = results_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    output = args.out or directory / f"lesson01-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
     output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print("\n" + "-" * 72)

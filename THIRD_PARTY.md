@@ -17,14 +17,19 @@ Verified from PyPI package metadata and the upstream repositories.
 | Package | Version | Licence | Notes |
 |---|---|---|---|
 | `fastapi` | 0.162.0 | MIT | |
+| `pydantic` | 2.14.3 | MIT | runtime, used directly by `server/main.py` |
 | `uvicorn[standard]` | 0.54.0 | BSD-3-Clause | `[standard]` pulls `uvloop` (MIT), `httptools` (MIT), `websockets` (BSD-3-Clause), `watchfiles` (MIT), `python-dotenv` (BSD-3-Clause), `PyYAML` (MIT) |
-| `httpx` | 0.28.1 | BSD-3-Clause | runtime, used by `server/cli.py` |
+| `httpx` | 0.28.1 | BSD-3-Clause | runtime, used by `server/cli.py` and `server/llm.py` |
 | `pytest` | 9.2.0 | MIT | **dev only** (`requirements-dev.txt`) |
+| `PyYAML` | >=6,<7 | MIT | **dev/tooling only**: YAML configuration for `tools/training_config.py`; JSON configs work without it (also pulled by `uvicorn[standard]`) |
+| `pyarrow` | >=14,<27 | Apache-2.0 | **dev/tooling only**: reads a Hugging Face `Dataset.save_to_disk` directory in `tools/prepare_dataset.py`; every runtime path uses JSONL/CSV instead |
+| `starlette` | 1.10.0 | BSD-3-Clause | **dev/test direct import** (`tests/test_ws_voice.py`; also pulled by `fastapi`) |
 | `faster-whisper` | >=1.1,<2 | MIT | optional voice stack |
+| `ctranslate2` | >=4.0,<5 | MIT | optional voice stack (direct CUDA check in `server/voice.py`) |
 | `piper-tts` | >=1.3,<2 | **GPL-3.0-or-later** | optional voice stack; the reason for this project's licence |
 | `sounddevice` | >=0.5,<1 | MIT | optional voice stack |
 | `soundfile` | >=0.13,<1 | BSD-3-Clause | optional voice stack |
-| `numpy` | >=1.26,<3 | BSD-3-Clause and others | optional voice stack |
+| `numpy` | >=1.26.4,<2.6 | BSD-3-Clause and others | optional voice stack (upper-bounded for `numba`/`librosa` compatibility) |
 | `scipy` | >=1.11,<2 | BSD-3-Clause | optional voice stack |
 | `librosa` | >=0.10.2,<1 | ISC | optional voice stack; local file decoding/downmix/resampling |
 
