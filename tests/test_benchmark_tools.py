@@ -46,8 +46,16 @@ def test_evaluation_set_is_valid_and_covers_persian_cases(persian_eval) -> None:
     for required in ("zwnj", "arabic_chars", "numbers", "datetime", "english_terms", "names"):
         assert required in categories
     for entry in data["sentences"]:
+        if entry.get("kind") == "no_speech":
+            # A negative-set clip: no reference text by definition, and it
+            # must not pretend to be a scored Persian sentence.
+            assert not entry["text"].strip()
+            assert entry["id"].startswith("ns-")
+            continue
         assert entry["text"].strip()
         assert entry["id"].startswith("fa-")
+    # The silence/noise set exists, or the false-accept metric has no input.
+    assert any(entry.get("kind") == "no_speech" for entry in data["sentences"])
 
 
 def test_duplicate_ids_are_rejected(persian_eval, tmp_path: Path) -> None:

@@ -147,7 +147,15 @@ class SpeexAEC:
 
 
 class DuplexAudio:
-    """Callback only copies bounded PCM. Native AEC runs outside the callback."""
+    """Callback only copies bounded PCM. Native AEC runs outside the callback.
+
+    Every timestamp this class publishes is read from :func:`time.monotonic`:
+    the watchdog in :mod:`server.audio_io` computes ``monotonic() - last_frame_at``
+    and the two origins are *not* interchangeable.  ``time.perf_counter`` has an
+    undefined origin (and a different one from ``monotonic`` on Windows, the
+    target platform), so mixing them either fired ``AudioStalled`` on a healthy
+    stream or hid a dead one, depending on which origin happened to be larger.
+    """
 
     def __init__(self) -> None:
         self.capture: queue.Queue[tuple[bytes, bytes]] = queue.Queue(maxsize=100)
@@ -156,6 +164,8 @@ class DuplexAudio:
         self.closed = threading.Event()
         # Diagnostics written from the audio callback (plain scalars only).
         self.last_frame_at: float | None = None
+        self.opened_at: float | None = None
+        """``monotonic()`` when the current stream was opened (stall baseline)."""
         self.callbacks = 0
         self.jitter_ms = 0.0
         self.max_jitter_ms = 0.0
@@ -163,8 +173,55 @@ class DuplexAudio:
         self.last_frames = FRAME_SAMPLES
         self._last_callback_at: float | None = None
 
+    # ------------------------------------------------------------- lifecycle
+    def opened(self, at: float | None = None) -> None:
+        """Reset per-stream diagnostics and start the stall watchdog baseline.
+
+        Called immediately after ``sd.RawStream`` opens.  Without this the
+        watchdog has nothing to compare against until the *first* callback, so a
+        device that opens and never delivers a single frame was never detected
+        at all (``last_frame_at`` stayed ``None`` forever).
+        """
+        now = time.monotonic() if at is None else float(at)
+        self.opened_at = now
+        self.last_frame_at = None
+        self._last_callback_at = None
+        self.jitter_ms = 0.0
+
+    def stall_baseline(self) -> float | None:
+        """Reference instant for the watchdog: last frame, else stream open."""
+        if self.last_frame_at is not None:
+            return self.last_frame_at
+        return self.opened_at
+
+    def reset_state(self) -> None:
+        """Forget stream continuity after a reopen (queues and watchdog).
+
+        A reopen means the previous stream is gone mid-frame: whatever is still
+        buffered belongs to a conversation the device already dropped, and the
+        stale ``opened_at``/``last_frame_at`` would immediately re-trip the
+        watchdog.  Dropping the clocks is what makes the next stall check wait
+        for the *new* stream instead of blaming it for the old one.
+        """
+        self.drain_capture()
+        self.last_frame_at = None
+        self._last_callback_at = None
+        self.opened_at = None
+        self.jitter_ms = 0.0
+
+    def drain_capture(self) -> int:
+        dropped = 0
+        while True:
+            try:
+                self.capture.get_nowait()
+                dropped += 1
+            except queue.Empty:
+                return dropped
+
     def _measure(self, frames: int) -> None:
-        now = time.perf_counter()
+        now = time.monotonic()
+        if self.last_frame_at is None and self.opened_at is None:
+            self.opened_at = now  # callback without an explicit open() (tests)
         self.last_frame_at = now
         if self._last_callback_at is not None:
             expected = frames / RATE * 1000.0

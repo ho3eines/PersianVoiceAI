@@ -50,6 +50,27 @@ STATUS_INTERRUPTED = "interrupted"
 STATUS_FAILED = "failed"
 STATUSES = frozenset({STATUS_COMPLETE, STATUS_INTERRUPTED, STATUS_FAILED})
 
+SESSION_ID_ALPHABET = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+)
+"""Characters allowed in a session identifier.
+
+Deliberately ASCII-only.  ``str.isalnum()`` accepts Persian/Arabic-Indic digits
+and accented letters, which are then written into a filename: that is a
+portability trap on Windows (case folding and Unicode normalisation mean two
+different ids can address one file) and on any zip/backup tool the user carries
+the folder through.  A session id is an opaque key, not user-facing text, so
+restricting it to ``[A-Za-z0-9_-]`` costs nothing and removes the whole class of
+problems.
+"""
+
+WINDOWS_RESERVED_NAMES = frozenset(
+    {"con", "prn", "aux", "nul", "clock$"}
+    | {f"com{index}" for index in range(1, 10)}
+    | {f"lpt{index}" for index in range(1, 10)}
+)
+"""Device names Windows refuses as ``<name>.jsonl`` regardless of the extension."""
+
 MESSAGE_OVERHEAD_TOKENS = 4
 """Chat-template per-message overhead (role markers, separators)."""
 
@@ -131,6 +152,15 @@ class NullStore:
     def sessions(self) -> list[dict[str, Any]]:
         return []
 
+    def latest_session(self) -> str | None:
+        return None
+
+    def count_messages(self, session_id: str) -> int:
+        return 0
+
+    def purge_older_than(self, days: int, *, now: float | None = None) -> list[str]:
+        return []
+
     def delete(self, session_id: str) -> bool:
         return False
 
@@ -156,18 +186,37 @@ class ConversationStore:
 
         Identifiers are **rejected** rather than silently rewritten: rewriting
         could map two different requested sessions onto the same file.
+
+        The alphabet is ASCII ``[A-Za-z0-9_-]`` only, and Windows device names
+        (``CON``, ``NUL``, ``COM1``…) are refused because ``<name>.jsonl``
+        cannot be created for them on Windows.  Case is preserved but not
+        treated as significant: ``s-demo`` and ``S-DEMO`` would address the same
+        file on a case-insensitive filesystem, so a session id whose
+        lower-cased form already exists is rejected instead of silently sharing
+        (and interleaving) another session's log.  That check needs the
+        directory, so it happens on the write path in :meth:`append`.
         """
         raw = str(session_id).strip()
-        cleaned = "".join(
-            char for char in raw if char.isalnum() or char in {"-", "_"}
-        )
+        cleaned = "".join(char for char in raw if char in SESSION_ID_ALPHABET)
         if not cleaned or cleaned != raw:
             raise ValueError(
-                "session id may only contain letters, digits, '-' and '_'"
+                "session id may only contain ASCII letters, digits, '-' and '_'"
             )
         if len(cleaned) > 64:
             raise ValueError("session id must be at most 64 characters")
+        if cleaned.lower() in WINDOWS_RESERVED_NAMES:
+            raise ValueError(f"session id {cleaned!r} is a reserved device name")
         return cleaned
+
+    def _colliding_case(self, session_id: str) -> str | None:
+        """An existing session id that differs only by case, if any."""
+        try:
+            existing = {
+                path.stem.lower(): path.stem for path in self.root.glob("*.jsonl")
+            }
+        except OSError:
+            return None
+        return existing.get(session_id.lower())
 
     def path(self, session_id: str) -> Path:
         return self.root / f"{self.sanitize(session_id)}.jsonl"
@@ -181,6 +230,17 @@ class ConversationStore:
         with self._lock:
             try:
                 self.root.mkdir(parents=True, exist_ok=True)
+                if not path.exists():
+                    collision = self._colliding_case(session_id)
+                    if collision is not None and collision != session_id:
+                        # Two ids that differ only by case would be one file on
+                        # Windows (and an interleaved log there).  Refuse the
+                        # second one instead of corrupting the first.
+                        self.error = (
+                            f"session id {session_id!r} differs only by case from "
+                            f"existing session {collision!r}"
+                        )
+                        return False
                 with path.open("a", encoding="utf-8") as handle:
                     handle.write(line + "\n")
             except OSError as exc:
@@ -214,6 +274,48 @@ class ConversationStore:
             return []
         return records
 
+    def count_messages(self, session_id: str) -> int:
+        """Number of message records in a session, without parsing every line.
+
+        ``sessions()`` only needs the count, and a long session is megabytes of
+        JSON; ``json.loads`` on every line just to test ``record["kind"]`` made
+        listing sessions needlessly expensive in an async request handler.
+        Every record this store writes is a single line that starts with its
+        ``kind`` and ends with the object's closing brace (see
+        :meth:`Conversation._append`).  A line matching both is counted without
+        being parsed; anything else — a torn tail from a crash mid-write, a
+        hand-edited file, a future record type — falls back to ``json.loads``,
+        so the fast path can never inflate a count.
+        """
+        try:
+            path = self.path(session_id)
+        except ValueError:
+            return 0
+        return self._count_messages(path)
+
+    @staticmethod
+    def _count_messages(path: Path) -> int:
+        try:
+            handle = path.open("rb")
+        except OSError:
+            return 0
+        total = 0
+        with handle:
+            for raw in handle:
+                line = raw.strip()
+                if not line:
+                    continue
+                if line.startswith(b'{"kind": "message"') and line.endswith(b"}"):
+                    total += 1
+                    continue
+                try:
+                    record = json.loads(line)
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue  # a torn tail line must not destroy the count
+                if isinstance(record, dict) and record.get("kind") == "message":
+                    total += 1
+        return total
+
     def sessions(self) -> list[dict[str, Any]]:
         if not self.root.is_dir():
             return []
@@ -221,19 +323,50 @@ class ConversationStore:
         for path in sorted(self.root.glob("*.jsonl")):
             try:
                 stat = path.stat()
-                records = self.load(path.stem)
             except OSError:
                 continue
-            messages = [record for record in records if record.get("kind") == "message"]
             found.append(
                 {
                     "session_id": path.stem,
-                    "messages": len(messages),
+                    "messages": self._count_messages(path),
                     "updated_at": stat.st_mtime,
                     "bytes": stat.st_size,
                 }
             )
         return found
+
+    def latest_session(self) -> str | None:
+        """Session id of the most recently written session, if any.
+
+        Used by the local live voice loop to resume where the user left off.
+        """
+        if not self.root.is_dir():
+            return None
+        try:
+            paths = list(self.root.glob("*.jsonl"))
+            if not paths:
+                return None
+            return max(paths, key=lambda path: path.stat().st_mtime).stem
+        except OSError:
+            return None
+
+    def purge_older_than(self, days: int, *, now: float | None = None) -> list[str]:
+        """Delete sessions untouched for ``days`` days; return the removed ids.
+
+        ``PVAI_HISTORY_RETENTION_DAYS`` is opt-in (0 = keep everything): speech
+        transcripts are plain text on disk, so an unbounded store is a privacy
+        and disk-space problem the user cannot see without running the CLI.
+        """
+        if days <= 0 or not self.root.is_dir():
+            return []
+        cutoff = (now if now is not None else time.time()) - days * 86400
+        removed: list[str] = []
+        for entry in self.sessions():
+            if entry["updated_at"] > cutoff:
+                continue
+            if self.delete(entry["session_id"]):
+                removed.append(entry["session_id"])
+        return removed
 
     def delete(self, session_id: str) -> bool:
         try:
@@ -300,9 +433,19 @@ class Conversation:
         self._next_turn = 1
         self._utterance_ids: set[int] = set()
         self._utterance_order: deque[int] = deque(maxlen=MAX_TRACKED_UTTERANCE_IDS)
+        # Highest utterance id ever recorded.  A resumed conversation must
+        # report it, otherwise the pipeline restarts its own counter at 1 and
+        # every new utterance collides with a loaded one and is dropped as a
+        # duplicate — silently, because dedupe looks like a healthy path.
+        self._latest_utterance_id = 0
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------- lifecycle
+    def next_utterance_id(self) -> int:
+        """First utterance id that cannot collide with anything already stored."""
+        with self._lock:
+            return self._latest_utterance_id + 1
+
     def new_turn_id(self) -> int:
         with self._lock:
             turn = self._next_turn
@@ -349,6 +492,7 @@ class Conversation:
                 if utterance_id in self._utterance_ids:
                     return None
                 self._track_utterance(utterance_id)
+                self._latest_utterance_id = max(self._latest_utterance_id, utterance_id)
         message = Message(
             id=self._new_id(),
             role=ROLE_USER,
@@ -498,6 +642,9 @@ class Conversation:
             conversation._next_id = max(conversation._next_id, message.id + 1)
             if message.utterance_id is not None:
                 conversation._track_utterance(message.utterance_id)
+                conversation._latest_utterance_id = max(
+                    conversation._latest_utterance_id, message.utterance_id
+                )
             if message.turn_id is not None:
                 conversation._next_turn = max(conversation._next_turn, message.turn_id + 1)
         if len(conversation.messages) > conversation.max_stored_messages:
@@ -510,21 +657,79 @@ def load_conversations(store: ConversationStore | NullStore) -> Iterable[dict[st
     return store.sessions()
 
 
-def create_conversation(settings: Any, *, session_id: str | None = None) -> Conversation:
+def resume_target(
+    settings: Any,
+    store: ConversationStore | NullStore,
+    session_id: str | None,
+    resume: bool | None = None,
+) -> str | None:
+    """Which session id should be *loaded* (``None`` = start empty).
+
+    * An explicit ``session_id`` always resumes that session — that is what a
+      device asking for ``session_id`` in ``hello`` and an API caller passing
+      ``session_id`` both mean.
+    * Without one, the local live loop resumes only when
+      ``PVAI_HISTORY_RESUME`` is on (the default): the session named by
+      ``PVAI_VOICE_SESSION_ID`` if set, otherwise the most recently written one.
+      This is what makes a restart continue the conversation instead of
+      silently starting over (``docs/STATUS.md`` requirement 17).
+    * ``PVAI_HISTORY_RESUME=off`` keeps the old behaviour: every process start
+      is a fresh session, and only explicit ids resume.
+    * ``resume=False`` disables the implicit default for one caller.  The LAN
+      transport needs this: a device that sends no ``session_id`` must get its
+      own new session, never the file another device (or the local loop) was
+      last writing to.
+    """
+    if session_id is not None:
+        return session_id
+    if resume is False:
+        return None
+    if not isinstance(store, ConversationStore) or not store.enabled:
+        return None
+    if resume is None and str(getattr(settings, "history_resume", "on")).lower() == "off":
+        return None
+    explicit = str(getattr(settings, "voice_session_id", "") or "").strip()
+    if explicit:
+        return explicit
+    return store.latest_session()
+
+
+def create_conversation(
+    settings: Any, *, session_id: str | None = None, resume: bool | None = None
+) -> Conversation:
     """Build a conversation honouring the configured limits and persistence.
 
     Persistence is opt-in through ``PVAI_HISTORY_PERSIST`` (default on) and is
     strictly local: one JSONL file per session under ``PVAI_DATA_DIR``. Nothing
     is summarised into long-term personal memory and nothing leaves the machine.
+
+    A conversation that is not resumed must never be *built on top of* existing
+    records: message ids, ``turn_id`` and ``utterance_id`` all restart at 1, so
+    appending to the old file produced duplicate keys and an empty dedupe set.
+    Therefore any session that will be written to is loaded through
+    :meth:`Conversation.load` (see :func:`resume_target` for which one).
     """
     store = open_store(settings)
-    return Conversation(
-        session_id=session_id,
-        max_messages=max(2, int(getattr(settings, "history_max_messages", 24))),
-        token_budget=max(64, int(getattr(settings, "history_token_budget", 1536))),
-        max_stored_messages=max(
+    options = {
+        "max_messages": max(2, int(getattr(settings, "history_max_messages", 24))),
+        "token_budget": max(64, int(getattr(settings, "history_token_budget", 1536))),
+        "max_stored_messages": max(
             8, int(getattr(settings, "history_max_stored_messages", 500))
         ),
-        include_interrupted=bool(getattr(settings, "history_include_interrupted", False)),
-        store=store,
-    )
+        "include_interrupted": bool(getattr(settings, "history_include_interrupted", False)),
+    }
+    target = resume_target(settings, store, session_id, resume)
+    if target is None:
+        return Conversation(session_id=session_id, store=store, **options)
+    return Conversation.load(store, target, **options)
+
+
+def purge_expired(settings: Any, store: ConversationStore | NullStore | None = None) -> list[str]:
+    """Apply ``PVAI_HISTORY_RETENTION_DAYS``; returns the removed session ids."""
+    resolved = store if store is not None else open_store(settings)
+    if not isinstance(resolved, ConversationStore):
+        return []
+    days = int(getattr(settings, "history_retention_days", 0) or 0)
+    if days <= 0:
+        return []
+    return resolved.purge_older_than(days)

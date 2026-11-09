@@ -13,8 +13,15 @@ This module adds:
   (``PVAI_AUDIO_INPUT_DEVICE`` / ``PVAI_AUDIO_OUTPUT_DEVICE``),
 * validation with ``sounddevice.check_input_settings`` /
   ``check_output_settings`` and an actionable Persian error that lists devices,
-* a stall watchdog (no callback for ``PVAI_AUDIO_STALL_S``) and a bounded
-  reopen policy (``PVAI_AUDIO_REOPEN_ATTEMPTS``).
+* a stall watchdog (no callback for ``PVAI_AUDIO_STALL_S``, measured from the
+  last frame *or* from the moment the stream opened) and a bounded reopen
+  policy (``PVAI_AUDIO_REOPEN_ATTEMPTS``) that only forgives a reopen once the
+  device has proven it is alive by delivering real frames.
+
+Every timestamp here comes from :func:`time.monotonic`, the same clock
+``DuplexAudio`` writes; ``time.perf_counter`` has an undefined origin and a
+different one on Windows, so mixing the two made the watchdog fire on healthy
+streams (or never fire at all).
 
 Nothing here imports ``sounddevice``: the module is injected by the caller so
 tests can use a fake and the import stays lazy on machines without PortAudio.
@@ -194,6 +201,48 @@ def drain_capture(duplex: Any) -> int:
             return dropped
 
 
+def _stall_baseline(duplex: Any) -> float | None:
+    """Instant the stall watchdog must measure against, on one clock.
+
+    ``stall_baseline()`` is preferred (it falls back to the moment the stream
+    opened, so a device that opens and never delivers a single callback is still
+    detected).  A plain ``last_frame_at`` object keeps working, which is what the
+    older tests and fakes provide.
+    """
+    provider = getattr(duplex, "stall_baseline", None)
+    if callable(provider):
+        return provider()
+    return getattr(duplex, "last_frame_at", None)
+
+
+def reset_stream_state(duplex: Any, pipeline: Any = None, aec: Any = None) -> None:
+    """Forget everything that belonged to the stream that just died.
+
+    A reopen is not a resume: the microphone may have changed device, the
+    detector may be holding half an utterance from before the gap, and the AEC
+    filter holds an echo path that no longer exists.  Leaving them alone is how
+    a stale ``Utterance`` (and a wrong AEC delay) survived a device unplug.
+    """
+    reset = getattr(duplex, "reset_state", None)
+    if callable(reset):
+        reset()
+    else:  # plain fake: at least never carry buffered frames across the gap
+        drain_capture(duplex)
+    if aec is not None:
+        reset_aec = getattr(aec, "reset", None)
+        if callable(reset_aec):
+            reset_aec()
+    if pipeline is not None:
+        reset_pipeline = getattr(pipeline, "reset", None)
+        if callable(reset_pipeline):
+            reset_pipeline()
+            return
+        detector = getattr(pipeline, "detector", None)
+        reset_detector = getattr(detector, "reset", None)
+        if callable(reset_detector):
+            reset_detector()
+
+
 SYSTEM_METRICS_INTERVAL_S = 1.0
 """How often the live coordinator publishes system/queue gauges."""
 
@@ -224,17 +273,26 @@ async def pump(
     from .resources import create_sampler, sample_process_usage
 
     pause = sleep or asyncio.sleep
-    blocks = max(1, int(settings.audio_block_ms))
     stall_limit = float(settings.audio_stall_s)
     usage_sampler = sampler
     if metrics is not None and usage_sampler is None:
         usage_sampler = create_sampler()
     next_system_sample = 0.0
     callbacks_seen = 0
+    watch_started = time.monotonic()
     while True:
         now = time.monotonic()
-        last = getattr(duplex, "last_frame_at", None)
-        if last is not None and stall_limit > 0 and now - last > stall_limit:
+        # The watchdog must always have an origin.  If the stream was opened
+        # through a path that never stamped one (``DuplexAudio()`` used
+        # directly, a fake, or an open that raced this loop), fall back to the
+        # moment the watchdog started instead of silently disabling the check —
+        # a device that opens and never delivers a callback produced no
+        # ``last_frame_at`` at all, so the old ``if last is not None`` guard
+        # meant "dead microphone" was indistinguishable from "healthy".
+        last = _stall_baseline(duplex)
+        if last is None:
+            last = watch_started
+        if stall_limit > 0 and now - last > stall_limit:
             raise AudioStalled(
                 f"جریان صوتی بیش از {stall_limit:g} ثانیه فریم نداد؛ دستگاه قطع شده است."
             )
@@ -288,6 +346,41 @@ async def pump(
         await pause(0)
 
 
+PROGRESS_FRAMES = 50
+"""Frames a reopen must observe before it counts as "the device is healthy".
+
+One second of 20 ms blocks.  Anything less means the stream opened and then went
+quiet again (muted microphone, exclusive-mode device, Bluetooth headset that
+hands audio to another endpoint), which must consume the reopen budget instead
+of resetting it — otherwise the loop reopens forever and never tells the user
+why nothing is being heard.
+"""
+
+
+def _progress_frames(settings: Any) -> int:
+    """Minimum delivered frames before an attempt counts as progress."""
+    configured = getattr(settings, "audio_reopen_stable_frames", None)
+    if configured is None:
+        return PROGRESS_FRAMES
+    try:
+        return max(1, int(configured))
+    except (TypeError, ValueError):
+        return PROGRESS_FRAMES
+
+
+def _callbacks(duplex: Any) -> int:
+    try:
+        return int(getattr(duplex, "callbacks", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _note_open(duplex: Any) -> None:
+    marker = getattr(duplex, "opened", None)
+    if callable(marker):
+        marker()
+
+
 async def stream_forever(
     sd: Any,
     duplex: Any,
@@ -297,38 +390,96 @@ async def stream_forever(
     aec: Any = None,
     metrics: Any = None,
     on_open: Callable[[StreamPlan], None] | None = None,
+    reopen_delay: Callable[[int], float] | None = None,
 ) -> None:
-    """Open the duplex stream and keep it alive; reopen on stall/PortAudio error."""
-    import asyncio
+    """Open the duplex stream and keep it alive; reopen on stall/PortAudio error.
 
+    The reopen budget (``PVAI_AUDIO_REOPEN_ATTEMPTS``) is only refunded once an
+    attempt has delivered ``PROGRESS_FRAMES`` real frames.  Resetting it as soon
+    as ``RawStream.__enter__`` returned (the old behaviour) meant a device that
+    opens and produces nothing — mute, exclusive mode, a Bluetooth headset that
+    moved the endpoint — never exhausted the budget: it reopened every few
+    hundred milliseconds for as long as the process lived, and the user saw no
+    error at all.
+
+    Every reopen also calls :func:`reset_stream_state`: the detector may hold
+    half an utterance recorded before the gap and the AEC filter an echo path
+    that no longer exists, so resuming as if nothing happened both fabricated a
+    transcript across the gap and fed the filter a wrong reference.
+    """
     plan = plan_stream(sd, settings)
     portaudio_error = getattr(sd, "PortAudioError", None)
+    limit = int(getattr(settings, "audio_reopen_attempts", 0))
+    minimum = _progress_frames(settings)
+    delay_for = reopen_delay or (lambda attempt: min(2.0, 0.25 * attempt))
     attempts = 0
     while True:
+        frames_before = _callbacks(duplex)
         try:
             with sd.RawStream(**plan.parameters(duplex.callback)):
+                _note_open(duplex)
                 if on_open is not None:
                     on_open(plan)
-                attempts = 0
                 await pump(duplex, pipeline, settings, aec=aec, metrics=metrics)
+            # ``pump`` only returns on cancellation; treat it as a clean stop.
+            return
         except AudioStalled as exc:
-            attempts += 1
-            if attempts > int(settings.audio_reopen_attempts):
-                raise VoiceError(str(exc)) from exc
+            # A device that opens and never delivers a frame is the case the
+            # stall watchdog exists for; it must be as fatal as a stalling one.
+            attempts = _retry(frames_before, duplex, minimum, attempts)
             if metrics is not None:
                 metrics.increment("audio_reopen_count")
-            drain_capture(duplex)
-            await asyncio.sleep(min(2.0, 0.25 * attempts))
+            if attempts > limit:
+                raise VoiceError(
+                    "دستگاه صوتی وصل است ولی صدا نمی‌دهد "
+                    f"(بعد از {limit} بار تلاش برای بازگشایی). ورودی صوتی را بررسی کنید: "
+                    "میکروفون بی‌صدا (mute)، انحصاری‌بودن دستگاه (exclusive mode) یا هدستی "
+                    "که کانال ورودی را به برنامهٔ دیگری داده است. اگر دستگاه درست است، "
+                    "PVAI_AUDIO_INPUT_DEVICE را تنظیم کنید."
+                ) from exc
+            await _recover(duplex, pipeline, settings, aec, metrics, attempts, delay_for)
+            continue
         except Exception as exc:
-            if portaudio_error is not None and isinstance(exc, portaudio_error):
-                attempts += 1
-                if attempts > int(settings.audio_reopen_attempts):
-                    raise VoiceError(
-                        "دستگاه صوتی قطع شد یا در دسترس نیست؛ اتصال و دستگاه پیش‌فرض را بررسی کنید."
-                    ) from exc
-                if metrics is not None:
-                    metrics.increment("audio_reopen_count")
-                drain_capture(duplex)
-                await asyncio.sleep(min(2.0, 0.25 * attempts))
-                continue
-            raise
+            if portaudio_error is None or not isinstance(exc, portaudio_error):
+                raise
+            attempts = _retry(frames_before, duplex, minimum, attempts)
+            if metrics is not None:
+                metrics.increment("audio_reopen_count")
+            if attempts > limit:
+                raise VoiceError(
+                    "دستگاه صوتی قطع شد یا در دسترس نیست؛ اتصال و دستگاه پیش‌فرض را بررسی کنید."
+                ) from exc
+            await _recover(duplex, pipeline, settings, aec, metrics, attempts, delay_for)
+            continue
+
+
+def _retry(frames_before: int, duplex: Any, minimum: int, attempts: int) -> int:
+    """Next attempt number: a stream that delivered real frames starts over.
+
+    The distinction matters because the two failures look identical from the
+    outside ("no audio now") but need opposite responses: a device that just
+    died after working needs one reopen, while a device that has never delivered
+    a single frame will not heal by being reopened.
+    """
+    if _callbacks(duplex) - frames_before >= minimum:
+        return 1
+    return attempts + 1
+
+
+async def _recover(
+    duplex: Any,
+    pipeline: Any,
+    settings: Any,
+    aec: Any,
+    metrics: Any,
+    attempt: int,
+    delay_for: Callable[[int], float],
+) -> None:
+    """Tear down everything tied to the dead stream and back off before retrying."""
+    import asyncio
+
+    if metrics is not None:
+        metrics.set("audio_reopen_attempts", attempt)
+    drain_capture(duplex)
+    reset_stream_state(duplex, pipeline, aec)
+    await asyncio.sleep(delay_for(attempt))

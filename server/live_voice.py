@@ -23,6 +23,7 @@ import re
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from .config import Settings
 from .vad import EnergyVAD
@@ -30,6 +31,13 @@ from .voice import VoiceError, dependency
 
 SENTENCE_END = re.compile(r"[.!؟?\n؛](?:\s|$)")
 MAX_CHUNK_CHARS = 180
+
+#: A boundary immediately preceded by one of these is not a sentence end:
+#: ``1.`` / ``2)`` is a list marker and ``3.5`` a decimal.  The original
+#: ``SENTENCE_END`` split ``"**مهم:** سه مورد:\n1. اول\n2. دوم"`` into
+#: ``['…\n1.', 'اول\n2.', 'دوم']``, so Piper pronounced every list number as
+#: its own sentence with an audible full stop.
+_NOT_A_BOUNDARY = re.compile(r"(?:[0-9]{1,3}[.)]|[0-9]\.[0-9]|[A-Za-z]\.[A-Za-z])$")
 OUTPUT_BLOCK_SECONDS = 0.02
 
 
@@ -46,6 +54,13 @@ def sentences(buffer: str, final: bool = False) -> tuple[list[str], str]:
     ready: list[str] = []
     while True:
         match = SENTENCE_END.search(buffer)
+        # A dot that ends a list number or a decimal is not a sentence end.
+        # Scan past it rather than re-searching from its own end, or the same
+        # match is found again and ``"2."`` becomes its own utterance.
+        while match is not None and _NOT_A_BOUNDARY.search(
+            buffer[: match.end() - 1].rstrip()
+        ):
+            match = SENTENCE_END.search(buffer, match.end())
         if match:
             end = match.end()
         elif len(buffer) > MAX_CHUNK_CHARS:
@@ -59,6 +74,15 @@ def sentences(buffer: str, final: bool = False) -> tuple[list[str], str]:
             ready.append(piece)
         buffer = buffer[end:]
         buffer = buffer.lstrip()
+    if not final and ready:
+        # Streaming: a comma or a list/dictionary marker only becomes a
+        # sentence end once the *next* character decides.  Holding the last
+        # piece back means "2. دوم" is split as one utterance instead of
+        # "2." followed by "دوم" -- the number is a marker, not a full stop.
+        last = ready[-1]
+        if last.endswith((",", "،")) or re.search(r"[0-9]{1,3}[.)]$", last):
+            ready = ready[:-1]
+            buffer = (last + " " + buffer).strip()
     if final and buffer.strip():
         ready.append(buffer.strip())
         buffer = ""
@@ -79,23 +103,59 @@ def _validate_tts_model(path: str) -> None:
         )
 
 
+def load_piper_voice(settings: Settings, voice: str) -> Any:
+    """Load (or validate) one Piper voice without building a ``Speaker``.
+
+    Kept separate from ``Speaker.__init__`` so a process-wide pool can own the
+    model while each device connection owns only its playback sink.
+    """
+    path = settings.tts_model_for(voice)
+    _validate_tts_model(path)
+    try:
+        return dependency("piper.voice").PiperVoice.load(path)
+    except VoiceError:
+        raise
+    except Exception as exc:
+        raise VoiceError(
+            "بارگذاری مدل Piper ناموفق بود؛ سازگاری وزن فارسی و وابستگی onnxruntime را بررسی کنید."
+        ) from exc
+
+
 class Speaker:
     """Piper synthesis + 20 ms-block PCM playback with literal cancellation."""
 
-    def __init__(self, settings: Settings, duplex=None, *, voice: str | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        duplex=None,
+        *,
+        voice: str | None = None,
+        model: Any = None,
+        model_lock: Any = None,
+    ) -> None:
         self.settings = settings
         self.duplex = duplex
+        # ``synthesize`` returns a lazy generator that advances model state as
+        # it is consumed, so a model shared by several connections needs its
+        # steps serialised.  Per-chunk, not per-utterance: playback of one
+        # device must not have to finish before another can start speaking.
+        self._model_lock = model_lock
         self.voice = (voice or settings.tts_voice or "female").strip().lower()
         self.model_path = settings.tts_model_for(self.voice)
         _validate_tts_model(self.model_path)
-        try:
-            self.model = dependency("piper.voice").PiperVoice.load(self.model_path)
-        except VoiceError:
-            raise
-        except Exception as exc:
-            raise VoiceError(
-                "بارگذاری مدل Piper ناموفق بود؛ سازگاری وزن فارسی و وابستگی onnxruntime را بررسی کنید."
-            ) from exc
+        if model is not None:
+            # Shared, already-loaded Piper model (see ws_voice.ModelPool): one
+            # ONNX session per voice instead of one per device.
+            self.model = model
+        else:
+            try:
+                self.model = dependency("piper.voice").PiperVoice.load(self.model_path)
+            except VoiceError:
+                raise
+            except Exception as exc:
+                raise VoiceError(
+                    "بارگذاری مدل Piper ناموفق بود؛ سازگاری وزن فارسی و وابستگی onnxruntime را بررسی کنید."
+                ) from exc
         self.sd = dependency("sounddevice")
 
     # ------------------------------------------------------------------ helpers
@@ -145,7 +205,7 @@ class Speaker:
         first_frame: float | None = None
         self._output = None
         try:
-            chunks = self.model.synthesize(text)
+            chunks = self._synthesize(text)
             if getattr(self, "duplex", None) is None:
                 self._output = self._open_output()
             for chunk in chunks:
@@ -183,6 +243,28 @@ class Speaker:
                 self._output = None
             if on_complete is not None:
                 on_complete(time.perf_counter(), played_blocks * OUTPUT_BLOCK_SECONDS * 1000)
+
+    def _synthesize(self, text: str) -> Any:
+        """Yield chunks from the model, serialising each model step.
+
+        Without a shared model (``model_lock`` is ``None``) this is a plain
+        pass-through; with one, only ``next()`` is held under the lock, so two
+        devices speak concurrently while the model itself is stepped one
+        caller at a time.
+        """
+        chunks = self.model.synthesize(text)
+        lock = getattr(self, "_model_lock", None)  # absent on partially built Speakers
+        if lock is None:
+            yield from chunks
+            return
+        iterator = iter(chunks)
+        while True:
+            with lock:
+                try:
+                    chunk = next(iterator)
+                except StopIteration:
+                    return
+            yield chunk
 
     # --------------------------------------------------------------- audio I/O
     def _output_rate(self) -> int:

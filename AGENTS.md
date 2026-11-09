@@ -57,6 +57,11 @@ PersianVoiceAI/
 ├─ AGENTS.md              ← همین فایل: قرارداد کار هر عامل
 ├─ README.md              ← معرفی پروژه + راه‌اندازی سریع درس ۱
 ├─ .env.example           ← قالب متغیرهای محیطی
+├─ LICENSE                ← GPL-3.0-or-later (اجباری به‌خاطر piper-tts)
+├─ THIRD_PARTY.md         ← مجوز وابستگی‌ها و هر مدل/صدا
+├─ requirements.txt       ← فقط زمان اجرا
+├─ requirements-dev.txt   ← pytest (فقط توسعه)
+├─ requirements-voice.txt ← پشتهٔ صوتی اختیاری
 ├─ docs/
 │  ├─ SPEC.md             ← مستند جامع v1.0 (مرجع تصمیم‌ها)
 │  ├─ STATUS.md           ← وضعیت اجرایی، تست‌ها، نگاشت ۲۰ الزام به تست
@@ -67,6 +72,9 @@ PersianVoiceAI/
 │  ├─ PROTOCOL.md         ← قرارداد WebSocket ESP32-S3 + transport سرور
 │  ├─ BENCHMARKS.md       ← روش‌شناسی و نتایج برچسب‌دار
 │  ├─ TROUBLESHOOTING.md  ← پیام‌های خطا و راه‌حل
+│  ├─ PC_VOICE.md         ← نصب و اجرای صوت PC
+│  ├─ PLATFORMS.md        ← Windows/Linux، اسکریپت‌ها، تفاوت‌ها
+│  ├─ AUDIT_REPORT.md     ← گزارش بازبینی (سند تاریخی)
 │  └─ HARDWARE_VALIDATION.md ← چک‌لیست تست واقعی
 ├─ server/                ← سرویس محلی پایتون (FastAPI)
 │  ├─ main.py             ← اپ FastAPI، /ready، /api/sessions، OpenAI-compatible
@@ -86,12 +94,13 @@ PersianVoiceAI/
 │  ├─ persian.py          ← نرمال‌سازی فارسی + WER/CER
 │  ├─ protocol.py         ← قرارداد فریم/پیام ESP32
 │  ├─ ws_voice.py         ← transport WebSocket سرور برای دستگاه LAN
+│  ├─ security.py         ← توکن REST/WS، rate limit، سقف اتصال
 │  ├─ cli.py              ← کلاینت چت فارسی ترمینال
 │  ├─ __main__.py         ← اجرای `python -m server`
 │  └─ __init__.py         ← نسخهٔ سرویس
 ├─ tests/                 ← pytest؛ بدون نیاز به مدل (fake LLM/ASR/TTS/دستگاه)
 ├─ benchmarks/            ← پرامپت‌های متنی + persian_eval.py + persian_eval_set.json
-├─ tools/                 ← PowerShell + benchmark_voice.py + environment_test.py
+├─ tools/                 ← اسکریپت‌های .ps1 و .sh + benchmark_voice.py + download_parallel.py
 ├─ models/                ← مدل‌های محلی GGUF (خارج از git)
 ├─ data/                  ← مکالمه/بازخورد/دانش محلی (خارج از git)
 └─ firmware/              ← (ساخته نشده) هدف: پروژهٔ ESP-IDF esp32s3_terminal
@@ -102,7 +111,11 @@ PersianVoiceAI/
 
 ---
 
-## ۴. اجرا و بررسی (Windows / PowerShell)
+## ۴. اجرا و بررسی
+
+هر اسکریپت `.ps1` یک معادل `.sh` دارد؛ جزئیات در [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
+
+**Windows / PowerShell**
 
 ```powershell
 # یک‌بار: محیط
@@ -117,7 +130,8 @@ Copy-Item .env.example .env
 .\tools\chat.ps1
 .\tools\chat.ps1 --once "سلام! خودت را معرفی کن"
 
-# تست‌ها (بدون مدل) — باید همیشه سبز باشد: ۲۳۷ passed، ۲ skipped
+# تست‌ها (بدون مدل) — باید همیشه سبز باشد: ۶۰۶ passed، ۵ skipped
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m pytest
 
 # آمادگی سرویس و بنچمارک زنجیرهٔ صوت (برچسب MEASURED/SIMULATED/NOT MEASURED)
@@ -128,6 +142,22 @@ curl http://127.0.0.1:8000/ready
 .\tools\benchmark.ps1
 .\.venv\Scripts\python.exe tools\verify_lesson01.py
 ```
+
+**Linux / macOS / bash**
+
+```bash
+# یک‌بار: محیط
+python3 -m venv .venv
+./.venv/bin/python -m pip install -r requirements-dev.txt
+cp .env.example .env
+
+./tools/start_server.sh
+./tools/chat.sh --once "سلام! خودت را معرفی کن"
+./.venv/bin/python -m pytest
+./tools/benchmark.sh
+```
+
+(`PVAI_PYTHON=/path/to/python` اگر venv جای دیگری است.)
 
 **تعریف «انجام‌شده» برای هر تغییر:** `pytest` سبز + در صورت تغییر رفتار واقعی، یک اجرای دستی
 مستندشده + به‌روزرسانی `docs/STATUS.md`.

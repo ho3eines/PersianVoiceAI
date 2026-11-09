@@ -20,32 +20,60 @@ ASR حین صحبت با پنجره‌های هم‌پوشان اجرا می‌�
 
 ## شروع
 
+**Windows (PowerShell):**
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-voice.txt
 Copy-Item .env.example .env
 ```
 
+**Linux / macOS (bash):**
+
+```bash
+python3 -m venv .venv
+./.venv/bin/python -m pip install -r requirements-voice.txt
+cp .env.example .env
+```
+
+`requirements-voice.txt` فقط وابستگی‌های زمان اجراست. برای اجرای تست‌ها
+`requirements-dev.txt` را هم نصب کنید (pytest فقط همان‌جاست و در deployment لازم نیست).
+
 کتابخانهٔ native **SpeexDSP** را نیز طبق [راهنمای AEC](docs/AEC.md) نصب کنید؛ فقط pip کافی نیست.
 سپس مدل‌های **Qwen3-4B-Q4_K_M GGUF**، **Whisper Small CTranslate2** و **Piper فارسی** را
 محلی تهیه و مسیرشان را در `.env` تنظیم کنید. مدل‌ها دانلود خودکار نمی‌شوند.
 اگر `.env` موجود است، فقط تنظیمات آن را ویرایش کنید.
 
+هر اسکریپت نسخهٔ bash هم دارد؛ هر جا `.ps1` است، `.sh` متناظر در همان مسیر است.
+
 ```powershell
-# ترمینال ۱؛ مسیر باینری و مدل متناسب با سیستم خودتان
-D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 127.0.0.1 --port 8080 -t 4
+# Windows / PowerShell
+# ترمینال ۱؛ پرچم‌ها از .env خوانده می‌شوند (PVAI_N_CTX / PVAI_N_THREADS / PVAI_N_GPU_LAYERS)
+.\tools\start_llama.ps1 -Exe D:\Lama.cpp\bin\llama-server.exe
 # ترمینال ۲
 .\tools\start_server.ps1
 # ترمینال ۳
 .\.venv\Scripts\python.exe -m server.voice
 ```
 
+```bash
+# Linux / macOS
+./tools/start_llama.sh --exe /opt/llama.cpp/llama-server   # یا llama-server از PATH
+./tools/start_server.sh
+./.venv/bin/python -m server.voice
+```
+
+> `tools/start_llama.ps1` به‌جای تکرار دستی پرچم‌ها، `python -m server.config --launch` را
+> صدا می‌زند؛ پس `PVAI_N_THREADS` و `PVAI_N_GPU_LAYERS` واقعاً اعمال می‌شوند.
+> اجرای دستی هم ممکن است، ولی باید با `.env` هم‌خوان باشد: مقدار پیش‌فرض `PVAI_N_THREADS=2`
+> برای ۲ هستهٔ فیزیکی است، پس `-t 4` با آن ناسازگار است (خودِ llama-server برنده می‌شود).
+
 [راهنمای کامل PC، مدل‌ها، تنظیم حساسیت و محدودیت‌ها](docs/PC_VOICE.md) ·
 [مرجع همهٔ متغیرهای `.env`](docs/CONFIGURATION.md)
 
 ## وضعیت صادقانه
 
-- تست خودکار: **۲۳۷ passed، ۲ skipped** (بدون مدل/میکروفون/شبکه؛ ۲ skip فقط native SpeexDSP).
+- تست خودکار: **۶۰۶ passed، ۵ skipped** (بدون مدل/میکروفون/شبکه؛ skipها فقط native SpeexDSP و numpy).
   این تست‌ها منطق و کنترل جریان را ثابت می‌کنند، نه کیفیت صدا.
 - مدل‌های واقعی (Whisper/Piper/Qwen) در مخزن نیستند؛ در sandbox نصب هم نبودند، پس
   ASR/TTS/LLM واقعی **NOT MEASURED** است.
@@ -53,21 +81,26 @@ D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 1
   تأیید نشده‌اند. بدون هدفون، کالیبراسیون `PVAI_AEC_DELAY_MS` لازم است.
 - تاریخچهٔ مکالمه محلی و ماندگار است (`data/conversations/*.jsonl`)؛ پنجرهٔ RAM محدود است.
 - پروتکل WebSocket صوتی ESP32-S3 و **transport سمت سرور** پیاده شده‌اند (`WS /ws/voice`، خاموش به‌صورت
-  پیش‌فرض، با توکن اجباری)؛ **firmware و تست LAN واقعی انجام نشده‌اند**.
+  پیش‌فرض، با توکن per-device اجباری، سقف اتصال، pacing پخش و heartbeat)؛ **firmware و تست LAN واقعی
+  انجام نشده‌اند** — همهٔ تست‌ها با کلاینت درون‌فرایندی و fake هستند.
+- REST با `PVAI_API_TOKEN` محافظت می‌شود و روی نشانی غیر-loopback بدون توکن بالا نمی‌آید.
 - اجرای CPU پیش‌فرض است؛ بنچمارک قدیمی GPU روی MiniCPM به Qwen قابل تعمیم نیست.
 
 ## API و چت متنی
 
 | مسیر | کار |
 |---|---|
-| `GET /health` | وضعیت اتصال backend و مدل |
+| `GET /health` | فقط `{"status": "ok"}`؛ تنها مسیر **بدون** توکن و عمداً بدون جزئیات |
 | `GET /ready` | چک‌لیست کامل: تنظیمات، مدل ASR/TTS، وابستگی‌ها، AEC، ذخیره‌سازی، backend (503 اگر ناقص) |
 | `GET /api/protocol` | قرارداد انتقال ESP32 (`transport_implemented: true`، `firmware_implemented: false`) |
-| `WS /ws/voice` | صدای دستگاه LAN (opt-in با `PVAI_WS_ENABLED` و `PVAI_WS_TOKEN`) |
+| `WS /ws/voice` | صدای دستگاه LAN (opt-in با `PVAI_WS_ENABLED` و `PVAI_WS_TOKENS`) |
 | `GET /v1/models` | مدل‌های بارشده در llama-server |
 | `POST /v1/chat/completions` | چت JSON یا SSE با `stream=true` |
 | `POST /api/chat` | پاسخ سادهٔ یک‌پیامی با `session_id` اختیاری |
 | `GET/DELETE /api/sessions[/{id}]` | بازبینی و حذف نشست‌های محلی |
+
+همهٔ مسیرها جز `/health` توکن می‌خواهند: `Authorization: Bearer $PVAI_API_TOKEN`
+(یا `X-API-Key`). روی `PVAI_HOST=0.0.0.0` توکن **الزامی** است وگرنه برنامه بالا نمی‌آید.
 
 چت متنی: `python -m server.cli` یا `tools/chat.ps1`.
 مستندات API: `http://127.0.0.1:8000/docs`.
@@ -88,11 +121,13 @@ FastAPI از طریق **async HTTP به llama-server** متصل می‌شود؛ 
 
 # بنچمارک متنی قدیمی
 .\tools\benchmark.ps1
+./tools/benchmark.sh        # معادل bash
 ```
 
 اعداد sandbox و روش‌شناسی در [BENCHMARKS](docs/BENCHMARKS.md) است؛ اعداد i7-6500U تا اجرای
 واقعی `NOT MEASURED` نوشته می‌شوند. دادهٔ خصوصی و وزن‌ها وارد Git نشوند.
-API فعلی احراز هویت ندارد؛ پورت‌ها را عمومی نکنید.
+هیچ وزن یا داده‌ای در مخزن نیست؛ مجوز کد GPL-3.0-or-later و مجوز هر مدل/صدا در
+[THIRD_PARTY.md](THIRD_PARTY.md) آمده است.
 
 ## مستندات
 
@@ -108,3 +143,15 @@ API فعلی احراز هویت ندارد؛ پورت‌ها را عمومی ن
 - [BENCHMARKS](docs/BENCHMARKS.md): روش‌شناسی و نتایج برچسب‌دار
 - [TROUBLESHOOTING](docs/TROUBLESHOOTING.md): پیام‌ها و راه‌حل
 - [HARDWARE_VALIDATION](docs/HARDWARE_VALIDATION.md): چک‌لیست تست واقعی
+- [PLATFORMS](docs/PLATFORMS.md): Windows/Linux، اسکریپت‌ها، تفاوت‌ها
+- [THIRD_PARTY](THIRD_PARTY.md): مجوز کد، وابستگی‌ها و هر مدل/صدا
+
+## مجوز
+
+کد این مخزن **GPL-3.0-or-later** است ([LICENSE](LICENSE)). دلیل این انتخاب `piper-tts`
+است که خود GPL-3.0-or-later است و in-process وارد می‌شود؛ مجوز MIT یا انحصاری برای این
+مخزن با آن ناسازگار می‌شود. جزئیات و گزینه‌ها در [THIRD_PARTY.md](THIRD_PARTY.md).
+
+وزن مدل‌ها در مخزن نیستند و مجوز هرکدام جداست: Qwen3-4B با Apache-2.0، وزن‌های
+Whisper با MIT، و صدای Piper فارسی بسته به فایل صدا متفاوت است — پیش از عرضه،
+`MODEL_CARD` همان صدا را بخوانید.

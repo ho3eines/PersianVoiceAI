@@ -5,6 +5,7 @@ import argparse
 import importlib
 import ipaddress
 import json
+import logging
 import subprocess
 import sys
 import tempfile
@@ -17,6 +18,9 @@ from typing import Any
 import httpx
 
 from .config import Settings
+from .persian import normalize_for_eval
+
+logger = logging.getLogger("persian_voice_ai.asr")
 
 SAMPLE_RATE = 16000
 """"""  # the ASR/TTS contract of this project is PCM16 mono @ 16 kHz
@@ -41,10 +45,71 @@ def local_api_url(settings: Settings) -> str:
 
 
 def dependency(name: str) -> Any:
+    """Import an optional audio dependency, naming it in the error.
+
+    The message used to be generic — "وابستگی صوتی آماده نیست" — so the user
+    could not tell which of ``numpy``/``sounddevice``/``faster_whisper`` was
+    missing, and had to guess from a stack trace.  The module name and the
+    original error are now part of the message, and the original exception is
+    kept as ``__cause__`` so ``traceback`` shows the real reason (a missing
+    shared library reports as ``OSError``, not ``ImportError``).
+    """
     try:
         return importlib.import_module(name)
     except (ImportError, OSError) as exc:
-        raise VoiceError("وابستگی صوتی آماده نیست؛ requirements-voice.txt و راهنمای PC را بررسی کنید.") from exc
+        detail = str(exc) or type(exc).__name__
+        raise VoiceError(
+            f"وابستگی صوتی «{name}» آماده نیست ({detail})؛ "
+            "requirements-voice.txt را نصب کنید و راهنمای PC را ببینید."
+        ) from exc
+
+
+def normalized_phrase(phrase: str) -> str:
+    """The canonical form used to look a phrase up in :data:`WHOLE_TRANSCRIPT_ONLY`."""
+    return normalize_for_eval(phrase).strip(_PHRASE_TRIM)
+
+
+#: Characters trimmed before comparing a transcript with a known phrase.
+_PHRASE_TRIM = "\"'«»()[]{}.,،؛;:!?؟…-–—\u200c \t\n"
+
+
+#: Short phrases that are boilerplate on silence but ordinary words inside a
+#: real sentence ("به مادرم گفتم خداحافظ و رفتم").  These match only when they
+#: are the *whole* transcript; every other phrase may also match as a prefix,
+#: because hallucinated boilerplate carries extra words ("زیر‌نویس‌ها توسط تیم
+#: ما تهیه شده است").
+WHOLE_TRANSCRIPT_ONLY = frozenset({"خداحافظ", "تشکر", "بدرود", "خدا نگهدار"})
+
+
+def _is_hallucination(text: str, phrases: tuple[str, ...]) -> bool:
+    """True when ``text`` is a known Whisper silence/noise artefact.
+
+    Compared after :func:`server.persian.normalize_for_eval`, so Arabic letter
+    forms, Persian/Arabic digits and decorated punctuation cannot hide a phrase
+    from the filter.
+
+    A rejection here throws away audio the user actually spoke, so the filter
+    is deliberately conservative: only the phrases in
+    :data:`WHOLE_TRANSCRIPT_ONLY` need an exact match, and everything else must
+    appear as a *contiguous* fragment (which is how Whisper wraps boilerplate
+    around the phrase it hallucinates).
+    """
+    if not phrases:
+        return False
+    candidate = normalize_for_eval(text).strip(_PHRASE_TRIM)
+    if not candidate:
+        return False
+    for phrase in phrases:
+        needle = normalize_for_eval(phrase).strip(_PHRASE_TRIM)
+        if not needle:
+            continue
+        if candidate == needle:
+            return True
+        if normalized_phrase(phrase) in WHOLE_TRANSCRIPT_ONLY:
+            continue
+        if needle in candidate:
+            return True
+    return False
 
 
 class LocalAudio:
@@ -55,6 +120,12 @@ class LocalAudio:
         self.metrics = metrics
         self.model: Any = None
         self._lock = threading.Lock()
+        # Decoding is *not* thread-safe in CTranslate2 and one model is now
+        # shared by every LAN connection (MODEL_POOL), so two concurrent
+        # transcriptions would race.  Serialise them on a separate lock: the
+        # load lock above must stay free while a decode is running, otherwise a
+        # second connection would block the first from even loading.
+        self._decode_lock = threading.Lock()
         self.loaded_at: float | None = None
         self.last_options: dict[str, Any] = {}
 
@@ -138,17 +209,90 @@ class LocalAudio:
         samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
         return self._transcribe(samples)
 
+    def _transcribe_options(self) -> dict[str, Any]:
+        """The ``transcribe`` keyword arguments, built from settings.
+
+        ``language`` used to be hard-coded to ``"fa"``, which is right for this
+        project but wrong for a Persian/English speaker who switches mid
+        sentence, and impossible to override without editing code.
+        ````PVAI_ASR_LANGUAGE=auto`` hands the choice back to Whisper.
+        """
+        options: dict[str, Any] = {
+            "language": self.settings.asr_language or "auto",
+            "vad_filter": self.settings.asr_vad_filter,
+            "beam_size": self.settings.asr_beam_size,
+            "condition_on_previous_text": False,
+            "no_speech_threshold": self.settings.asr_no_speech_threshold,
+            "log_prob_threshold": self.settings.asr_log_prob_threshold,
+            "compression_ratio_threshold": self.settings.asr_compression_ratio_threshold,
+        }
+        prompt = (self.settings.asr_initial_prompt or "").strip()
+        if prompt:
+            # Seeded text biases the *script* and the vocabulary: without it
+            # Whisper sometimes answers a Persian clip in Arabic letters.
+            options["initial_prompt"] = prompt
+        return options
+
+    def _accepted_segments(self, segments: Iterable[Any]) -> list[Any]:
+        """Drop the segments that are Whisper talking to itself.
+
+        On silence or noise Whisper does not return nothing: it returns a
+        plausible sentence ("زیرنویسها توسط تیم ما تهیه شده است", "ممنون از
+        تماشای شما").  A non-empty transcript starts a whole LLM turn, so a
+        hallucination becomes a confident answer to a question nobody asked.
+        Three independent signals are used:
+
+        * ``no_speech_prob``  — the model itself is unsure anything was said;
+        * ``avg_logprob``     — the decode is not confident in its own words;
+        * ``compression_ratio`` — the classic repetition loop;
+        * a phrase list, matched after Persian normalisation.
+        """
+        threshold = self.settings.asr_max_no_speech_prob
+        log_prob_min = self.settings.asr_log_prob_threshold
+        ratio_max = self.settings.asr_compression_ratio_threshold
+        phrases = self._hallucination_phrases()
+        accepted: list[Any] = []
+        for segment in segments:
+            text = (getattr(segment, "text", "") or "").strip()
+            if not text:
+                continue
+            no_speech = getattr(segment, "no_speech_prob", None)
+            log_prob = getattr(segment, "avg_logprob", None)
+            ratio = getattr(segment, "compression_ratio", None)
+            reason = None
+            if no_speech is not None and no_speech >= threshold:
+                reason = "no_speech_prob"
+            elif log_prob is not None and log_prob < log_prob_min:
+                reason = "avg_logprob"
+            elif ratio is not None and ratio > ratio_max:
+                reason = "compression_ratio"
+            elif _is_hallucination(text, phrases):
+                reason = "phrase"
+            if reason is not None:
+                self.metrics.increment("asr_segments_rejected")
+                logger.info("asr segment rejected (%s): %r", reason, text[:80])
+                continue
+            accepted.append(segment)
+        return accepted
+
+    def _hallucination_phrases(self) -> tuple[str, ...]:
+        raw = self.settings.asr_hallucination_phrases or ""
+        return tuple(
+            part.strip()
+            for part in raw.split(",")
+            if part.strip()
+        )
+
     def _transcribe(self, source: Any) -> str:
         try:
             model = self._ensure_model()
-            segments, _ = model.transcribe(
-                source,
-                language="fa",
-                vad_filter=self.settings.asr_vad_filter,
-                beam_size=self.settings.asr_beam_size,
-                condition_on_previous_text=False,
-            )
-            return " ".join(segment.text.strip() for segment in segments).strip()
+            with self._decode_lock:
+                segments, _ = model.transcribe(source, **self._transcribe_options())
+                # The generator must be consumed *inside* the lock: faster-whisper
+                # decodes lazily as it is iterated.  Filtering happens while
+                # consuming, so a hallucinated segment never reaches the caller.
+                accepted = self._accepted_segments(segments)
+                return " ".join(segment.text.strip() for segment in accepted).strip()
         except VoiceError:
             raise
         except Exception as exc:

@@ -383,3 +383,101 @@ def test_llm_failure_releases_the_state_and_the_next_turn_recovers() -> None:
                 await pipeline.close()
 
     asyncio.run(scenario())
+
+
+# ------------------------------------------------------------------- resume
+def test_resumed_pipeline_continues_ids_and_keeps_the_first_new_utterance(
+    tmp_path,
+) -> None:
+    """A restart must not reuse utterance ids that the store already owns.
+
+    Before the fix ``create_pipeline`` always built an empty conversation and
+    the pipeline always started its utterance counter at 1; after a resume the
+    first new final therefore looked like a replay of a stored utterance and was
+    silently dropped by dedupe (the transcript event still fired, so nothing
+    looked broken).
+    """
+    import asyncio
+
+    import httpx
+
+    from server.conversation import Conversation
+    from server.conversation import ConversationStore
+    from voicekit import FakeAsr, FakeSpeaker, feed_utterance, make_settings, sse, until
+
+    store = ConversationStore(tmp_path / "conversations")
+    previous = Conversation(store=store, session_id="resume-1")
+    previous.add_user("سلامِ قبلی", utterance_id=1, turn_id=1)
+    previous.finish_assistant("پاسخِ قبلی", turn_id=1, utterance_id=1)
+    previous.add_user("پرسش دوم", utterance_id=2, turn_id=2)
+    previous.finish_assistant("پاسخ دوم", turn_id=2, utterance_id=2)
+
+    settings = make_settings(voice_asr_interval_s=10.0)
+    conversation = Conversation.load(
+        store,
+        "resume-1",
+        max_messages=settings.history_max_messages,
+        token_budget=settings.history_token_budget,
+        max_stored_messages=settings.history_max_stored_messages,
+        include_interrupted=settings.history_include_interrupted,
+    )
+    client = httpx.AsyncClient(
+        base_url="http://127.0.0.1",
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, text=sse("پاسخ تازه. "))),
+    )
+
+    events: list[dict] = []
+
+    async def scenario() -> None:
+        pipeline = Pipeline(
+            settings,
+            FakeAsr(text="سلامِ جدید"),
+            FakeSpeaker(),
+            client,
+            events.append,
+            conversation=conversation,
+        )
+        # The counter starts after the stored utterances, not at 1.
+        assert pipeline._next_utterance_id == 3
+        pipeline.start()
+        try:
+            feed_utterance(pipeline)
+            await until(
+                lambda: any(m.content == "سلامِ جدید" for m in conversation.messages),
+                timeout=5,
+            )
+            # The reply is committed by the play actor when its last sentence
+            # finishes, so wait for that event rather than for a state.
+            await until(
+                lambda: any(event["type"] == "response_end" for event in events),
+                timeout=5,
+            )
+            # The committed text keeps the sentence terminator the model
+            # produced; the reply is only committed once playback finished.
+            await until(
+                lambda: any(m.content.startswith("پاسخ تازه") for m in conversation.messages),
+                timeout=5,
+            )
+        finally:
+            await pipeline.close()
+
+    asyncio.run(scenario())
+    texts = [message.content for message in conversation.messages]
+    assert texts[:4] == ["سلامِ قبلی", "پاسخِ قبلی", "پرسش دوم", "پاسخ دوم"]
+    assert "سلامِ جدید" in texts
+    assert any(text.startswith("پاسخ تازه") for text in texts)
+    # The resumed turn got a fresh turn id (the store already owns 1 and 2),
+    # so the answer is not deduplicated away.
+    assert conversation.messages[-1].turn_id == 3
+    assert conversation.messages[-2].utterance_id == 3
+    # And the context handed to the model still starts with the old exchange.
+    assert conversation.context()[0]["content"] == "سلامِ قبلی"
+
+
+def test_fresh_pipeline_still_starts_its_utterance_ids_at_one() -> None:
+    from voicekit import make_settings
+
+    pipeline = Pipeline(
+        make_settings(), None, None, None, lambda event: None
+    )
+    assert pipeline._next_utterance_id == 1

@@ -178,3 +178,41 @@ def test_describe_reports_the_effective_continuation_level() -> None:
     assert description["offset_level"] == round(vad.continuation_level, 5)
     assert description["offset_level"] > 0.006
     assert description["onset_level"] == 0.012
+
+
+def test_rejected_utterance_is_reported_explicitly_not_as_silence() -> None:
+    """A cough must produce an explicit ``rejected`` boundary (bug 1).
+
+    ``feed`` cannot express it — ``(False, None)`` also means "nothing
+    happened" — so the detector announces the dropped utterance through
+    ``feed_event``.  Without this signal the caller keeps an utterance open that
+    the detector already threw away, which is how the reply for the *previous*
+    sentence got skipped.
+    """
+    from server.vad import ONSET, REJECTED, SEGMENT
+
+    vad = EnergyVAD(0.02, silence_frames=2, onset_frames=1, min_voiced_frames=8)
+    boundaries = []
+    for _ in range(3):  # too short to be speech, long enough for an onset
+        boundaries.append(vad.feed_event(pcm(3000))[0])
+    for _ in range(2):
+        boundaries.append(vad.feed_event(pcm(0))[0])
+    assert boundaries[:1] == [ONSET]
+    assert REJECTED in boundaries
+    assert SEGMENT not in boundaries
+    assert vad.rejected_utterances == 1
+    assert vad.started is False
+    # The historical API still reports "nothing to transcribe".
+    assert vad.feed(pcm(0)) == (False, None)
+
+
+def test_accepted_utterance_reports_segment_and_never_rejected() -> None:
+    from server.vad import ONSET, REJECTED, SEGMENT
+
+    vad = EnergyVAD(0.02, silence_frames=2, onset_frames=1, min_voiced_frames=2)
+    kinds = [vad.feed_event(pcm(3000))[0] for _ in range(4)]
+    kinds += [vad.feed_event(pcm(0))[0] for _ in range(2)]
+    assert kinds[0] == ONSET
+    assert SEGMENT in kinds
+    assert REJECTED not in kinds
+    assert vad.rejected_utterances == 0

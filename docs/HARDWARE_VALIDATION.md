@@ -8,7 +8,8 @@ Windows 11 64-bit، SSD+HDD.
 
 ## ۰. آماده‌سازی
 
-- [ ] Python 3.12 در venv، `pip install -r requirements.txt -r requirements-voice.txt`
+- [ ] Python 3.12 در venv، `pip install -r requirements-voice.txt -r requirements-dev.txt`
+      (voice = زمان اجرا، dev = pytest برای اجرای تست‌ها)
 - [ ] SpeexDSP DLL ۶۴بیتی طبق [AEC.md](AEC.md) (یا تصمیم صریح برای تست با هدفون)
 - [ ] وزن‌ها: `models/Qwen3-4B-Q4_K_M.gguf`، `models/whisper-small/`، `models/piper/fa_*`
 - [ ] `.env` طبق [CONFIGURATION.md](CONFIGURATION.md)

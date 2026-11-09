@@ -59,17 +59,19 @@ PVAI_LLAMA_SERVER_URL=http://127.0.0.1:8080
 PVAI_LLM_ENABLE_THINKING=false
 PVAI_ASR_MODEL_PATH=models/whisper-small
 PVAI_ASR_THREADS=2
-PVAI_TTS_VOICE=female              # male | female
+PVAI_TTS_VOICE=female   # male | female
 PVAI_TTS_MODEL_FEMALE=models/piper/fa_IR_female.onnx
 PVAI_TTS_MODEL_MALE=models/piper/fa_IR_male.onnx
-PVAI_AUDIO_INPUT_DEVICE=Microphone  # زیررشتهٔ نام یا index
+PVAI_AUDIO_INPUT_DEVICE=Microphone
 PVAI_AUDIO_OUTPUT_DEVICE=Speakers
+# توضیح را در خط جدا بنویسید: کامنت هم‌خط حالا حذف می‌شود،
+# ولی نام دستگاه با فاصله داخلی («Realtek Microphone») قربانی می‌شد
 PVAI_VOICE_VAD_THRESHOLD=0.015
 PVAI_VOICE_ASR_INTERVAL=0.8
 PVAI_HISTORY_PERSIST=true
 ```
 
-مرجع کامل ۴۸ متغیر و اثر هر کدام: [CONFIGURATION.md](CONFIGURATION.md).
+مرجع کامل 82 متغیر و اثر هر کدام: [CONFIGURATION.md](CONFIGURATION.md).
 
 Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama-server باید این گزینه را
 پشتیبانی کند. فیلد `reasoning_content` دیگر به‌عنوان جواب یا صدا استفاده نمی‌شود.
@@ -77,17 +79,23 @@ Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama
 ## اجرا — سه ترمینال
 
 ```powershell
-# ۱: مسیر باینری را مطابق نصب خود تغییر دهید
-D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 127.0.0.1 --port 8080 -t 4
+# ۱: مسیر باینری را مطابق نصب خود تغییر دهید؛ پرچم‌ها از .env می‌آیند
+.\tools\start_llama.ps1 -Exe D:\Lama.cpp\bin\llama-server.exe
 # ۲: API
 .\tools\start_server.ps1
 # ۳: کلاینت صوتی زنده (SpeexDSP نصب و مسیر DLL/SO تنظیم شده باشد)
 .\.venv\Scripts\python.exe -m server.voice
 ```
 
-برای خروج Ctrl+C بزنید. **تاریخچهٔ مکالمه با خروج پاک نمی‌شود**: با `PVAI_HISTORY_PERSIST=true`
-در `data/conversations/<session_id>.jsonl` می‌ماند و با `python -m server.sessions list` قابل
-بازبینی/حذف است (پنجرهٔ RAM با `PVAI_HISTORY_MAX_STORED` محدود است، فایل دیسک کامل می‌ماند).
+برای خروج Ctrl+C بزنید. **تاریخچهٔ مکالمه با خروج پاک نمی‌شود و اجرای بعدی همان نشست را ادامه
+می‌دهد**: با `PVAI_HISTORY_PERSIST=true` در `data/conversations/<session_id>.jsonl` می‌ماند و
+`PVAI_HISTORY_RESUME=on` (پیش‌فرض) هنگام شروع، آخرین نشست را می‌خواند؛ پیام‌ها در startup چاپ
+می‌شوند (`ادامهٔ نشست «…» با N پیام قبلی`). برای شروع تازه `PVAI_HISTORY_RESUME=off` بگذارید یا
+`python -m server.sessions delete-all` را اجرا کنید. با `PVAI_VOICE_SESSION_ID` می‌توانید یک
+شناسهٔ ثابت انتخاب کنید. بازبینی/حذف: `python -m server.sessions list|show|delete|delete-all`.
+پنجرهٔ RAM با `PVAI_HISTORY_MAX_STORED` محدود است، فایل دیسک کامل می‌ماند؛ برای جلوگیری از
+نگه‌داشتن بی‌پایان متن گفتار، `PVAI_HISTORY_RETENTION_DAYS` (پیش‌فرض `0` = همه) و
+`python -m server.sessions purge` را ببینید.
 
 برای فهرست دستگاه‌ها: `python -m server.voice --list-devices`. انتخاب صریح ورودی/خروجی با
 `PVAI_AUDIO_INPUT_DEVICE` / `PVAI_AUDIO_OUTPUT_DEVICE` (نام یا index) انجام می‌شود؛ پیام startup
@@ -113,7 +121,7 @@ D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 1
 ## امنیت و داده
 
 - متن فقط به API محلی/خصوصی می‌رود؛ proxy محیط و redirect کلاینت غیرفعال است.
-- llama-server را هم محلی نگه دارید؛ API فعلی احراز هویت ندارد و نباید عمومی شود.
+- llama-server را محلی نگه دارید و REST را فقط با `PVAI_API_TOKEN` عمومی کنید؛ سرویس روی نشانی غیر-loopback بدون توکن بالا نمی‌آید.
 - در مسیر زنده **صوت** فقط در RAM است و فایل صوتی ساخته نمی‌شود؛ فقط حالت `--turn-based`
   فایل WAV موقت می‌سازد. اما **متن مکالمه** با `PVAI_HISTORY_PERSIST=true` به‌صورت JSONL محلی
   ذخیره می‌شود (قابل خاموش‌کردن و حذف). هیچ‌چیز به بیرون فرستاده نمی‌شود.

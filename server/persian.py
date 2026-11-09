@@ -265,3 +265,429 @@ def spoken_numbers(text: str) -> str:
         else:
             out.append(token)
     return " ".join(out)
+
+
+# --------------------------------------------------------------------------
+# Text-to-speech preparation
+#
+# The LLM is asked for plain Persian prose, but a local model does not always
+# comply and a user can also paste anything into the chat box.  Piper reads
+# whatever it is given *literally*: it spells out ``**`` as noise, says
+# "نقطه" after a list number, and skips an emoji with an audible hesitation.
+# Worse, ``sentences()`` split on the dot of ``1.`` — the reproduction was
+# ``"**مهم:** سه مورد:\n1. اول\n2. دوم"`` becoming
+# ``['**مهم:** سه مورد:\n1.', 'اول\n2.', 'دوم']``, so every list number ended
+# up as its own utterance.
+#
+# ``prepare_for_tts`` is the single entry point that turns model output into
+# something a voice can read.  It is deliberately *destructive*: Markdown,
+# code, links and URLs are removed rather than read aloud, and numbers are
+# spelled out because Piper's Persian voices pronounce "10:30" inconsistently.
+# --------------------------------------------------------------------------
+
+#: Numbers are expanded up to this magnitude; larger ones are spelled digit by
+#: digit (a year, a phone number and a price do not share a grammar).
+SPELL_OUT_LIMIT = 1_000_000_000
+
+_PERSIAN_DIGITS = "صفر یک دو سه چهار پنج شش هفت هشت نه".split()
+_TEENS = "ده یازده دوازده سیزده چهارده پانزده شانزده هفده هجده نوزده".split()
+_TENS = "بیست سی چهل پنجاه شصت هفتاد هشتاد نود".split()
+_HUNDREDS = (
+    "صد دویست سیصد چهارصد پانصد ششصد هفتصد هشتصد نهصد".split()
+)
+_SCALES = ("", "هزار", "میلیون", "میلیارد")
+
+#: Currency words that should be read as a unit after the number.
+_CURRENCY = {
+    "تومان": "تومان",
+    "ریال": "ریال",
+    "دلار": "دلار",
+    "یورو": "یورو",
+    "پوند": "پوند",
+    "$": "دلار",
+    "€": "یورو",
+    "£": "پوند",
+    "﷼": "ریال",
+}
+
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F000-\U0001FAFF"  # pictographs, emoticons, transport, symbols
+    "\U00002600-\U000027BF"  # misc symbols and dingbats
+    "\U00002B00-\U00002BFF"  # arrows and shapes
+    "\U0000FE00-\U0000FE0F"  # variation selectors
+    "\U0001F1E6-\U0001F1FF"  # regional indicators (flags)
+    "\U00002190-\U000021FF"  # arrows
+    "\U000020E3"             # combining enclosing keycap
+    "]+"
+)
+
+_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MD_FENCE_RE = re.compile(r"```.*?(?:```|$)", re.S)
+_MD_INLINE_CODE_RE = re.compile(r"`([^`]*)`")
+_MD_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s*", re.M)
+_MD_QUOTE_RE = re.compile(r"^\s{0,3}>\s?", re.M)
+_URL_RE = re.compile(r"\b(?:https?://|www\.)\S+", re.I)
+_BARE_DOMAIN_RE = re.compile(r"\b[\w.-]+\.(?:com|ir|org|net|io|dev|ai|co)\b\S*", re.I)
+_HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+_MD_EMPHASIS_RE = re.compile(r"(\*{1,3}|_{1,3}|~~)(?=\S)(.+?)(?<=\S)\1", re.S)
+_MD_RULE_RE = re.compile(r"^\s{0,3}([-*_])(?:\s*\1){2,}\s*$", re.M)
+#: A link whose parentheses never closed.  The label is kept -- it is the part
+#: a human hears ("[این لینک](https://…" must still say "این لینک").
+#: "](…" with no closing ")" anywhere after it.
+_UNBALANCED_LINK_RE = re.compile(r"(\[[^\]]*\])\([^)]*$")
+#: Single emphasis markers left over after the balanced pass.
+_UNBALANCED_MD_RE = re.compile(r"(?<!\w)[*_~]{1,3}(?!\w)")
+
+#: ``1.`` / ``2)`` / ``-`` / ``•`` at the start of a line: a list marker, not a
+#: sentence.  ``1.5`` (a decimal) must not match, hence the lookahead.
+_LIST_MARKER_RE = re.compile(
+    r"^[ \t]*(?:[0-9]{1,3}[.)](?=\s)|[•▪◦‣∙·*+\-–—](?=\s))\s*",
+    re.M,
+)
+
+# ``ساعت`` is part of the match so "ساعت 10:30" does not become
+# "ساعت ساعت ده و سی دقیقه", and a bare "10:30" still gets its unit word.
+_TIME_RE = re.compile(
+    r"(?:(?P<word>ساعت)\s*)?\b(?P<hour>[01]?\d|2[0-3])\s*[:٫]\s*(?P<minute>[0-5]\d)\b"
+)
+_PERCENT_RE = re.compile(r"(?P<number>[0-9][0-9.,]*)\s*(?:[٪%]|درصد)")
+_CURRENCY_AFTER_RE = re.compile(
+    r"(?P<number>[0-9][0-9.,]*)\s*(?P<unit>تومان|تومان‌ها|ریال|دلار|یورو|پوند|﷼)"
+)
+_CURRENCY_BEFORE_RE = re.compile(r"(?P<unit>[$€£])\s*(?P<number>[0-9][0-9.,]*)")
+# ``5$`` is clockwise English, ``$5`` counter-clockwise; both are read aloud.
+_CURRENCY_SUFFIX_RE = re.compile(r"(?P<number>[0-9][0-9.,]*)\s*(?P<unit>[$€£])")
+# A number, optionally with a thousands group and a decimal part, in either the
+# Persian or the ASCII convention.  Matched as a *whole* so ``1,234.5`` is read
+# as one quantity instead of ``234.5`` plus a stranded ``1,``.
+_NUMBER_RE = re.compile(
+    r"[0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]+)?"
+    r"|[0-9]+(?:[.,][0-9]+)?"
+)
+#: Brackets and stray glue that a voice would read as noise.
+_NOISE_CHARS_RE = re.compile(r"[\[\]{}()<>|^~\\]+")
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+_DECIMAL_SEP = "٫"  # U+066B, the Persian decimal separator Piper voices know
+
+#: Diacritics that carry meaning for a Persian voice and must survive:
+#: U+0654 (hamza above) makes the ezafe audible — "جملهٔ" is "jomle-ye", and
+#: stripping it turns the word into a bare "جمله".  Vocalisation marks
+#: (fatha/kasra/damma/tanwin/sukun) are absent from normal text and are
+#: removed, because Piper reads them as separate phonemes.
+_TTS_KEEP_DIACRITICS = {"\u0653", "\u0654", "\u0655"}
+
+
+def _strip_tts_diacritics(value: str) -> str:
+    return "".join(
+        char
+        for char in value
+        if char not in DIACRITICS or char in _TTS_KEEP_DIACRITICS
+    )
+
+
+def _three_digits(value: int, *, after_scale: bool = False) -> list[str]:
+    """Persian words for 1..999.
+
+    ``after_scale`` drops the "یک" of a leading hundred: ``100000000`` is
+    "صد میلیون", not "یک صد میلیون".
+    """
+    words: list[str] = []
+    hundreds, rest = divmod(value, 100)
+    if hundreds:
+        words.append(_HUNDREDS[hundreds - 1])
+    if rest >= 20:
+        tens, unit = divmod(rest, 10)
+        words.append(_TENS[tens - 2])
+        if unit:
+            words.append(_PERSIAN_DIGITS[unit])
+    elif rest >= 10:
+        words.append(_TEENS[rest - 10])
+    elif rest:
+        words.append(_PERSIAN_DIGITS[rest])
+    return words
+
+
+def integer_to_words(value: int) -> str:
+    """Spell a whole number in Persian (``0`` included).
+
+    ``1234`` → ``"یک هزار و دویست و سی و چهار"``.  Grouped in threes up to
+    ``SPELL_OUT_LIMIT``; beyond that the digits are read one by one, because a
+    number that large is an identifier (a card, a tracking code), not a
+    quantity, and there is no natural reading of it.
+    """
+    if value < 0:
+        return "منفی " + integer_to_words(-value)
+    if value == 0:
+        return "صفر"
+    if value >= SPELL_OUT_LIMIT:
+        # An identifier, not a quantity: read it digit by digit rather than
+        # leaving ASCII digits for Piper to pronounce inconsistently.
+        return " ".join(_PERSIAN_DIGITS[int(char)] for char in str(value))
+
+    groups: list[str] = []
+    scale = 0
+    remainder = value
+    while remainder:
+        remainder, chunk = divmod(remainder, 1000)
+        if chunk:
+            # "یک میلیون", never "یک و میلیون": the scale word follows the
+            # group without a conjunction, and only the groups are joined by و.
+            part = " و ".join(_three_digits(chunk))
+            if scale:
+                # "صد میلیون", not "یک صد میلیون"; "یک هزار" stays as it is
+                # because "هزار" on its own is not idiomatic Persian either.
+                if part == "یک صد":
+                    part = "صد"
+                part = f"{part} {_SCALES[scale]}"
+            groups.append(part)
+        scale += 1
+    return " و ".join(reversed(groups))
+
+
+def number_to_words(text: str) -> str:
+    """Spell a numeric token, keeping a decimal part.
+
+    Accepts ASCII digits plus the Persian/Arabic forms (normalised first).
+    ``"3.5"`` → ``"سه ممیز پنج"``; ``"1402"`` → ``"یک هزار و چهارصد و دو"``.
+    A ``.`` that groups thousands (``1.234.567``) is *not* a decimal point.
+    """
+    value = _to_ascii_digits((text or "").strip())
+    if not value:
+        return ""
+    value = _normalise_separators(value)
+    whole, dot, fraction = value.partition(".")
+    try:
+        spoken = integer_to_words(int(whole or "0"))
+    except ValueError:
+        return value
+    if dot and fraction:
+        spoken += " ممیز " + integer_to_words(int(fraction))
+    return spoken
+
+
+def _normalise_separators(value: str) -> str:
+    """Decide which separators are thousands groups and which are decimals.
+
+    Persian writes decimals with ``٫`` (U+066B) and thousands with ``,``.  Text
+    pasted from elsewhere mixes conventions, so: a ``.`` or ``,`` followed by
+    exactly three digits and then a separator is a group; anything else is a
+    decimal point.  ``1,234.5`` → ``1234.5``; ``1,5`` → ``1.5``;
+    ``1.234.567`` → ``1234567``.
+    """
+    value = value.replace(_DECIMAL_SEP, ".").strip()
+    groups = re.fullmatch(
+        r"([0-9]{1,3}(?:[.,][0-9]{3})+(?:[.,][0-9]+)?)|([0-9]+[.,][0-9]+)|([0-9]+)",
+        value,
+    )
+    if groups is None:
+        return value
+    text = value
+    # Strip every separator that is followed by exactly three digits and is not
+    # the *last* separator in a decimal number.
+    thinned = re.sub(r"(?<=\d)[.,](?=\d{3}(?:[.,]|$))", "", text)
+    # Whatever single separator remains is the decimal point.
+    thinned = thinned.replace(",", ".")
+    if thinned.count(".") > 1:
+        parts = thinned.split(".")
+        thinned = "".join(parts[:-1]) + "." + parts[-1]
+    return thinned
+
+
+def _to_ascii_digits(text: str) -> str:
+    """Persian (۰-۹) and Arabic-Indic (٠-٩) digits → ASCII."""
+    return "".join(DIGIT_MAP.get(char, char) for char in (text or ""))
+
+
+def split_tts_sentences(text: str) -> list[str]:
+    """Split text into utterances without breaking on list numbers or decimals.
+
+    ``sentences()`` in :mod:`server.live_voice` splits on any ``.`` followed by
+    whitespace, which turns ``"1. اول"`` into two utterances and ``"۳.۵"`` into
+    two as well.  This splitter protects both, and also keeps a trailing
+    ``.`` attached to the sentence it ends.
+    """
+    value = (text or "").strip()
+    if not value:
+        return []
+    protected: list[str] = []
+
+    def _protect(match: re.Match[str]) -> str:
+        protected.append(match.group(0))
+        return f"\u0000{len(protected) - 1}\u0000"
+
+    # Hide decimals and clock times from the sentence splitter.
+    value = re.sub(r"\b[0-9]+\.[0-9]+\b", _protect, value)
+    value = _TIME_RE.sub(_protect, value)
+
+    parts = re.split(
+        r"(?<=[.!؟?؛])\s+|\n+",
+        value,
+    )
+    result: list[str] = []
+    for part in parts:
+        restored = re.sub(
+            r"\u0000([0-9]+)\u0000", lambda m: protected[int(m.group(1))], part
+        ).strip()
+        if restored:
+            result.append(restored)
+    return result
+
+
+def prepare_for_tts(text: str) -> str:
+    """Turn model output into text a Persian voice can read aloud.
+
+    Removes Markdown, code, links, URLs, HTML and emoji; flattens list markers;
+    then spells out times, percentages, currency amounts and plain numbers.
+    Punctuation is kept (Piper uses it for prosody) but the نیم‌فاصله is
+    normalised so a voice does not insert a glottal stop mid-word.
+
+    Idempotent: running it twice produces the same string, which matters
+    because the pipeline may prepare a sentence that was already prepared
+    incrementally.
+    """
+    value = unicodedata.normalize("NFC", text or "")
+
+    # --- structure that must disappear entirely -------------------------
+    value = _MD_FENCE_RE.sub(" ", value)          # fenced code blocks
+    value = _MD_IMAGE_RE.sub(" ", value)          # images (alt text is not speech)
+    # A never-closed link first: the balanced pattern below would treat its
+    # bracket as plain text and the label would disappear with it.
+    value = _UNBALANCED_LINK_RE.sub(
+        lambda m: m.group(1)[1:-1], value
+    )
+    value = _MD_LINK_RE.sub(r"\1", value)         # keep the label, drop the URL
+    value = _URL_RE.sub(" ", value)
+    value = _BARE_DOMAIN_RE.sub(" ", value)
+    value = _HTML_TAG_RE.sub(" ", value)
+    value = _MD_RULE_RE.sub(" ", value)
+    value = _MD_INLINE_CODE_RE.sub(r"\1", value)  # keep the code, it is read
+
+    value = _MD_HEADING_RE.sub(" ", value)        # "# title" → "title"
+    value = _MD_QUOTE_RE.sub("", value)           # "> quote" → "quote"
+    value = _LIST_MARKER_RE.sub("", value)        # "1. ", "- " → ""
+    value = _MD_EMPHASIS_RE.sub(r"\2", value)     # **bold** / _italic_ / ~~strike~~
+    # Unbalanced leftovers ("**بدون بسته شدن"), which the pattern above cannot
+    # match.  A voice reads every asterisk, so no marker may survive.
+    value = value.replace("**", " ").replace("~~", " ").replace("__", " ")
+    value = _UNBALANCED_MD_RE.sub(" ", value)
+    # A link whose parentheses never closed keeps its bracket syntax otherwise.
+    value = _UNBALANCED_LINK_RE.sub(" ", value)
+    value = _EMOJI_RE.sub(" ", value)
+    value = value.replace("*", " ")               # stray asterisks are noise
+    value = value.replace("`", "")
+
+    # --- letters and spacing -------------------------------------------
+    # ``normalize`` is the *evaluation* policy and strips every diacritic; a
+    # voice needs the ezafe, so the hamza forms are restored afterwards.
+    value = _strip_tts_diacritics(unicodedata.normalize("NFC", value))
+    value = "".join(LETTER_MAP.get(char, char) for char in value)
+    value = value.replace(TATWEEL, "").replace(_ARABIC_QUESTION, "؟")
+    value = _to_ascii_digits(value)
+    value = _CONTROL_RE.sub(" ", value)
+    value = _NOISE_CHARS_RE.sub(" ", value)
+    value = value.replace(ZWNJ, "\u200c")  # keep an explicit, single form
+    value = re.sub(r"[ \t]+", " ", value)
+    value = "\n".join(line.strip() for line in value.splitlines())
+    value = re.sub(r"\n{2,}", "\n", value).strip()
+    if not value:
+        return ""
+    # --- numbers as words ----------------------------------------------
+    spoken = _speak_numbers(value)
+    # The period goes on *after* expansion: ``"قیمت $5"`` ends with a digit at
+    # this point and would otherwise come back without its full stop.
+    if spoken and not spoken.rstrip().endswith(tuple(".!؟?؛")):
+        spoken = spoken.rstrip() + "."
+    return spoken
+
+
+_VERSION_RE = re.compile(r"\b[0-9]+(?:\.[0-9]+){2,}\b")
+
+
+def _speak_numbers(value: str) -> str:
+    """Replace times, percentages, currency and bare numbers with words."""
+
+    def _time(match: re.Match[str]) -> str:
+        hour, minute = int(match.group("hour")), int(match.group("minute"))
+        spoken = f"{integer_to_words(hour)} و {integer_to_words(minute)} دقیقه"
+        # Only add the unit word when the text does not already say it.
+        prefix = "" if match.group("word") else "ساعت "
+        return prefix + spoken
+
+    def _percent(match: re.Match[str]) -> str:
+        return f"{number_to_words(match.group('number'))} درصد"
+
+    def _currency_after(match: re.Match[str]) -> str:
+        unit = match.group("unit")
+        return f"{number_to_words(match.group('number'))} {_CURRENCY.get(unit, unit)}"
+
+    def _currency_before(match: re.Match[str]) -> str:
+        return (
+            f"{number_to_words(match.group('number'))} "
+            f"{_CURRENCY[match.group('unit')]}"
+        )
+
+    # ``2.1.0`` is a version, not a decimal followed by a sentence: read every
+    # component separately.  Done first, or the generic number rule splits it
+    # into "دو ممیز یک" plus a stranded ".صفر".
+    def _version(match: re.Match[str]) -> str:
+        return " نقطه ".join(
+            number_to_words(part) for part in match.group(0).split(".")
+        )
+
+    value = _VERSION_RE.sub(_version, value)
+    value = _TIME_RE.sub(_time, value)
+    value = _PERCENT_RE.sub(_percent, value)
+    value = _CURRENCY_AFTER_RE.sub(_currency_after, value)
+    value = _CURRENCY_SUFFIX_RE.sub(_currency_before, value)
+    value = _CURRENCY_BEFORE_RE.sub(_currency_before, value)
+    value = _NUMBER_RE.sub(lambda m: number_to_words(m.group(0)), value)
+    value = value.replace(_DECIMAL_SEP, " ممیز ")
+    return " ".join(value.split())
+
+
+# --------------------------------------------------------------------------
+# False-accept rate (silence / noise)
+#
+# WER and CER only describe what happens when there *was* speech.  They cannot
+# see the failure that matters most in a voice assistant: Whisper inventing a
+# sentence on silence.  Because a non-empty transcript starts a full LLM turn,
+# one hallucination is worse than a dozen misheard words — the assistant
+# confidently answers a question nobody asked, spends TTS time and interrupts
+# the music the microphone picked up.
+#
+# A false accept needs a *negative* set: clips where the reference is empty
+# (silence, room noise, TV in the background).  The rate below is the share of
+# those clips that produced any text at all.
+# --------------------------------------------------------------------------
+
+
+def false_accept_rate(hypotheses: Iterable[str]) -> dict[str, float | int]:
+    """Share of no-speech clips that produced a transcript anyway.
+
+    Each input is the hypothesis for a clip whose reference is *empty*.  A
+    transcript that is only punctuation or whitespace counts as no transcript:
+    nothing would start a turn.  ``0 of 0`` reports ``0.0`` with
+    ``measured: 0`` rather than pretending to a rate it never observed.
+    """
+    clips = list(hypotheses)
+    accepted = [
+        text for text in clips if normalize_for_eval(text or "").strip()
+    ]
+    return {
+        "clips": len(clips),
+        "accepted": len(accepted),
+        "false_accept_rate": round(len(accepted) / len(clips), 4) if clips else 0.0,
+        "measured": len(clips),
+    }
+
+
+def false_accept_examples(hypotheses: Iterable[str], limit: int = 10) -> list[str]:
+    """The transcripts behind the rate — a bare number cannot be diagnosed."""
+    return [
+        text
+        for text in hypotheses
+        if normalize_for_eval(text or "").strip()
+    ][:limit]
