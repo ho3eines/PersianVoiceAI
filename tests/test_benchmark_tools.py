@@ -232,3 +232,13 @@ def test_silence_never_triggers_the_detector(benchmark_voice) -> None:
     benchmark_voice.scenario_idle_measured(report, settings, 0.2)
     rows = {row.metric: row for row in report.rows}
     assert rows["vad_false_positives"].value == 0
+
+
+def test_text_benchmark_standalone_script_imports_local_auth_helper():
+    import subprocess
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run([sys.executable, 'benchmarks/bench_chat.py', '--help'], cwd=root,
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr

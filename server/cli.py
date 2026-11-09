@@ -19,6 +19,8 @@ import time
 from typing import Any
 
 import httpx
+from .config import Settings
+from .voice import local_client_headers, local_api_url
 
 MAX_SESSION_TURNS = 6  # 6 user + 6 assistant messages sent as context
 
@@ -268,7 +270,7 @@ def _run_interactive(client: httpx.Client, args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Persian Voice AI - local Persian chat (llama.cpp)")
-    parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--base-url", default=local_api_url(Settings.from_env()))
     parser.add_argument("--model", default=None, help="override the server model")
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--max-tokens", type=int, default=None)
@@ -286,7 +288,7 @@ def main(argv: list[str] | None = None) -> int:
 
     with httpx.Client(
         timeout=httpx.Timeout(args.timeout, connect=5.0),
-        headers={"Accept": "text/event-stream"},
+        headers={"Accept": "text/event-stream", **local_client_headers(Settings.from_env(), args.base_url)},
     ) as client:
         if args.once:
             return _run_once(client, args)

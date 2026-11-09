@@ -131,38 +131,12 @@ def test_the_repository_map_lists_every_server_module() -> None:
 
 
 # --------------------------------------------------------------- claims/numbers
-def test_readme_and_status_agree_on_the_test_count() -> None:
-    """Both quote a total; two different totals means one is stale."""
-    def totals(text: str) -> set[int]:
-        normalised = text.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
-        return {
-            int(n)
-            for n in re.findall(r"(\d+)\s*passed", normalised)
-        }
-
-    readme = max(totals((ROOT / "README.md").read_text(encoding="utf-8")))
-    status = max(totals((ROOT / "docs" / "STATUS.md").read_text(encoding="utf-8")))
-    assert readme == status, (readme, status)
-
-
-def test_the_documented_test_total_is_not_absurd() -> None:
-    """A cheap sanity bound: the claim must be plausible for this repository.
-
-    The exact figure is checked by running the suite; this only catches a
-    number edited by a factor of ten, which no manual review reliably spots.
-    """
-    normalised = (ROOT / "docs" / "STATUS.md").read_text(encoding="utf-8").translate(
-        str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
-    )
-    claimed = max(int(n) for n in re.findall(r"(\d+)\s*passed", normalised))
-    defined = sum(
-        1
-        for path in (ROOT / "tests").glob("test_*.py")
-        for _ in re.finditer(r"^def (test_[a-z0-9_]+)", path.read_text(encoding="utf-8"), re.M)
-    )
-    # Parametrisation multiplies functions into cases, so cases >= functions.
-    assert claimed >= defined, (claimed, defined)
-    assert claimed < defined * 10, (claimed, defined)
+def test_no_current_document_pins_a_fixed_pass_count() -> None:
+    """Run pytest to learn the live total; stale hard-coded totals are forbidden."""
+    for name in ("README.md", "AGENTS.md", "docs/STATUS.md", "docs/ISSUE_REGISTER.md"):
+        text = (ROOT / name).read_text(encoding="utf-8").translate(
+            str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
+        assert not re.search(r"\d+\s+passed", text), name
 
 
 @pytest.mark.parametrize("name", ["README.md", "AGENTS.md", "LICENSE", "THIRD_PARTY.md"])
@@ -191,3 +165,11 @@ def test_every_relative_documentation_link_resolves() -> None:
             if not (doc.parent / target).resolve().exists():
                 broken.append(f"{doc.name} -> {target}")
     assert not broken, broken
+
+
+def test_current_docs_do_not_pin_a_stale_pytest_pass_count() -> None:
+    """A changing parametrized suite must not advertise a hard-coded count."""
+    for name in ('README.md', 'AGENTS.md', 'docs/STATUS.md', 'docs/ISSUE_REGISTER.md'):
+        text = (ROOT / name).read_text(encoding='utf-8').translate(
+            str.maketrans('۰۱۲۳۴۵۶۷۸۹', '0123456789'))
+        assert not re.search(r'\d+\s+passed', text), name

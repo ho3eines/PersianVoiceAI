@@ -73,7 +73,7 @@ cp .env.example .env
 
 ## وضعیت صادقانه
 
-- تست خودکار: **۶۰۶ passed، ۵ skipped** (بدون مدل/میکروفون/شبکه؛ skipها فقط native SpeexDSP و numpy).
+- تست خودکار: **تعداد تست‌ها پویاست؛ `python -m pytest` را اجرا کنید** (بدون مدل/میکروفون/شبکه؛ skipها فقط native SpeexDSP و scipy در این محیط).
   این تست‌ها منطق و کنترل جریان را ثابت می‌کنند، نه کیفیت صدا.
 - مدل‌های واقعی (Whisper/Piper/Qwen) در مخزن نیستند؛ در sandbox نصب هم نبودند، پس
   ASR/TTS/LLM واقعی **NOT MEASURED** است.

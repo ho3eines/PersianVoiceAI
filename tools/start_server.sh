@@ -38,7 +38,11 @@ fi
 BIND="${BIND:-127.0.0.1}"
 PORT="${PORT:-8000}"
 
-echo "Persian Voice AI API (llama.cpp) -> http://$BIND:$PORT"
-echo "Docs: http://$BIND:$PORT/docs"
+SCHEME="http"
+if [[ -n "${PVAI_SSL_CERTFILE:-}" && -n "${PVAI_SSL_KEYFILE:-}" ]]; then
+    SCHEME="https"
+fi
+echo "Persian Voice AI API (llama.cpp) -> $SCHEME://$BIND:$PORT"
+echo "Docs: $SCHEME://$BIND:$PORT/docs"
 
 exec "$PYTHON" -m server

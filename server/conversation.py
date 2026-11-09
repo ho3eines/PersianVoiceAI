@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import threading
 import time
 import uuid
@@ -136,6 +137,60 @@ class Message:
         return estimate_tokens(self.content) + MESSAGE_OVERHEAD_TOKENS
 
 
+class SessionInUse(RuntimeError):
+    """A second process attempted to write one session's JSONL concurrently."""
+
+
+class SessionLease:
+    """OS-backed, non-blocking per-session lock with a diagnostic PID file.
+
+    OS locks are released on process death (no stale lockfile reclamation race).
+    The .lock file persists; its PID is informational only, never an authority.
+    """
+
+    def __init__(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags, 0o600)
+        self.handle = os.fdopen(descriptor, "r+b")
+        try:
+            self.handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (OSError, BlockingIOError) as exc:
+            self.handle.close()
+            raise SessionInUse(f"session_in_use: {path.stem}") from exc
+        self.handle.seek(0)
+        self.handle.truncate()
+        self.handle.write(str(os.getpid()).encode("ascii") + b"\n")
+        self.handle.flush()
+
+    def close(self) -> None:
+        if self.handle.closed:
+            return
+        self.handle.seek(0)
+        self.handle.truncate()
+        self.handle.flush()
+        if os.name == "nt":
+            import msvcrt
+            self.handle.seek(0)
+            msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+        self.handle.close()
+
+    def __enter__(self) -> SessionLease:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.close()
+
+
 class NullStore:
     """Persistence disabled (``PVAI_HISTORY_PERSIST=false``)."""
 
@@ -152,7 +207,7 @@ class NullStore:
     def sessions(self) -> list[dict[str, Any]]:
         return []
 
-    def latest_session(self) -> str | None:
+    def latest_session(self, prefix: str = "") -> str | None:
         return None
 
     def count_messages(self, session_id: str) -> int:
@@ -161,7 +216,7 @@ class NullStore:
     def purge_older_than(self, days: int, *, now: float | None = None) -> list[str]:
         return []
 
-    def delete(self, session_id: str) -> bool:
+    def delete(self, session_id: str, *, raise_on_locked: bool = False) -> bool:
         return False
 
     def delete_all(self) -> int:
@@ -177,6 +232,7 @@ class ConversationStore:
         self.root = Path(root)
         self.error: str | None = None
         self._lock = threading.Lock()
+        self._count_cache: dict[Path, tuple[int, int, int]] = {}
         # The directory is created lazily on the first write: constructing the
         # store (readiness, API startup, tests) must not touch the disk.
 
@@ -208,6 +264,10 @@ class ConversationStore:
             raise ValueError(f"session id {cleaned!r} is a reserved device name")
         return cleaned
 
+    def claim(self, session_id: str) -> SessionLease:
+        """Reserve this file before reading ids and until the writer closes."""
+        return SessionLease(self.root / f"{self.sanitize(session_id).lower()}.lock")
+
     def _colliding_case(self, session_id: str) -> str | None:
         """An existing session id that differs only by case, if any."""
         try:
@@ -230,17 +290,15 @@ class ConversationStore:
         with self._lock:
             try:
                 self.root.mkdir(parents=True, exist_ok=True)
-                if not path.exists():
-                    collision = self._colliding_case(session_id)
-                    if collision is not None and collision != session_id:
-                        # Two ids that differ only by case would be one file on
-                        # Windows (and an interleaved log there).  Refuse the
-                        # second one instead of corrupting the first.
-                        self.error = (
-                            f"session id {session_id!r} differs only by case from "
-                            f"existing session {collision!r}"
-                        )
-                        return False
+                collision = self._colliding_case(session_id)
+                if collision is not None and collision != session_id:
+                    # Even when path.exists() is True on a case-insensitive
+                    # filesystem, this identifier may name someone else's file.
+                    self.error = (
+                        f"session id {session_id!r} differs only by case from "
+                        f"existing session {collision!r}"
+                    )
+                    return False
                 with path.open("a", encoding="utf-8") as handle:
                     handle.write(line + "\n")
             except OSError as exc:
@@ -320,22 +378,35 @@ class ConversationStore:
         if not self.root.is_dir():
             return []
         found: list[dict[str, Any]] = []
-        for path in sorted(self.root.glob("*.jsonl")):
+        paths = set(self.root.glob("*.jsonl"))
+        with self._lock:
+            for removed in self._count_cache.keys() - paths:
+                del self._count_cache[removed]
+        for path in sorted(paths):
             try:
                 stat = path.stat()
             except OSError:
                 continue
+            with self._lock:
+                cached = self._count_cache.get(path)
+            fingerprint = (stat.st_size, stat.st_mtime_ns)
+            if cached is None or cached[:2] != fingerprint:
+                count = self._count_messages(path)
+                with self._lock:
+                    self._count_cache[path] = (*fingerprint, count)
+            else:
+                count = cached[2]
             found.append(
                 {
                     "session_id": path.stem,
-                    "messages": self._count_messages(path),
+                    "messages": count,
                     "updated_at": stat.st_mtime,
                     "bytes": stat.st_size,
                 }
             )
         return found
 
-    def latest_session(self) -> str | None:
+    def latest_session(self, prefix: str = "") -> str | None:
         """Session id of the most recently written session, if any.
 
         Used by the local live voice loop to resume where the user left off.
@@ -343,7 +414,7 @@ class ConversationStore:
         if not self.root.is_dir():
             return None
         try:
-            paths = list(self.root.glob("*.jsonl"))
+            paths = list(self.root.glob(f"{prefix}*.jsonl"))
             if not paths:
                 return None
             return max(paths, key=lambda path: path.stat().st_mtime).stem
@@ -353,9 +424,8 @@ class ConversationStore:
     def purge_older_than(self, days: int, *, now: float | None = None) -> list[str]:
         """Delete sessions untouched for ``days`` days; return the removed ids.
 
-        ``PVAI_HISTORY_RETENTION_DAYS`` is opt-in (0 = keep everything): speech
-        transcripts are plain text on disk, so an unbounded store is a privacy
-        and disk-space problem the user cannot see without running the CLI.
+        ``PVAI_HISTORY_RETENTION_DAYS`` defaults to 30 (0 explicitly disables).
+        Plain-text transcripts otherwise stay on disk indefinitely.
         """
         if days <= 0 or not self.root.is_dir():
             return []
@@ -368,15 +438,25 @@ class ConversationStore:
                 removed.append(entry["session_id"])
         return removed
 
-    def delete(self, session_id: str) -> bool:
+    def delete(self, session_id: str, *, raise_on_locked: bool = False) -> bool:
         try:
             path = self.path(session_id)
-        except ValueError:
-            return False
-        try:
-            path.unlink()
+            if not path.is_file():
+                return False
+            # Do not purge/delete an active conversation while its writer owns
+            # the JSONL (including writers in another process).
+            with self.claim(session_id):
+                path.unlink()
+            with self._lock:
+                self._count_cache.pop(path, None)
+            self.error = None
             return True
-        except FileNotFoundError:
+        except SessionInUse:
+            if raise_on_locked:
+                raise
+            self.error = "session_in_use"
+            return False
+        except (ValueError, FileNotFoundError):
             return False
         except OSError as exc:
             self.error = f"conversation delete failed: {exc}"
@@ -427,6 +507,7 @@ class Conversation:
         self.max_stored_messages = max(8, int(max_stored_messages))
         self.include_interrupted = bool(include_interrupted)
         self.store = store or NullStore()
+        self._lease: SessionLease | None = None
         self._clock = clock
         self.messages: list[Message] = []
         self._next_id = 1
@@ -441,6 +522,11 @@ class Conversation:
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------- lifecycle
+    def close(self) -> None:
+        if self._lease is not None:
+            self._lease.close()
+            self._lease = None
+
     def next_utterance_id(self) -> int:
         """First utterance id that cannot collide with anything already stored."""
         with self._lock:
@@ -662,6 +748,7 @@ def resume_target(
     store: ConversationStore | NullStore,
     session_id: str | None,
     resume: bool | None = None,
+    *, local: bool = False,
 ) -> str | None:
     """Which session id should be *loaded* (``None`` = start empty).
 
@@ -680,6 +767,8 @@ def resume_target(
       own new session, never the file another device (or the local loop) was
       last writing to.
     """
+    if local and session_id is not None and not session_id.startswith("pc-"):
+        session_id = "pc-" + session_id
     if session_id is not None:
         return session_id
     if resume is False:
@@ -690,12 +779,13 @@ def resume_target(
         return None
     explicit = str(getattr(settings, "voice_session_id", "") or "").strip()
     if explicit:
-        return explicit
-    return store.latest_session()
+        return (explicit if explicit.startswith("pc-") else "pc-" + explicit) if local else explicit
+    return store.latest_session(prefix="pc-" if local else "")
 
 
 def create_conversation(
-    settings: Any, *, session_id: str | None = None, resume: bool | None = None
+    settings: Any, *, session_id: str | None = None, resume: bool | None = None,
+    local: bool = False, exclusive: bool = False,
 ) -> Conversation:
     """Build a conversation honouring the configured limits and persistence.
 
@@ -718,10 +808,20 @@ def create_conversation(
         ),
         "include_interrupted": bool(getattr(settings, "history_include_interrupted", False)),
     }
-    target = resume_target(settings, store, session_id, resume)
-    if target is None:
-        return Conversation(session_id=session_id, store=store, **options)
-    return Conversation.load(store, target, **options)
+    target = resume_target(settings, store, session_id, resume, local=local)
+    chosen = target
+    if chosen is None:
+        chosen = ("pc-" if local else "s-") + uuid.uuid4().hex[:12]
+    lease = store.claim(chosen) if exclusive and isinstance(store, ConversationStore) else None
+    try:
+        conversation = (Conversation.load(store, chosen, **options) if target is not None
+                        else Conversation(session_id=chosen, store=store, **options))
+        conversation._lease = lease
+        return conversation
+    except BaseException:
+        if lease is not None:
+            lease.close()
+        raise
 
 
 def purge_expired(settings: Any, store: ConversationStore | NullStore | None = None) -> list[str]:

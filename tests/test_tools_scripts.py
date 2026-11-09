@@ -74,9 +74,7 @@ def test_no_powershell_only_launcher_is_left_unmatched() -> None:
         for script in TOOLS.glob("*.ps1")
         if not (TOOLS / (script.stem + ".sh")).exists()
     ]
-    # setup_ollama.ps1 is Ollama-specific and deliberately not ported; see
-    # docs/PLATFORMS.md.  Anything new appearing here must be a decision.
-    assert sorted(unmatched) == ["setup_ollama.ps1"], unmatched
+    assert not unmatched, unmatched
 
 
 def test_the_readme_documents_both_platforms() -> None:
@@ -123,3 +121,10 @@ def test_third_party_document_covers_every_model_and_piper() -> None:
 def test_no_stray_api_capture_is_committed_at_the_root() -> None:
     """response.json was a debug capture from a real chat completion."""
     assert not (ROOT / "response.json").exists()
+
+
+def test_server_launchers_announce_https_when_cert_configured() -> None:
+    bash = (TOOLS/'start_server.sh').read_text()
+    powershell = (TOOLS/'start_server.ps1').read_text()
+    assert 'PVAI_SSL_CERTFILE' in bash
+    assert 'PVAI_SSL_CERTFILE' in powershell

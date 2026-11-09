@@ -27,6 +27,13 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+# Direct script execution puts benchmarks/ (not the repository root) on sys.path.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from server.config import Settings  # noqa: E402
+from server.voice import local_client_headers, local_api_url  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PROMPTS = ROOT / "benchmarks" / "prompts_fa.json"
@@ -124,7 +131,7 @@ def stream_completion(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Persian Voice AI lesson-1 benchmark")
-    parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--base-url", default=local_api_url(Settings.from_env()))
     parser.add_argument("--prompts", type=Path, default=DEFAULT_PROMPTS)
     parser.add_argument("--runs", type=int, default=1, help="repetitions per prompt")
     parser.add_argument("--max-tokens", type=int, default=200)
@@ -143,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
 
     with httpx.Client(
         timeout=httpx.Timeout(args.timeout, connect=5.0),
-        headers={"Accept": "text/event-stream"},
+        headers={"Accept": "text/event-stream", **local_client_headers(Settings.from_env(), base_url)},
     ) as client:
         health_response = client.get(f"{base_url}/health", timeout=10.0)
         health_response.raise_for_status()

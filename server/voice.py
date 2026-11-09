@@ -19,11 +19,16 @@ import httpx
 
 from .config import Settings
 from .persian import normalize_for_eval
+from .metrics import Metrics
 
 logger = logging.getLogger("persian_voice_ai.asr")
 
 SAMPLE_RATE = 16000
 """"""  # the ASR/TTS contract of this project is PCM16 mono @ 16 kHz
+
+
+class AsrPreempted(Exception):
+    """A superseded partial ASR decode stopped between lazy segments."""
 
 
 class VoiceError(RuntimeError):
@@ -41,7 +46,28 @@ def local_api_url(settings: Settings) -> str:
             raise VoiceError("آدرس API باید IP محلی باشد.") from exc
         if not (address.is_private or address.is_loopback):
             raise VoiceError("ارسال صدا و متن به آدرس عمومی مجاز نیست.")
-    return f"http://{'[' + host + ']' if ':' in host else host}:{settings.api_port}"
+    scheme = "https" if settings.ssl_certfile and settings.ssl_keyfile else "http"
+    return f"{scheme}://{'[' + host + ']' if ':' in host else host}:{settings.api_port}"
+
+
+def local_client_headers(settings: Settings, base_url: str | None = None) -> dict[str, str]:
+    """Authenticate only the configured local API, never a custom remote URL."""
+    if base_url is not None:
+        from urllib.parse import urlsplit
+        expected = urlsplit(local_api_url(settings))
+        target = urlsplit(base_url)
+        loopbacks = {"localhost", "127.0.0.1", "::1"}
+        same_host = (target.hostname == expected.hostname or
+                     target.hostname in loopbacks and expected.hostname in loopbacks)
+        if not same_host or (target.scheme, target.port) != (expected.scheme, expected.port):
+            return {}
+    return {"Authorization": f"Bearer {settings.api_token}"} if settings.api_token else {}
+
+
+def assert_local_api_authorized(response: httpx.Response) -> None:
+    """Report missing internal credentials, not a generic model failure."""
+    if getattr(response, "status_code", None) == 401:
+        raise VoiceError("PVAI_API_TOKEN برای کلاینت داخلی تنظیم نشده؛ تنظیمات API و کلاینت را یکسان کنید.")
 
 
 def dependency(name: str) -> Any:
@@ -117,7 +143,7 @@ class LocalAudio:
 
     def __init__(self, settings: Settings, metrics: Any = None) -> None:
         self.settings = settings
-        self.metrics = metrics
+        self.metrics = metrics if metrics is not None else Metrics(enabled=False)
         self.model: Any = None
         self._lock = threading.Lock()
         # Decoding is *not* thread-safe in CTranslate2 and one model is now
@@ -198,7 +224,7 @@ class LocalAudio:
     def transcribe(self, source: Path) -> str:
         return self._transcribe(str(source))
 
-    def transcribe_pcm(self, pcm: bytes) -> str:
+    def transcribe_pcm(self, pcm: bytes, token: threading.Event | None = None, job: Any = None) -> str:
         """Decode an in-memory PCM window; never write live microphone audio to disk.
 
         Partial windows are bounded by ``PVAI_ASR_PARTIAL_WINDOW_S`` in the
@@ -207,7 +233,7 @@ class LocalAudio:
         """
         np = dependency("numpy")
         samples = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
-        return self._transcribe(samples)
+        return self._transcribe(samples, token=token)
 
     def _transcribe_options(self) -> dict[str, Any]:
         """The ``transcribe`` keyword arguments, built from settings.
@@ -215,10 +241,10 @@ class LocalAudio:
         ``language`` used to be hard-coded to ``"fa"``, which is right for this
         project but wrong for a Persian/English speaker who switches mid
         sentence, and impossible to override without editing code.
-        ````PVAI_ASR_LANGUAGE=auto`` hands the choice back to Whisper.
+        ``PVAI_ASR_LANGUAGE=auto`` passes ``None`` to Whisper for detection.
         """
         options: dict[str, Any] = {
-            "language": self.settings.asr_language or "auto",
+            "language": self.settings.asr_language if self.settings.asr_language not in ("auto", "") else None,
             "vad_filter": self.settings.asr_vad_filter,
             "beam_size": self.settings.asr_beam_size,
             "condition_on_previous_text": False,
@@ -233,17 +259,17 @@ class LocalAudio:
             options["initial_prompt"] = prompt
         return options
 
-    def _accepted_segments(self, segments: Iterable[Any]) -> list[Any]:
+    def _accepted_segments(self, segments: Iterable[Any], token: threading.Event | None = None) -> list[Any]:
         """Drop the segments that are Whisper talking to itself.
 
         On silence or noise Whisper does not return nothing: it returns a
         plausible sentence ("زیرنویسها توسط تیم ما تهیه شده است", "ممنون از
         تماشای شما").  A non-empty transcript starts a whole LLM turn, so a
         hallucination becomes a confident answer to a question nobody asked.
-        Three independent signals are used:
+        The two uncertainty scores must agree; other rejection signals are independent:
 
-        * ``no_speech_prob``  — the model itself is unsure anything was said;
-        * ``avg_logprob``     — the decode is not confident in its own words;
+        * ``no_speech_prob``  — high *together with* low avg_logprob;
+        * ``avg_logprob``     — low *together with* high no_speech_prob;
         * ``compression_ratio`` — the classic repetition loop;
         * a phrase list, matched after Persian normalisation.
         """
@@ -253,6 +279,8 @@ class LocalAudio:
         phrases = self._hallucination_phrases()
         accepted: list[Any] = []
         for segment in segments:
+            if token is not None and token.is_set():
+                raise AsrPreempted()
             text = (getattr(segment, "text", "") or "").strip()
             if not text:
                 continue
@@ -260,10 +288,9 @@ class LocalAudio:
             log_prob = getattr(segment, "avg_logprob", None)
             ratio = getattr(segment, "compression_ratio", None)
             reason = None
-            if no_speech is not None and no_speech >= threshold:
-                reason = "no_speech_prob"
-            elif log_prob is not None and log_prob < log_prob_min:
-                reason = "avg_logprob"
+            if (no_speech is not None and no_speech >= threshold
+                    and log_prob is not None and log_prob < log_prob_min):
+                reason = "no_speech_and_low_logprob"
             elif ratio is not None and ratio > ratio_max:
                 reason = "compression_ratio"
             elif _is_hallucination(text, phrases):
@@ -283,17 +310,21 @@ class LocalAudio:
             if part.strip()
         )
 
-    def _transcribe(self, source: Any) -> str:
+    def _transcribe(self, source: Any, token: threading.Event | None = None) -> str:
         try:
+            if token is not None and token.is_set():
+                raise AsrPreempted()
             model = self._ensure_model()
             with self._decode_lock:
+                if token is not None and token.is_set():
+                    raise AsrPreempted()
                 segments, _ = model.transcribe(source, **self._transcribe_options())
                 # The generator must be consumed *inside* the lock: faster-whisper
                 # decodes lazily as it is iterated.  Filtering happens while
                 # consuming, so a hallucinated segment never reaches the caller.
-                accepted = self._accepted_segments(segments)
+                accepted = self._accepted_segments(segments, token=token)
                 return " ".join(segment.text.strip() for segment in accepted).strip()
-        except VoiceError:
+        except (VoiceError, AsrPreempted):
             raise
         except Exception as exc:
             raise VoiceError("تشخیص گفتار ناموفق بود؛ مدل محلی Whisper را بررسی کنید.") from exc
@@ -333,6 +364,7 @@ class VoiceSession:
         messages = self.history[-10:] + [{"role": "user", "content": text}]
         try:
             response = self.client.post("/v1/chat/completions", json={"messages": messages, "stream": False})
+            assert_local_api_authorized(response)
             response.raise_for_status()
             data = response.json()
             reply = data["choices"][0]["message"]["content"]
@@ -365,7 +397,7 @@ def main() -> int:
             return 0
         audio = LocalAudio(settings)
         audio.validate()
-        with httpx.Client(base_url=local_api_url(settings), timeout=settings.request_timeout_s,
+        with httpx.Client(base_url=local_api_url(settings), headers=local_client_headers(settings), timeout=settings.request_timeout_s,
                           trust_env=False, follow_redirects=False) as client:
             session = VoiceSession(client, audio)
             print("Enter: ضبط نوبتی | /پاک: حذف تاریخچه | /خروج: خروج | Ctrl+C: توقف")

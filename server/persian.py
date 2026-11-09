@@ -23,6 +23,7 @@ Whisper weights the honest report is *NOT MEASURED*.
 from __future__ import annotations
 
 import re
+import datetime
 import unicodedata
 from typing import Iterable, Sequence
 
@@ -637,6 +638,45 @@ def _speak_numbers(value: str) -> str:
             number_to_words(part) for part in match.group(0).split(".")
         )
 
+    # Protect Latin model names: GPT-4o and Qwen3 are identifiers, not
+    # quantities. A dotted version is different: say each component.
+    protected: list[str] = []
+    def protect(text: str) -> str:
+        protected.append(text)
+        return chr(0xE000 + len(protected) - 1)
+
+    def _latin(match: re.Match[str]) -> str:
+        text = match.group(0)
+        version = re.fullmatch(r"[vV]([0-9]+(?:\.[0-9]+){2,})", text)
+        if version:
+            return protect("نسخه " + _version_version(version.group(1)))
+        return protect(text)
+
+    def _version_version(text: str) -> str:
+        return " نقطه ".join(number_to_words(part) for part in text.split("."))
+
+    value = re.sub(r"(?<![A-Za-z])[A-Za-z][A-Za-z0-9]*(?:[-.][A-Za-z0-9]+)*", _latin, value)
+
+    # The slash means date or fraction, not a mathematical decimal. Avoid
+    # reinterpreting an invalid date as a valid one.
+    months = ("", "ژانویه", "فوریه", "مارس", "آوریل", "مه", "ژوئن", "ژوئیه", "اوت", "سپتامبر", "اکتبر", "نوامبر", "دسامبر")
+    def _date(match: re.Match[str]) -> str:
+        year, month, day = map(int, match.group(0).split("/"))
+        try:
+            datetime.date(year, month, day)
+        except ValueError:
+            return match.group(0)
+        return f"{integer_to_words(day)} {months[month]} {integer_to_words(year)}"
+
+    value = re.sub(r"(?<!\d)[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}(?!\d)", _date, value)
+    value = re.sub(r"(?<!\d)0[0-9]{3}-[0-9]{3}-[0-9]{4}(?!\d)",
+                   lambda m: " ".join(integer_to_words(int(d)) for d in m.group(0) if d.isdigit()), value)
+    fractions = {2: "دوم", 3: "سوم", 4: "چهارم", 5: "پنجم", 6: "ششم", 7: "هفتم", 8: "هشتم", 9: "نهم", 10: "دهم"}
+    value = re.sub(r"(?<![\d/])([0-9]+)/([2-9]|10)(?![\d/])",
+                   lambda m: f"{integer_to_words(int(m[1]))} {fractions[int(m[2])]}", value)
+    # A leading minus is a sign, not punctuation; list markers have already
+    # been removed earlier in prepare_for_tts.
+    value = re.sub(r"(?<![\w\d])-([0-9])", r"منفی \1", value)
     value = _VERSION_RE.sub(_version, value)
     value = _TIME_RE.sub(_time, value)
     value = _PERCENT_RE.sub(_percent, value)
@@ -645,7 +685,10 @@ def _speak_numbers(value: str) -> str:
     value = _CURRENCY_BEFORE_RE.sub(_currency_before, value)
     value = _NUMBER_RE.sub(lambda m: number_to_words(m.group(0)), value)
     value = value.replace(_DECIMAL_SEP, " ممیز ")
-    return " ".join(value.split())
+    value = " ".join(value.split())
+    for index, text in enumerate(protected):
+        value = value.replace(chr(0xE000 + index), text)
+    return value
 
 
 # --------------------------------------------------------------------------

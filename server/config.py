@@ -355,6 +355,8 @@ class Settings:
     request_timeout_s: float = 180.0
     api_host: str = DEFAULT_API_HOST
     api_port: int = DEFAULT_API_PORT
+    ssl_certfile: str = ""
+    ssl_keyfile: str = ""
     log_level: str = "INFO"
 
     # ---- ASR (faster-whisper / CTranslate2, local files only) ----
@@ -371,7 +373,7 @@ class Settings:
     asr_compression_ratio_threshold: float = 2.4  # repetition loops
     asr_hallucination_phrases: str = DEFAULT_HALLUCINATION_PHRASES
     asr_max_no_speech_prob: float = 0.75  # drop a whole segment above this
-    asr_partial_window_s: float = 6.0  # bounded overlapping window for partials
+    asr_partial_window_s: float = 3.0  # bounded overlapping window for partials
     asr_max_final_jobs: int = 16  # warning threshold; finals are never dropped
     asr_warmup: bool = True
 
@@ -435,7 +437,7 @@ class Settings:
     voice_session_id: str = ""
     # 0 disables pruning; otherwise sessions untouched for this many days are
     # deleted at startup and by ``python -m server.sessions purge``.
-    history_retention_days: int = 0
+    history_retention_days: int = 30
 
     # ---- REST authentication ----
     # Bearer token for every REST route except /health.  Empty means "no auth",
@@ -517,6 +519,7 @@ class Settings:
             self.model_path,
             "-c",
             str(self.n_ctx),
+            "--jinja",
             "--host",
             _host_of(self.llama_server_url),
             "--port",
@@ -567,6 +570,11 @@ class Settings:
             errors.append("PVAI_HISTORY_TOKEN_BUDGET باید حداقل ۱۲۸ باشد.")
         # Never expose an unauthenticated API off-loopback: the REST surface
         # can read every transcript, delete sessions and burn the local LLM.
+        if bool(self.ssl_certfile) != bool(self.ssl_keyfile):
+            errors.append("PVAI_SSL_CERTFILE و PVAI_SSL_KEYFILE باید با هم تنظیم شوند.")
+        for name, file in (("PVAI_SSL_CERTFILE", self.ssl_certfile), ("PVAI_SSL_KEYFILE", self.ssl_keyfile)):
+            if file and not Path(file).is_file():
+                errors.append(f"{name} یافت نشد: {file}")
         api_token_present = bool(self.api_token)
         if not is_loopback_host(self.api_host) and not api_token_present:
             errors.append(
@@ -616,7 +624,8 @@ class Settings:
         choice — it deserves a loud warning, not a refusal to start.
         """
         warnings: list[str] = []
-        if self.ws_enabled and not is_loopback_host(self.api_host) and self.api_token:
+        if (self.ws_enabled and not is_loopback_host(self.api_host) and self.api_token
+                and not (self.ssl_certfile and self.ssl_keyfile)):
             warnings.append(
                 "PVAI_WS_ENABLED روی نشانی غیر loopback و بدون TLS است؛ توکن دستگاه و "
                 "صدای مکالمه به‌صورت plaintext در شبکه می‌رود. برای شبکهٔ غیرمورد‌اعتماد "
@@ -658,6 +667,8 @@ class Settings:
             request_timeout_s=_env_float("PVAI_TIMEOUT", 180.0, minimum=5.0, maximum=1800.0),
             api_host=_env_str("PVAI_HOST", DEFAULT_API_HOST),
             api_port=_env_int("PVAI_PORT", DEFAULT_API_PORT, minimum=1, maximum=65535),
+            ssl_certfile=_env_str("PVAI_SSL_CERTFILE", ""),
+            ssl_keyfile=_env_str("PVAI_SSL_KEYFILE", ""),
             asr_model_path=_env_str("PVAI_ASR_MODEL_PATH", "models/whisper-small"),
             asr_device=_env_str("PVAI_ASR_DEVICE", "cpu").lower(),
             asr_compute_type=_env_str("PVAI_ASR_COMPUTE_TYPE", "int8"),
@@ -681,7 +692,7 @@ class Settings:
             asr_max_no_speech_prob=_env_float(
                 "PVAI_ASR_MAX_NO_SPEECH_PROB", 0.75, minimum=0.0, maximum=1.0
             ),
-            asr_partial_window_s=_env_float("PVAI_ASR_PARTIAL_WINDOW_S", 6.0, minimum=1.0, maximum=30.0),
+            asr_partial_window_s=_env_float("PVAI_ASR_PARTIAL_WINDOW_S", 3.0, minimum=1.0, maximum=30.0),
             asr_max_final_jobs=_env_int("PVAI_ASR_MAX_FINAL_JOBS", 16, minimum=1, maximum=256),
             asr_warmup=bool(_env_optional_bool("PVAI_ASR_WARMUP", True)),
             tts_model_path=_env_str("PVAI_TTS_MODEL_PATH", "models/piper/fa_IR.onnx"),
@@ -724,7 +735,7 @@ class Settings:
             ),
             voice_session_id=_env_str("PVAI_VOICE_SESSION_ID", ""),
             history_retention_days=_env_int(
-                "PVAI_HISTORY_RETENTION_DAYS", 0, minimum=0, maximum=3650
+                "PVAI_HISTORY_RETENTION_DAYS", 30, minimum=0, maximum=3650
             ),
             api_token=_env_str("PVAI_API_TOKEN", ""),
             api_rate_limit_per_s=_env_float(

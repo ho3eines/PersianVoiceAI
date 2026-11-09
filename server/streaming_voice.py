@@ -57,7 +57,7 @@ from .live_voice import Speaker, sentences
 from .persian import prepare_for_tts
 from .metrics import Metrics
 from .vad import ONSET, REJECTED, SEGMENT, build_vad
-from .voice import LocalAudio, VoiceError, dependency, local_api_url
+from .voice import LocalAudio, VoiceError, dependency, local_api_url, local_client_headers, assert_local_api_authorized
 
 BLOCK_SECONDS = 0.02
 TRAILING_SILENCE_KEEP_FRAMES = 5
@@ -432,8 +432,8 @@ class Pipeline:
         self._next_utterance_id = self.conversation.next_utterance_id()
         self._last_partial_frames = 0
         self._barged_in_utterance = 0
-        # Utterances whose turn produced no answer (empty/failed transcript).
-        # Bounded: only the newest one is ever needed for the "late" rule.
+        # Only utterances with a persisted user message can own an answer.
+        # Empty/failed ASR ids never enter this bounded queue.
         self._pending_answers: deque[int] = deque(maxlen=16)
         self._finalized: deque[int] = deque(maxlen=512)
         self._finalized_ids: set[int] = set()
@@ -942,7 +942,6 @@ class Pipeline:
 
     def _on_final_failure(self, job: AsrJob, error: BaseException | None = None) -> None:
         self._remember_final(job.utterance_id)
-        self._pending_answers.append(job.utterance_id)
         self.event(
             "error",
             detail="تشخیص گفتار ناموفق بود؛ مدل محلی Whisper را بررسی کنید.",
@@ -969,10 +968,8 @@ class Pipeline:
                 empty=True,
                 audio_ms=job.audio_ms,
             )
-            # An empty transcript is a turn that produced no answer.  It must
-            # not silently evaporate: the next user turn that does produce text
-            # answers it as well (see ``_pending_answers``).
-            self._pending_answers.append(job.utterance_id)
+            # Empty ASR has no committed user message; never attach the next
+            # utterance's assistant reply to this id.
             self._settle_after_utterance(reason="empty_transcript")
             return
         self.event(
@@ -986,6 +983,7 @@ class Pipeline:
         if message is None:  # duplicate utterance id — already committed
             return
         self._latest_utterance_id = max(self._latest_utterance_id, job.utterance_id)
+        self._pending_answers.append(job.utterance_id)
         self.history = list(self._history_view())
         self.event(
             "user_message",
@@ -1052,7 +1050,7 @@ class Pipeline:
         while self._pending_answers:
             candidate = self._pending_answers[-1]
             self._pending_answers.pop()
-            if candidate >= newest or self._has_answer(candidate):
+            if candidate <= newest or self._has_answer(candidate):
                 continue
             newest = candidate
             behind = len(self._pending_answers) + 1
@@ -1127,6 +1125,7 @@ class Pipeline:
             async with self.client.stream(
                 "POST", "/v1/chat/completions", json=payload
             ) as response:
+                assert_local_api_authorized(response)
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if token.is_set() or turn.generation != self.generation or turn.token.is_set():
@@ -1183,7 +1182,9 @@ class Pipeline:
         except Exception as exc:  # noqa: BLE001 - reported as a failed turn
             self._fail_turn(
                 turn,
-                detail="پاسخ استریم ناموفق بود؛ اتصال مدل و llama-server را بررسی کنید.",
+                detail=(str(exc) if isinstance(exc, VoiceError)
+                        and "PVAI_API_TOKEN برای کلاینت داخلی تنظیم نشده" in str(exc)
+                        else "پاسخ استریم ناموفق بود؛ اتصال مدل و llama-server را بررسی کنید."),
                 error=exc,
                 reason="llm_error",
             )
@@ -1495,9 +1496,12 @@ class Pipeline:
             tasks.append(self.reply)
         for task in tasks:
             task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        self.actors = []
-        self.reply = None
+        try:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            self.actors = []
+            self.reply = None
+            self.conversation.close()
 
 
 # ------------------------------------------------------------------- live runner
@@ -1517,7 +1521,7 @@ def create_pipeline(
     resume policy (``PVAI_HISTORY_RESUME``), which for the local loop means the
     last session instead of a new one on every restart.
     """
-    conversation = create_conversation(settings, session_id=session_id)
+    conversation = create_conversation(settings, session_id=session_id, local=True, exclusive=True)
     return Pipeline(
         settings,
         audio,
@@ -1573,10 +1577,15 @@ async def run_live(settings: Settings) -> None:
             warmup()
         async with httpx.AsyncClient(
             base_url=local_api_url(settings),
+            headers=local_client_headers(settings),
             timeout=settings.request_timeout_s,
             trust_env=False,
             follow_redirects=False,
         ) as client:
+            try:
+                assert_local_api_authorized(await client.get("/ready"))
+            except httpx.HTTPError:
+                pass  # unreachable API: the normal stream error will report it
             pipeline = create_pipeline(
                 settings,
                 audio,

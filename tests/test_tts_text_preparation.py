@@ -451,7 +451,7 @@ def _audio_with_segments(segments: list[SimpleNamespace], **overrides) -> LocalA
     return audio
 
 
-def test_segments_with_high_no_speech_prob_are_dropped() -> None:
+def test_high_no_speech_alone_does_not_reject_speech() -> None:
     """The model's own uncertainty is the strongest signal."""
     audio = _audio_with_segments(
         [
@@ -459,17 +459,17 @@ def test_segments_with_high_no_speech_prob_are_dropped() -> None:
             SimpleNamespace(text="سلام", no_speech_prob=0.10, avg_logprob=-0.2),
         ]
     )
-    assert audio._transcribe(None) == "سلام"
+    assert audio._transcribe(None) == "سکوت سلام"
 
 
-def test_segments_with_low_confidence_are_dropped() -> None:
+def test_low_confidence_alone_does_not_reject_speech() -> None:
     audio = _audio_with_segments(
         [
             SimpleNamespace(text="چیزی", no_speech_prob=0.1, avg_logprob=-2.5),
             SimpleNamespace(text="درست", no_speech_prob=0.1, avg_logprob=-0.3),
         ]
     )
-    assert audio._transcribe(None) == "درست"
+    assert audio._transcribe(None) == "چیزی درست"
 
 
 def test_repetition_loops_are_dropped() -> None:
@@ -524,7 +524,7 @@ def test_auto_language_is_allowed() -> None:
 
     audio = LocalAudio.__new__(LocalAudio)
     audio.settings = Settings(asr_language="auto")
-    assert audio._transcribe_options()["language"] == "auto"
+    assert audio._transcribe_options()["language"] is None
 
 
 def test_an_empty_initial_prompt_is_not_sent() -> None:

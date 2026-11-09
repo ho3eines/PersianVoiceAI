@@ -53,7 +53,7 @@ from typing import Any, Callable
 from fastapi import APIRouter, WebSocket
 
 from .config import Settings
-from .conversation import create_conversation
+from .conversation import create_conversation, SessionInUse
 from .metrics import Metrics
 from .protocol import (
     AUDIO_KIND_CAPTURE,
@@ -77,7 +77,7 @@ CLOSE_UNAUTHORIZED = 1008
 CLOSE_UNAVAILABLE = 1011
 CLOSE_TRY_AGAIN = 1013
 CLOSE_GOING_AWAY = 1001
-HANDSHAKE_TIMEOUT_S = 10.0
+HANDSHAKE_TIMEOUT_S = 3.0
 PLAYBACK_FRAME_BYTES = 640  # 20 ms of PCM16 mono at 16 kHz
 SINK_QUEUE_FRAMES = 250  # ~5 s of playback backpressure before synthesis blocks
 PLAYBACK_FRAME_MS = 20.0
@@ -207,6 +207,7 @@ class ModelPool:
 
     def __init__(self) -> None:
         self._audio: Any = None
+        self.asr_metrics: Metrics | None = None  # process-wide, never first-socket owned
         self._voices: dict[str, Any] = {}
         self._voice_locks: dict[str, Any] = {}
         self._lock = threading.Lock()
@@ -217,10 +218,13 @@ class ModelPool:
             if self._audio is None:
                 from .voice import LocalAudio
 
-                self._audio = LocalAudio(settings, metrics=metrics)
+                self.asr_metrics = Metrics(enabled=settings.metrics_enabled)
+                self._audio = LocalAudio(settings, metrics=self.asr_metrics)
                 self.telemetry["asr_loads"] += 1
             else:
                 self.telemetry["hits"] += 1
+                # Use the process-wide metrics of the pool rather than a first
+                # connection that may already have gone away.
             return self._audio
 
     def piper_voice(self, settings: Settings, voice: str) -> Any:
@@ -257,6 +261,7 @@ class ModelPool:
     def reset(self) -> None:
         with self._lock:
             self._audio = None
+            self.asr_metrics = None
             self._voices.clear()
             self._voice_locks.clear()
 
@@ -279,7 +284,7 @@ def default_bundle(settings: Settings, sink: PlaybackSink, metrics: Metrics) -> 
     import httpx
 
     from .live_voice import Speaker
-    from .voice import local_api_url
+    from .voice import local_api_url, local_client_headers
 
     audio = MODEL_POOL.audio(settings, metrics)
 
@@ -297,6 +302,7 @@ def default_bundle(settings: Settings, sink: PlaybackSink, metrics: Metrics) -> 
 
     client = httpx.AsyncClient(
         base_url=local_api_url(settings),
+        headers=local_client_headers(settings),
         timeout=settings.request_timeout_s,
         trust_env=False,
         follow_redirects=False,
@@ -331,6 +337,43 @@ class WsCounters:
         self.lock = threading.Lock()
         self._limiter: Any = None
         self._limiter_settings: Any = None
+        self._handshakes: dict[str, int] = {}
+        self._failures: dict[str, deque[float]] = {}
+        self._handshake_total = 0
+
+    def handshake_enter(self, peer: str) -> bool:
+        """Bound untrusted memory without consuming model capacity or connect rate."""
+        with self.lock:
+            now = time.monotonic()
+            failures = self._failures.get(peer)
+            if failures is not None:
+                while failures and now - failures[0] > 60:
+                    failures.popleft()
+                if len(failures) >= 3 and now - failures[-1] < 10:
+                    return False
+            if self._handshake_total >= 16 or self._handshakes.get(peer, 0) >= 8:
+                return False
+            self._handshakes[peer] = self._handshakes.get(peer, 0) + 1
+            self._handshake_total += 1
+            return True
+
+    def handshake_leave(self, peer: str) -> None:
+        with self.lock:
+            count = self._handshakes.get(peer, 0)
+            if count:
+                self._handshake_total -= 1
+                if count == 1:
+                    del self._handshakes[peer]
+                else:
+                    self._handshakes[peer] = count - 1
+
+    def auth_failed(self, peer: str) -> None:
+        with self.lock:
+            failures = self._failures.setdefault(peer, deque(maxlen=8))
+            failures.append(time.monotonic())
+            # Keep the table bounded even for many distinct spoofed peers.
+            if len(self._failures) > 1024:
+                self._failures.pop(next(iter(self._failures)))
 
     def limiter(self, settings: Settings) -> "ConnectionLimiter":
         with self.lock:
@@ -380,11 +423,16 @@ class VoiceWebSocket:
         self.metrics = metrics or Metrics(enabled=settings.metrics_enabled)
         self.sink = PlaybackSink()
         self.pipeline: Pipeline | None = None
+        self._leased_conversation: Any = None
         self.bundle: VoiceBundle | None = None
         self.session_id: str | None = None
         self.device_id: str = ""
         self.voice: str = settings.tts_voice
         self.authenticated = False
+        self.claim_capacity: Callable[[], tuple[bool, str]] | None = None
+        self.handshake_done: Callable[[], None] | None = None
+        self.capacity_owned = False
+        self.peer = getattr(getattr(websocket, "client", None), "host", "unknown")
         self.playback_sequence = 0
         # Playback accounting for ``play_end``: frames actually handed to this
         # device, measured per turn (a turn starts where the previous one ended).
@@ -633,6 +681,8 @@ class VoiceWebSocket:
             # New turn (or first frame): the device may start this much ahead
             # so it never underruns between synthesis bursts.
             self._next_frame_at = now - credit_s
+        else:
+            self._next_frame_at = max(self._next_frame_at, now - credit_s)
         return self._next_frame_at if self._next_frame_at > now else None
 
     def _account_frame_sent(self) -> None:
@@ -683,9 +733,14 @@ class VoiceWebSocket:
                 # Critical messages that overflowed the bounded queue go first:
                 # they were produced later than everything already queued, but
                 # for control frames "latest wins" is the correct order.
-                if self._overflow:
-                    await self.websocket.send_text(self._overflow.popleft().encode())
-                    continue
+                if self._overflow and pending is None:
+                    # A turn boundary may never overtake its queued play_start.
+                    # Other critical controls (especially play_stop) retain priority.
+                    if (self._overflow[0].type is MessageType.PLAY_END
+                            and not self.outgoing.empty()):
+                        pending = self.outgoing.get_nowait()
+                    else:
+                        pending = self._overflow.popleft().encode()
                 if pending is None:
                     try:
                         pending = self.outgoing.get_nowait()
@@ -754,6 +809,7 @@ class VoiceWebSocket:
         if not expected and not per_device:
             self.counters.bump("rejected")
             self.metrics.increment("ws_auth_failures")
+            self.counters.auth_failed(self.peer)
             await self._reject(
                 "auth_not_configured",
                 "احراز هویت دستگاه تنظیم نشده است؛ PVAI_WS_TOKENS (یا PVAI_WS_TOKEN) را "
@@ -764,6 +820,7 @@ class VoiceWebSocket:
         if not ok:
             self.counters.bump("rejected")
             self.metrics.increment("ws_auth_failures")
+            self.counters.auth_failed(self.peer)
             await self._reject("auth_failed", "توکن دستگاه نامعتبر است.")
             return False
 
@@ -773,6 +830,7 @@ class VoiceWebSocket:
             # usable while claiming to be device B.
             self.counters.bump("rejected")
             self.metrics.increment("ws_auth_failures")
+            self.counters.auth_failed(self.peer)
             await self._reject(
                 "device_mismatch",
                 f"این توکن به دستگاه «{token_device}» تعلق دارد، نه «{claimed}».",
@@ -805,9 +863,14 @@ class VoiceWebSocket:
         # asked for a ``session_id`` still resumes that session, while a device
         # that asked for nothing gets its own new one instead of joining
         # whatever the last session on this PC was.
-        conversation = create_conversation(
-            self.settings, session_id=self.session_id, resume=False
-        )
+        try:
+            conversation = create_conversation(
+                self.settings, session_id=self.session_id, resume=False, exclusive=True
+            )
+        except SessionInUse:
+            await self._reject("session_in_use", "این نشست هم‌اکنون در فرایند دیگری باز است.", CLOSE_UNAVAILABLE)
+            return False
+        self._leased_conversation = conversation
         self.session_id = conversation.session_id
         if self.session_registry is not None:
             owner = f"{self.device_id or 'device'}#{id(self):x}"
@@ -822,9 +885,11 @@ class VoiceWebSocket:
                     "این نشست هم‌اکنون در اتصال دیگری باز است.",
                     CLOSE_UNAVAILABLE,
                 )
+                conversation.close()
                 return False
             self._owned_session = self.session_id
             self._session_owner = owner
+        from .voice import VoiceError
         try:
             # ``default_bundle`` builds LocalAudio (Whisper) and the first
             # Speaker (Piper ONNX); both load multi-hundred-MB models.  Doing
@@ -834,6 +899,15 @@ class VoiceWebSocket:
                 self.bundle_factory, self.settings, self.sink, self.metrics
             )
             speaker = await asyncio.to_thread(self.bundle.speaker_for, self.voice)
+            if self.bundle_factory is default_bundle:
+                from .voice import assert_local_api_authorized
+                try:
+                    assert_local_api_authorized(await self.bundle.client.get("/ready"))
+                except httpx.HTTPError:
+                    pass  # no server: stream failure is reported by the pipeline
+        except VoiceError as exc:
+            await self._reject("api_auth_failed", str(exc), CLOSE_UNAVAILABLE)
+            return False
         except Exception as exc:
             logger.warning("ws voice bundle failed: %s", exc)
             await self._reject(
@@ -1083,8 +1157,26 @@ class VoiceWebSocket:
         self._serve_task = asyncio.current_task()
         heartbeat: asyncio.Task[None] | None = None
         try:
-            if not await self._handshake():
+            try:
+                accepted = await self._handshake()
+            finally:
+                if self.handshake_done is not None:
+                    self.handshake_done()
+            if not accepted:
                 return
+            if self.claim_capacity is not None:
+                ok, reason = self.claim_capacity()
+                if not ok:
+                    self.counters.bump("rejected_capacity")
+                    await self._reject(
+                        reason,
+                        "تعداد اتصال‌های هم‌زمان دستگاه‌ها به سقف رسیده است؛ بعداً تلاش کنید."
+                        if reason == "too_many_connections" else
+                        "نرخ اتصال بیش از حد مجاز است؛ کمی صبر کنید.",
+                        CLOSE_TRY_AGAIN if reason == "connection_rate_limited" else CLOSE_UNAVAILABLE,
+                    )
+                    return
+                self.capacity_owned = True
             if not await self._open_pipeline():
                 return
             heartbeat = asyncio.create_task(self._heartbeat())
@@ -1140,6 +1232,9 @@ class VoiceWebSocket:
                 self.bundle = None
         finally:
             self._release_session()
+            if self._leased_conversation is not None:
+                self._leased_conversation.close()
+                self._leased_conversation = None
         if self.authenticated:
             self.counters.bump("active", -1)
         logger.info("ws device=%s session=%s closed", self.device_id, self.session_id)
@@ -1163,23 +1258,22 @@ def build_router(
     @router.websocket("/ws/voice")
     async def voice_socket(websocket: WebSocket) -> None:
         active_settings = websocket.app.state.settings
-        limiter = shared.limiter(active_settings)
-        ok, reason = limiter.acquire()
-        if not ok:
+        peer = websocket.client.host if websocket.client else "unknown"
+        if not shared.handshake_enter(peer):
             await websocket.accept()
-            detail = (
-                "تعداد اتصال‌های هم‌زمان دستگاه‌ها به سقف رسیده است؛ بعداً تلاش کنید."
-                if reason == "too_many_connections"
-                else "نرخ اتصال بیش از حد مجاز است؛ کمی صبر کنید."
-            )
-            await websocket.send_text(
-                ControlMessage(MessageType.ERROR, {"code": reason, "detail": detail}).encode()
-            )
-            shared.rejected_capacity += 1
-            await websocket.close(
-                code=CLOSE_TRY_AGAIN if reason == "connection_rate_limited" else CLOSE_UNAVAILABLE
-            )
+            await websocket.send_text(ControlMessage(MessageType.ERROR, {
+                "code": "handshake_rate_limited", "detail": "درخواست‌های احراز هویت بیش از حد مجاز است."
+            }).encode())
+            await websocket.close(code=CLOSE_TRY_AGAIN)
             return
+        held = True
+        def leave_handshake() -> None:
+            nonlocal held
+            if held:
+                shared.handshake_leave(peer)
+                held = False
+
+        limiter = shared.limiter(active_settings)
         session = VoiceWebSocket(
             websocket,
             active_settings,
@@ -1187,6 +1281,8 @@ def build_router(
             counters=shared,
             session_registry=shared.registry,
         )
+        session.claim_capacity = limiter.acquire
+        session.handshake_done = leave_handshake
         try:
             await session.serve()
         finally:
@@ -1195,7 +1291,9 @@ def build_router(
             # shutdown), the session claim must still be released or the id is
             # locked out for the life of the process.
             session._release_session()
-            limiter.release()
+            leave_handshake()
+            if session.capacity_owned:
+                limiter.release()
 
     router.counters = shared  # type: ignore[attr-defined]
     return router
