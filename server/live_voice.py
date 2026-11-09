@@ -23,6 +23,7 @@ import re
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from .config import Settings
 from .vad import EnergyVAD
@@ -79,23 +80,59 @@ def _validate_tts_model(path: str) -> None:
         )
 
 
+def load_piper_voice(settings: Settings, voice: str) -> Any:
+    """Load (or validate) one Piper voice without building a ``Speaker``.
+
+    Kept separate from ``Speaker.__init__`` so a process-wide pool can own the
+    model while each device connection owns only its playback sink.
+    """
+    path = settings.tts_model_for(voice)
+    _validate_tts_model(path)
+    try:
+        return dependency("piper.voice").PiperVoice.load(path)
+    except VoiceError:
+        raise
+    except Exception as exc:
+        raise VoiceError(
+            "بارگذاری مدل Piper ناموفق بود؛ سازگاری وزن فارسی و وابستگی onnxruntime را بررسی کنید."
+        ) from exc
+
+
 class Speaker:
     """Piper synthesis + 20 ms-block PCM playback with literal cancellation."""
 
-    def __init__(self, settings: Settings, duplex=None, *, voice: str | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        duplex=None,
+        *,
+        voice: str | None = None,
+        model: Any = None,
+        model_lock: Any = None,
+    ) -> None:
         self.settings = settings
         self.duplex = duplex
+        # ``synthesize`` returns a lazy generator that advances model state as
+        # it is consumed, so a model shared by several connections needs its
+        # steps serialised.  Per-chunk, not per-utterance: playback of one
+        # device must not have to finish before another can start speaking.
+        self._model_lock = model_lock
         self.voice = (voice or settings.tts_voice or "female").strip().lower()
         self.model_path = settings.tts_model_for(self.voice)
         _validate_tts_model(self.model_path)
-        try:
-            self.model = dependency("piper.voice").PiperVoice.load(self.model_path)
-        except VoiceError:
-            raise
-        except Exception as exc:
-            raise VoiceError(
-                "بارگذاری مدل Piper ناموفق بود؛ سازگاری وزن فارسی و وابستگی onnxruntime را بررسی کنید."
-            ) from exc
+        if model is not None:
+            # Shared, already-loaded Piper model (see ws_voice.ModelPool): one
+            # ONNX session per voice instead of one per device.
+            self.model = model
+        else:
+            try:
+                self.model = dependency("piper.voice").PiperVoice.load(self.model_path)
+            except VoiceError:
+                raise
+            except Exception as exc:
+                raise VoiceError(
+                    "بارگذاری مدل Piper ناموفق بود؛ سازگاری وزن فارسی و وابستگی onnxruntime را بررسی کنید."
+                ) from exc
         self.sd = dependency("sounddevice")
 
     # ------------------------------------------------------------------ helpers
@@ -145,7 +182,7 @@ class Speaker:
         first_frame: float | None = None
         self._output = None
         try:
-            chunks = self.model.synthesize(text)
+            chunks = self._synthesize(text)
             if getattr(self, "duplex", None) is None:
                 self._output = self._open_output()
             for chunk in chunks:
@@ -183,6 +220,28 @@ class Speaker:
                 self._output = None
             if on_complete is not None:
                 on_complete(time.perf_counter(), played_blocks * OUTPUT_BLOCK_SECONDS * 1000)
+
+    def _synthesize(self, text: str) -> Any:
+        """Yield chunks from the model, serialising each model step.
+
+        Without a shared model (``model_lock`` is ``None``) this is a plain
+        pass-through; with one, only ``next()`` is held under the lock, so two
+        devices speak concurrently while the model itself is stepped one
+        caller at a time.
+        """
+        chunks = self.model.synthesize(text)
+        lock = getattr(self, "_model_lock", None)  # absent on partially built Speakers
+        if lock is None:
+            yield from chunks
+            return
+        iterator = iter(chunks)
+        while True:
+            with lock:
+                try:
+                    chunk = next(iterator)
+                except StopIteration:
+                    return
+            yield chunk
 
     # --------------------------------------------------------------- audio I/O
     def _output_rate(self) -> int:

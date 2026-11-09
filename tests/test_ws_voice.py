@@ -456,11 +456,31 @@ def test_one_play_end_per_turn_not_per_sentence(tmp_path: Path) -> None:
     session._on_pipeline_event({"type": "tts_end", "turn_id": 4, "text": "دو."})
     assert session.outgoing.empty(), "tts_end must not close the turn"
 
-    session.sink.written = 7  # pretend seven 20 ms blocks were produced this turn
+    # ``played_ms`` reports audio *sent to the device*, not audio merely queued
+    # for synthesis, and with pacing the frames of the turn are still going out
+    # when ``response_end`` arrives.  The sender therefore fills the count in at
+    # send time; here the turn boundary itself is what is being asserted.
+    session.frames_sent = 7  # seven 20 ms frames already reached this device
     session._on_pipeline_event({"type": "response_end", "turn_id": 4, "status": "complete"})
     assert session.outgoing.qsize() == 1
     end = json.loads(session.outgoing.get_nowait())
-    assert end == {"type": "play_end", "turn_id": 4, "played_ms": 140.0}
+    assert end["type"] == "play_end" and end["turn_id"] == 4
+    assert "played_ms" in end
+
+    # The sender resolves it against frames delivered since the last boundary.
+    session._frames_sent_at_turn_start = 0
+    session.frames_sent = 7
+    finalized = json.loads(session._finalize_play_end(ControlMessage(
+        MessageType.PLAY_END, {"turn_id": 4, "played_ms": None, "_final": True}
+    ).encode()))
+    assert finalized["played_ms"] == 140.0
+    assert "_final" not in finalized
+    # The boundary has moved: the next turn counts from here.
+    session.frames_sent = 9
+    again = json.loads(session._finalize_play_end(ControlMessage(
+        MessageType.PLAY_END, {"turn_id": 5, "played_ms": None, "_final": True}
+    ).encode()))
+    assert again["played_ms"] == 40.0
 
     # An interrupted turn never reports play_end; play_stop already said so.
     session._on_pipeline_event({"type": "response_end", "turn_id": 5, "status": "interrupted"})

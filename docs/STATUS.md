@@ -36,16 +36,20 @@
 | سنجه‌های کامل خط لوله (شامل jitter callback، صف، CPU/RAM در اجرای زنده) | پیاده‌شده + تست | `server/metrics.py`, `server/audio_io.py` |
 | بنچمارک کل زنجیرهٔ صوت | ابزار آماده (`tools/benchmark_voice.py`)؛ اعداد واقعی هدف **NOT MEASURED** | `docs/BENCHMARKS.md` |
 | ارزیابی فارسی WER/CER | مجموعهٔ ۴۰ جمله + ابزار؛ اعداد واقعی **NOT MEASURED** | `benchmarks/persian_eval.py` |
-| پروتکل و **transport سمت سرور** WebSocket صوتی (`WS /ws/voice`) | پیاده‌شده + تست (fake)؛ احراز هویت اجباری با توکن دستگاه | `server/protocol.py`, `server/ws_voice.py`, `tests/test_ws_voice.py` |
-| firmware ESP32-S3، رجیستری per-device، OTA، تست LAN واقعی | **پیاده‌نشده / NOT MEASURED** | — |
+| پروتکل و **transport سمت سرور** WebSocket صوتی (`WS /ws/voice`) | پیاده‌شده + تست (fake)؛ توکن per-device، سقف اتصال، pacing، heartbeat، فریم ۲۰ms اجباری | `server/protocol.py`, `server/ws_voice.py`, `tests/test_ws_voice.py` |
+| امنیت REST (`PVAI_API_TOKEN`، rate limit، `/health` حداقلی) | پیاده‌شده + تست | `server/security.py`, `server/main.py`, `tests/test_ws_security.py` |
+| firmware ESP32-S3، OTA، تست LAN واقعی | **پیاده‌نشده / NOT MEASURED** | — |
 | Command Broker / IoT | **پیاده‌نشده** | — |
 
 ## ۲. وضعیت تست
 
 ```text
 $ python -m pytest
-332 passed, 5 skipped in 6.2s
+369 passed, 5 skipped in 9.4s
 ```
+
+- ۳۶ تست این مرحله در `tests/test_ws_security.py`: هر تست یک نقص گزارش‌شده را می‌پوشاند و
+  روی کد پیش از رفع شکست می‌خورد (برای بارگذاری مدل، pacing، صف حیاتی و نرخ فریم دستی بررسی شد).
 
 - تست‌های native SpeexDSP در sandbox بدون کتابخانهٔ ساخته‌شده صریحاً skip می‌شوند؛ اگر
   `libspeexdsp` نصب باشد اجرا می‌شوند (در اجرای قبلی همین محیط: ۵۴ تست موفق با کتابخانه).

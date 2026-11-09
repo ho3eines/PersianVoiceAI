@@ -55,6 +55,12 @@ class LocalAudio:
         self.metrics = metrics
         self.model: Any = None
         self._lock = threading.Lock()
+        # Decoding is *not* thread-safe in CTranslate2 and one model is now
+        # shared by every LAN connection (MODEL_POOL), so two concurrent
+        # transcriptions would race.  Serialise them on a separate lock: the
+        # load lock above must stay free while a decode is running, otherwise a
+        # second connection would block the first from even loading.
+        self._decode_lock = threading.Lock()
         self.loaded_at: float | None = None
         self.last_options: dict[str, Any] = {}
 
@@ -141,14 +147,17 @@ class LocalAudio:
     def _transcribe(self, source: Any) -> str:
         try:
             model = self._ensure_model()
-            segments, _ = model.transcribe(
-                source,
-                language="fa",
-                vad_filter=self.settings.asr_vad_filter,
-                beam_size=self.settings.asr_beam_size,
-                condition_on_previous_text=False,
-            )
-            return " ".join(segment.text.strip() for segment in segments).strip()
+            with self._decode_lock:
+                segments, _ = model.transcribe(
+                    source,
+                    language="fa",
+                    vad_filter=self.settings.asr_vad_filter,
+                    beam_size=self.settings.asr_beam_size,
+                    condition_on_previous_text=False,
+                )
+                # The generator must be consumed *inside* the lock: faster-whisper
+                # decodes lazily as it is iterated.
+                return " ".join(segment.text.strip() for segment in segments).strip()
         except VoiceError:
             raise
         except Exception as exc:

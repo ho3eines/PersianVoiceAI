@@ -50,7 +50,7 @@ Copy-Item .env.example .env
 
 ## وضعیت صادقانه
 
-- تست خودکار: **۲۸۱ passed، ۵ skipped** (بدون مدل/میکروفون/شبکه؛ skipها فقط native SpeexDSP و numpy).
+- تست خودکار: **۳۶۹ passed، ۵ skipped** (بدون مدل/میکروفون/شبکه؛ skipها فقط native SpeexDSP و numpy).
   این تست‌ها منطق و کنترل جریان را ثابت می‌کنند، نه کیفیت صدا.
 - مدل‌های واقعی (Whisper/Piper/Qwen) در مخزن نیستند؛ در sandbox نصب هم نبودند، پس
   ASR/TTS/LLM واقعی **NOT MEASURED** است.
@@ -58,21 +58,26 @@ Copy-Item .env.example .env
   تأیید نشده‌اند. بدون هدفون، کالیبراسیون `PVAI_AEC_DELAY_MS` لازم است.
 - تاریخچهٔ مکالمه محلی و ماندگار است (`data/conversations/*.jsonl`)؛ پنجرهٔ RAM محدود است.
 - پروتکل WebSocket صوتی ESP32-S3 و **transport سمت سرور** پیاده شده‌اند (`WS /ws/voice`، خاموش به‌صورت
-  پیش‌فرض، با توکن اجباری)؛ **firmware و تست LAN واقعی انجام نشده‌اند**.
+  پیش‌فرض، با توکن per-device اجباری، سقف اتصال، pacing پخش و heartbeat)؛ **firmware و تست LAN واقعی
+  انجام نشده‌اند** — همهٔ تست‌ها با کلاینت درون‌فرایندی و fake هستند.
+- REST با `PVAI_API_TOKEN` محافظت می‌شود و روی نشانی غیر-loopback بدون توکن بالا نمی‌آید.
 - اجرای CPU پیش‌فرض است؛ بنچمارک قدیمی GPU روی MiniCPM به Qwen قابل تعمیم نیست.
 
 ## API و چت متنی
 
 | مسیر | کار |
 |---|---|
-| `GET /health` | وضعیت اتصال backend و مدل |
+| `GET /health` | فقط `{"status": "ok"}`؛ تنها مسیر **بدون** توکن و عمداً بدون جزئیات |
 | `GET /ready` | چک‌لیست کامل: تنظیمات، مدل ASR/TTS، وابستگی‌ها، AEC، ذخیره‌سازی، backend (503 اگر ناقص) |
 | `GET /api/protocol` | قرارداد انتقال ESP32 (`transport_implemented: true`، `firmware_implemented: false`) |
-| `WS /ws/voice` | صدای دستگاه LAN (opt-in با `PVAI_WS_ENABLED` و `PVAI_WS_TOKEN`) |
+| `WS /ws/voice` | صدای دستگاه LAN (opt-in با `PVAI_WS_ENABLED` و `PVAI_WS_TOKENS`) |
 | `GET /v1/models` | مدل‌های بارشده در llama-server |
 | `POST /v1/chat/completions` | چت JSON یا SSE با `stream=true` |
 | `POST /api/chat` | پاسخ سادهٔ یک‌پیامی با `session_id` اختیاری |
 | `GET/DELETE /api/sessions[/{id}]` | بازبینی و حذف نشست‌های محلی |
+
+همهٔ مسیرها جز `/health` توکن می‌خواهند: `Authorization: Bearer $PVAI_API_TOKEN`
+(یا `X-API-Key`). روی `PVAI_HOST=0.0.0.0` توکن **الزامی** است وگرنه برنامه بالا نمی‌آید.
 
 چت متنی: `python -m server.cli` یا `tools/chat.ps1`.
 مستندات API: `http://127.0.0.1:8000/docs`.

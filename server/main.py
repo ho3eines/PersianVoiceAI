@@ -17,6 +17,7 @@ WS   /ws/voice               LAN device audio transport (opt-in, token required)
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -31,6 +32,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import __version__
 from .config import Settings
 from .conversation import STATUS_COMPLETE, Conversation, open_store, purge_expired
+from .metrics import Metrics
+from .protocol import check_token
+from .security import PUBLIC_PATHS, RateLimiter, _bearer_token
 from .protocol import describe as describe_protocol
 from .ws_voice import build_router as build_ws_router
 from .ws_voice import default_bundle as default_voice_bundle
@@ -127,6 +131,19 @@ def create_app(
                 resolved.history_retention_days,
             )
         app.state.voice_bundle = voice_bundle or default_voice_bundle
+        app.state.metrics = Metrics(enabled=resolved.metrics_enabled)
+        app.state.rate_limiter = (
+            RateLimiter(resolved.api_rate_limit_per_s, resolved.api_rate_burst)
+            if resolved.api_rate_limit_per_s > 0
+            else None
+        )
+        if resolved.api_token:
+            logger.info("REST authentication is enabled (Bearer token)")
+        else:
+            logger.info("REST authentication disabled: loopback-only bind assumed")
+        for warning in resolved.config_warnings():
+            # Loud, but not fatal: these are deliberate deployments, not bugs.
+            logger.warning("configuration: %s", warning)
         logger.info(
             "Persian Voice AI %s | model=%s",
             __version__,
@@ -141,6 +158,39 @@ def create_app(
         version=__version__,
         lifespan=lifespan,
     )
+
+    # ------------------------------------------------------------ REST auth
+    # Everything REST is behind a Bearer token except the liveness probe.  The
+    # REST surface can read every stored transcript, delete sessions and spend
+    # the local LLM, so it must never be unauthenticated just because the
+    # device transport happens to be on (that was the design hole: only
+    # /ws/voice was protected, while PVAI_HOST=0.0.0.0 exposed the rest of the
+    # app to the whole LAN).
+    @app.middleware("http")
+    async def require_api_token(request: Request, call_next: Any) -> Any:
+        path = request.url.path
+        if path in PUBLIC_PATHS or request.method == "OPTIONS":
+            return await call_next(request)
+        expected = resolved.api_token
+        if not expected:
+            # No token configured: loopback-only operation.  config_errors()
+            # refuses to start a non-loopback bind without a token, so reaching
+            # here unauthenticated means the caller is on this machine.
+            return await call_next(request)
+        provided = _bearer_token(request.headers.get("authorization"))
+        if provided is None:
+            provided = request.headers.get("x-api-key")
+        if not check_token(provided, expected):
+            app.state.metrics.increment("api_auth_failures")
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": "unauthorized",
+                    "detail": "توکن API لازم است (Authorization: Bearer …).",
+                },
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return await call_next(request)
 
     # ---------------------------------------------------------------- errors
     @app.exception_handler(ModelNotLoaded)
@@ -171,6 +221,41 @@ def create_app(
             content={"error": "backend_error", "detail": str(exc)},
         )
 
+    @app.middleware("http")
+    async def limit_rate(request: Request, call_next: Any) -> Any:
+        limiter = app.state.rate_limiter
+        if limiter is None or request.url.path in PUBLIC_PATHS:
+            return await call_next(request)
+        client = request.client.host if request.client else "unknown"
+        # Bucket per authenticated identity, falling back to the peer address.
+        # This middleware runs *outside* the auth check on purpose: an
+        # unauthenticated flood must be throttled before it can be used to
+        # guess the token.  But keying only by address means an anonymous flood
+        # would lock the legitimate client out too — and behind a TLS reverse
+        # proxy (the documented setup) every client shares one address, so one
+        # attacker would lock out everybody.  A *valid* token therefore gets its
+        # own bucket; an invalid or absent one is throttled by address, so
+        # varying the token does not buy an attacker more attempts.
+        expected = resolved.api_token
+        if expected:
+            token = _bearer_token(request.headers.get("authorization"))
+            if token is None:
+                token = request.headers.get("x-api-key")
+            if token and check_token(token, expected):
+                client = "token:" + hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+        allowed, retry_after = limiter.check(client)
+        if not allowed:
+            app.state.metrics.increment("api_rate_limited")
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "rate_limited",
+                    "detail": "تعداد درخواست‌ها بیش از حد مجاز است؛ کمی بعد تلاش کنید.",
+                },
+                headers={"Retry-After": f"{retry_after:.1f}"},
+            )
+        return await call_next(request)
+
     # ---------------------------------------------------------------- basics
     if resolved.ws_enabled:
         # Opt-in LAN voice transport; each connection gets its own Pipeline and
@@ -191,16 +276,17 @@ def create_app(
 
     @app.get("/health", tags=["meta"])
     async def health(request: Request) -> dict[str, Any]:
-        backend = await request.app.state.llm.health()
-        healthy = bool(backend.get("reachable") and backend.get("model_available"))
+        """Minimal liveness probe — the only route without a token.
+
+        Deliberately reveals nothing an unauthenticated caller could use: no
+        model path, no backend address, no directory.  The detailed checklist
+        lives in ``/ready`` behind the token.
+        """
         return {
-            "status": "ok" if healthy else "degraded",
+            "status": "ok",
             "service": "persian-voice-ai",
             "version": __version__,
-            "model": resolved.model_path.split("\\")[-1].split("/")[-1],
             "uptime_s": round(time.time() - request.app.state.started_at, 1),
-            "backend": backend,
-            "ready": "/ready",
         }
 
     @app.get("/ready", tags=["meta"])
@@ -382,9 +468,11 @@ def create_app(
         # event loop so audio frames and WebSocket traffic are not stalled by a
         # session listing.
         sessions = await asyncio.to_thread(store.sessions)
+        # The directory is *not* returned: it discloses the user's home layout
+        # and the local data root to anything that can reach the API.  It is
+        # discoverable from PVAI_DATA_DIR on the machine itself.
         return {
             "persistence": bool(store.enabled),
-            "directory": str(store.root) if store.enabled else None,
             "sessions": sessions,
         }
 

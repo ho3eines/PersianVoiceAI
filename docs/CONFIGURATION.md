@@ -154,11 +154,39 @@ AEC فقط با ۱۶kHz و بلوک ۲۰ms معنا دارد؛ `GET /ready` ای
 | متغیر | پیش‌فرض | معنا |
 |---|---|---|
 | `PVAI_WS_ENABLED` | `false` | ثبت `WS /ws/voice` برای دستگاه‌های LAN. خاموش = هیچ پورت/مسیر صوتی اضافه‌ای باز نمی‌شود |
-| `PVAI_WS_TOKEN` | خالی | توکن مشترک دستگاه؛ با `PVAI_WS_ENABLED=true` الزامی است، وگرنه `config_errors` خطا می‌دهد و هر اتصال با `auth_not_configured` رد می‌شود |
+| `PVAI_WS_TOKENS` | خالی | توکن per-device به شکل `device_id:token,device_id:token`. **ترجیح داده می‌شود**: بستن یک دستگاه بقیه را قطع نمی‌کند. جفت بدون `:` یا توکن تکراری خطای پیکربندی است |
+| `PVAI_WS_TOKEN` | خالی | توکن مشترک همهٔ دستگاه‌ها؛ فقط با `PVAI_WS_ALLOW_SHARED_TOKENS=true` پذیرفته می‌شود. با `PVAI_WS_ENABLED=true` یکی از `PVAI_WS_TOKENS`/`PVAI_WS_TOKEN` الزامی است |
+| `PVAI_WS_ALLOW_SHARED_TOKENS` | `false` | پذیرش `PVAI_WS_TOKEN` مشترک. با یک توکن برای همه، بستن دسترسی یک دستگاه یعنی بستن همه |
+| `PVAI_WS_MAX_CONNECTIONS` | `4` | سقف اتصال هم‌زمان؛ اتصال اضافی `error` کد `too_many_connections` می‌گیرد |
+| `PVAI_WS_CONNECT_RATE` | `10` | سقف اتصال جدید در دقیقه از هر نشانی |
+| `PVAI_WS_FRAME_RATE` | `200` | سقف فریم capture در ثانیه برای هر اتصال (نرخ اسمی ۵۰ = ۲۰ms؛ ۲۰۰ یعنی ۴ برابر). `0` = بی‌سقف |
+| `PVAI_WS_HEARTBEAT` | `15` | فاصلهٔ `ping` سرور (ثانیه). `0` = خاموش |
+| `PVAI_WS_IDLE_TIMEOUT` | `60` | اگر دستگاه این مدت هیچ پیامی نفرستد اتصال بسته می‌شود. `0` = خاموش |
+| `PVAI_WS_PLAYBACK_PACING` | `true` | ارسال فریم پخش با نرخ واقعی. `false` فقط برای اشکال‌زدایی: دستگاه تا ۵ ثانیه بافر می‌کند و بعد از barge-in صدای لغوشده پخش می‌شود |
+| `PVAI_WS_PLAYBACK_CREDIT_MS` | `200` | اعتبار اولیهٔ بافر دستگاه (میلی‌ثانیه) تا بین برست‌های سنتز underrun نشود |
 
 - پورت همان `PVAI_PORT` برنامه است؛ مسیر جدا `WS /ws/voice`.
-- `/ready` کلید `ws_voice` را برمی‌گرداند: خاموش / روشن بدون توکن (ناآماده) / آماده.
+- `/ready` (پشت توکن REST) کلید `ws_voice` را برمی‌گرداند: خاموش / روشن بدون توکن (ناآماده) / آماده.
 - firmware، رجیستری دستگاه و OTA وجود ندارند؛ `docs/PROTOCOL.md` این تفکیک را صریح می‌گوید.
+
+## ۱۱. دسترسی REST
+
+| متغیر | پیش‌فرض | معنا |
+|---|---|---|
+| `PVAI_API_TOKEN` | خالی | توکن Bearer برای همهٔ مسیرهای REST جز `/health`. **اجباری** وقتی `PVAI_HOST` غیر-loopback است، وگرنه برنامه در startup خطا می‌دهد |
+| `PVAI_API_RATE_LIMIT` | `20` | درخواست REST در ثانیه به‌ازای هر کلاینت (توکن یا نشانی) |
+| `PVAI_API_RATE_BURST` | `40` | اندازهٔ برست مجاز پیش از ۴۲۹ |
+
+- `/health` تنها مسیر عمومی است و فقط `{"status": "ok"}` برمی‌گرداند: بدون نام مدل، بدون مسیر داده.
+  جزئیات پشت توکن در `/ready` است.
+- پیش از این `GET /api/sessions/{id}` متن کامل گفتگو را بی‌احراز هویت برمی‌گرداند؛ با
+  `PVAI_HOST=0.0.0.0` (که برای دستگاه LAN لازم است) هر کسی در شبکه آن را می‌دید.
+- توکن روی شبکهٔ بدون TLS به‌صورت plaintext می‌رود؛ برای شبکهٔ غیرمورد‌اعتماد reverse proxy با
+  `https://`/`wss://` بگذارید (بخش ۷ در `docs/PROTOCOL.md`).
+- تمایز مهم: `Settings.config_errors()` **دروازهٔ سخت** است (`run_live` را متوقف می‌کند و
+  `/ready` را ناآماده می‌کند). `Settings.config_warnings()` ریسک‌های آگاهانه را برمی‌گرداند —
+  مثل `ws://` بدون TLS در LAN یا نبودن `PVAI_API_TOKEN` روی loopback — که در لاگ startup و در
+  `checks.configuration.warnings` در `/ready` دیده می‌شوند و جلوی اجرا را نمی‌گیرند.
 
 ## ۱۱. مشاهده‌پذیری
 

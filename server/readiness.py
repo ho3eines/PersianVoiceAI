@@ -30,10 +30,15 @@ def _module_available(name: str) -> bool:
 
 def check_configuration(settings: Any) -> dict[str, Any]:
     errors = list(settings.config_errors())
+    # Warnings do not affect ``ok``: a LAN bind without TLS is a documented,
+    # deliberate setup.  They are surfaced here so an operator who never looks
+    # at the startup log still sees them.
+    warnings = list(settings.config_warnings()) if hasattr(settings, "config_warnings") else []
     return {
         "ok": not errors,
         "detail": "تنظیمات معتبر است." if not errors else "؛ ".join(errors),
         "errors": errors,
+        "warnings": warnings,
     }
 
 
