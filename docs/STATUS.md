@@ -35,7 +35,8 @@
 | readiness و health (`/ready`, `/health`) | پیاده‌شده + تست | `server/readiness.py`, `tests/test_api.py` |
 | سنجه‌های کامل خط لوله (شامل jitter callback، صف، CPU/RAM در اجرای زنده) | پیاده‌شده + تست | `server/metrics.py`, `server/audio_io.py` |
 | بنچمارک کل زنجیرهٔ صوت | ابزار آماده (`tools/benchmark_voice.py`)؛ اعداد واقعی هدف **NOT MEASURED** | `docs/BENCHMARKS.md` |
-| ارزیابی فارسی WER/CER | مجموعهٔ ۴۰ جمله + ابزار؛ اعداد واقعی **NOT MEASURED** | `benchmarks/persian_eval.py` |
+| ارزیابی فارسی WER/CER | مجموعهٔ ۴۰ جمله + ۶ کلیپ `no_speech` + ابزار؛ اعداد واقعی **NOT MEASURED** | `benchmarks/persian_eval.py` |
+| نرخ پذیرش کاذب روی سکوت/نویز | سنجه و ورودی‌ها آماده؛ عدد واقعی **NOT MEASURED** (بدون wav) | `benchmarks/persian_eval.py`, `server/persian.py` |
 | پروتکل و **transport سمت سرور** WebSocket صوتی (`WS /ws/voice`) | پیاده‌شده + تست (fake)؛ توکن per-device، سقف اتصال، pacing، heartbeat، فریم ۲۰ms اجباری | `server/protocol.py`, `server/ws_voice.py`, `tests/test_ws_voice.py` |
 | امنیت REST (`PVAI_API_TOKEN`، rate limit، `/health` حداقلی) | پیاده‌شده + تست | `server/security.py`, `server/main.py`, `tests/test_ws_security.py` |
 | firmware ESP32-S3، OTA، تست LAN واقعی | **پیاده‌نشده / NOT MEASURED** | — |
@@ -45,10 +46,11 @@
 
 ```text
 $ python -m pytest
-369 passed, 5 skipped in 9.4s
+560 passed, 5 skipped in 9.7s
 ```
 
-- ۳۶ تست این مرحله در `tests/test_ws_security.py`: هر تست یک نقص گزارش‌شده را می‌پوشاند و
+- ۳۶ تست امنیتی در `tests/test_ws_security.py` و ۱۸۹ تست متن/ASR در
+  `tests/test_tts_text_preparation.py`: هر تست یک نقص گزارش‌شده را می‌پوشاند و
   روی کد پیش از رفع شکست می‌خورد (برای بارگذاری مدل، pacing، صف حیاتی و نرخ فریم دستی بررسی شد).
 
 - تست‌های native SpeexDSP در sandbox بدون کتابخانهٔ ساخته‌شده صریحاً skip می‌شوند؛ اگر

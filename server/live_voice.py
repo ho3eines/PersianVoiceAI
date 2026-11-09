@@ -31,6 +31,13 @@ from .voice import VoiceError, dependency
 
 SENTENCE_END = re.compile(r"[.!؟?\n؛](?:\s|$)")
 MAX_CHUNK_CHARS = 180
+
+#: A boundary immediately preceded by one of these is not a sentence end:
+#: ``1.`` / ``2)`` is a list marker and ``3.5`` a decimal.  The original
+#: ``SENTENCE_END`` split ``"**مهم:** سه مورد:\n1. اول\n2. دوم"`` into
+#: ``['…\n1.', 'اول\n2.', 'دوم']``, so Piper pronounced every list number as
+#: its own sentence with an audible full stop.
+_NOT_A_BOUNDARY = re.compile(r"(?:[0-9]{1,3}[.)]|[0-9]\.[0-9]|[A-Za-z]\.[A-Za-z])$")
 OUTPUT_BLOCK_SECONDS = 0.02
 
 
@@ -47,6 +54,13 @@ def sentences(buffer: str, final: bool = False) -> tuple[list[str], str]:
     ready: list[str] = []
     while True:
         match = SENTENCE_END.search(buffer)
+        # A dot that ends a list number or a decimal is not a sentence end.
+        # Scan past it rather than re-searching from its own end, or the same
+        # match is found again and ``"2."`` becomes its own utterance.
+        while match is not None and _NOT_A_BOUNDARY.search(
+            buffer[: match.end() - 1].rstrip()
+        ):
+            match = SENTENCE_END.search(buffer, match.end())
         if match:
             end = match.end()
         elif len(buffer) > MAX_CHUNK_CHARS:
@@ -60,6 +74,15 @@ def sentences(buffer: str, final: bool = False) -> tuple[list[str], str]:
             ready.append(piece)
         buffer = buffer[end:]
         buffer = buffer.lstrip()
+    if not final and ready:
+        # Streaming: a comma or a list/dictionary marker only becomes a
+        # sentence end once the *next* character decides.  Holding the last
+        # piece back means "2. دوم" is split as one utterance instead of
+        # "2." followed by "دوم" -- the number is a marker, not a full stop.
+        last = ready[-1]
+        if last.endswith((",", "،")) or re.search(r"[0-9]{1,3}[.)]$", last):
+            ready = ready[:-1]
+            buffer = (last + " " + buffer).strip()
     if final and buffer.strip():
         ready.append(buffer.strip())
         buffer = ""

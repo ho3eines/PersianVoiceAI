@@ -28,7 +28,45 @@ DEFAULT_SYSTEM_PROMPT = (
     "پاسخ را تا حد ممکن کوتاه، دقیق و مفید بده؛ مگر اینکه کاربر توضیح بیشتری بخواهد. "
     "از تعارف اضافه و تکرار پرسش پرهیز کن. "
     "اگر پاسخ چیزی را نمی‌دانی، صادقانه بگو که نمی‌دانی. "
-    "برای پرسش‌های فنی، پاسخ را گام‌به‌گام و روشن بنویس."
+    "برای پرسش‌های فنی، پاسخ را گام‌به‌گام و روشن بنویس. "
+    # The reply is read aloud by a TTS voice: formatting is noise to it.  The
+    # pipeline cleans up after the model anyway (``persian.prepare_for_tts``),
+    # but a model that never emits it produces better speech than one that does.
+    "پاسخ تو با صدا خوانده می‌شود؛ پس از markdown، ستاره، عنوان، فهرست شماره‌دار، "
+    "جدول، لینک و ایموجی استفاده نکن و پاسخ را در قالب متن سادهٔ روان بنویس. "
+    "ارقام و نمادها را به شکل قابل‌خواندن بنویس: ساعت را «ساعت ده و سی دقیقه»، "
+    "درصد را «بیست و پنج درصد» و عدد را با حروف (مثلاً «سه») بنویس."
+)
+
+
+#: Phrases Whisper emits on silence and noise, with no speaker behind them.
+#: They are dangerous here because a non-empty ``asr_final`` starts a whole LLM
+#: turn: Whisper hallucinating one sentence on a TV in the next room makes the
+#: assistant answer a question nobody asked.  Matched against the *normalised*
+#: transcript, so Arabic letter forms and diacritics do not hide them.
+#: Comma-separated in ``PVAI_ASR_HALLUCINATION_PHRASES``; empty disables the
+#: filter (not recommended).
+DEFAULT_HALLUCINATION_PHRASES = ",".join(
+    [
+        "زیرنویس",
+        "زیرنویس‌ها",
+        "ممنون از تماشای شما",
+        "ممنون که تماشا کردید",
+        "از تماشای شما متشکرم",
+        "اشتراک‌گذاری کنید",
+        "لایک و سابسکرایب",
+        "کانال ما را دنبال کنید",
+        "این ویدیو را ببینید",
+        "صفحهٔ بعد",
+        "ادامه در قسمت بعد",
+        "به امید دیدار",
+        "خداحافظ",
+        "تشکر از توجه شما",
+        "ترجمهٔ فارسی",
+        "سمت راست صفحه",
+        "Thanks for watching",
+        "Subscribe",
+    ]
 )
 
 
@@ -326,6 +364,13 @@ class Settings:
     asr_threads: int = 2  # explicit budget: never leave LLM/TTS without cores
     asr_beam_size: int = 1
     asr_vad_filter: bool = False  # Whisper VAD is not our endpointing authority
+    asr_language: str = "fa"  # or "auto": let Whisper decide per segment
+    asr_initial_prompt: str = ""  # biases spelling/script; empty = none
+    asr_no_speech_threshold: float = 0.6  # faster-whisper's default, made explicit
+    asr_log_prob_threshold: float = -1.0  # mean logprob below this = unreliable
+    asr_compression_ratio_threshold: float = 2.4  # repetition loops
+    asr_hallucination_phrases: str = DEFAULT_HALLUCINATION_PHRASES
+    asr_max_no_speech_prob: float = 0.75  # drop a whole segment above this
     asr_partial_window_s: float = 6.0  # bounded overlapping window for partials
     asr_max_final_jobs: int = 16  # warning threshold; finals are never dropped
     asr_warmup: bool = True
@@ -619,6 +664,23 @@ class Settings:
             asr_threads=_env_int("PVAI_ASR_THREADS", 2, minimum=1, maximum=32),
             asr_beam_size=_env_int("PVAI_ASR_BEAM_SIZE", 1, minimum=1, maximum=5),
             asr_vad_filter=bool(_env_optional_bool("PVAI_ASR_VAD_FILTER", False)),
+            asr_language=_env_str("PVAI_ASR_LANGUAGE", "fa").strip().lower() or "auto",
+            asr_initial_prompt=_env_str("PVAI_ASR_INITIAL_PROMPT", ""),
+            asr_no_speech_threshold=_env_float(
+                "PVAI_ASR_NO_SPEECH_THRESHOLD", 0.6, minimum=0.0, maximum=1.0
+            ),
+            asr_log_prob_threshold=_env_float(
+                "PVAI_ASR_LOG_PROB_THRESHOLD", -1.0, minimum=-5.0, maximum=0.0
+            ),
+            asr_compression_ratio_threshold=_env_float(
+                "PVAI_ASR_COMPRESSION_RATIO", 2.4, minimum=1.0, maximum=10.0
+            ),
+            asr_hallucination_phrases=_env_str(
+                "PVAI_ASR_HALLUCINATION_PHRASES", DEFAULT_HALLUCINATION_PHRASES
+            ),
+            asr_max_no_speech_prob=_env_float(
+                "PVAI_ASR_MAX_NO_SPEECH_PROB", 0.75, minimum=0.0, maximum=1.0
+            ),
             asr_partial_window_s=_env_float("PVAI_ASR_PARTIAL_WINDOW_S", 6.0, minimum=1.0, maximum=30.0),
             asr_max_final_jobs=_env_int("PVAI_ASR_MAX_FINAL_JOBS", 16, minimum=1, maximum=256),
             asr_warmup=bool(_env_optional_bool("PVAI_ASR_WARMUP", True)),

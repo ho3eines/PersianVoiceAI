@@ -515,24 +515,44 @@ def exchange(ws, *, record_file: Path | None = None, silence: int = 32) -> None:
     turn is committed on that shutdown; when ``record_file`` is given the test
     polls the JSONL for an assistant record instead of racing the socket.
     """
+    baseline = _assistant_records(record_file) if record_file is not None else 0
     for index in range(20):
         ws.send_bytes(capture_frame(LOUD, index))
     for index in range(silence):
         ws.send_bytes(capture_frame(SILENCE, index))
     if record_file is None:
         return
+    # Wait for *this* exchange, not for any assistant record: a resumed session
+    # already has one from the earlier connection, so polling for "an assistant
+    # record exists" returned immediately and the caller read the file before
+    # the new reply was written -- an intermittent failure that looked like a
+    # resume bug.
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
-        if record_file.exists():
-            records = [
-                json.loads(line)
-                for line in record_file.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            ]
-            if any(record.get("role") == "assistant" for record in records):
-                return
+        if _assistant_records(record_file) > baseline:
+            return
         time.sleep(0.01)
-    raise AssertionError("the reply was not recorded in time")
+    raise AssertionError(
+        f"the reply was not recorded in time (assistant records: {baseline})"
+    )
+
+
+def _assistant_records(record_file: Path) -> int:
+    """How many assistant replies the store holds right now."""
+    try:
+        lines = record_file.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return 0
+    count = 0
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            if json.loads(line).get("role") == "assistant":
+                count += 1
+        except ValueError:  # a partially written last line
+            continue
+    return count
 
 
 def test_device_resumes_a_session_with_its_earlier_context(tmp_path: Path) -> None:

@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import re
 import threading
 import time
 from collections import deque
@@ -53,6 +54,7 @@ from .conversation import (
     purge_expired,
 )
 from .live_voice import Speaker, sentences
+from .persian import prepare_for_tts
 from .metrics import Metrics
 from .vad import ONSET, REJECTED, SEGMENT, build_vad
 from .voice import LocalAudio, VoiceError, dependency, local_api_url
@@ -1262,9 +1264,18 @@ class Pipeline:
             return
         if token.is_set() or turn.generation != self.generation or turn.token.is_set():
             return
-        words = text.split()
+        # The text that reaches Piper is *prepared*, not the raw model output:
+        # Markdown, list markers, links and emoji are removed and numbers are
+        # spelled out (see ``persian.prepare_for_tts``).  The raw sentence is
+        # still what the device is shown and recorded, so nothing is lost from
+        # the transcript.
+        spoken = prepare_for_tts(text)
+        if not spoken:
+            # Nothing pronounceable left (a bare "*" or an emoji-only line).
+            return
+        words = spoken.split()
         self.event("tts_enqueue", turn_id=turn.turn_id, text=text, words=len(words))
-        await self._put_speech(SpeechItem(turn, text, token))
+        await self._put_speech(SpeechItem(turn, spoken, token))
 
     async def _put_speech(self, item: SpeechItem) -> None:
         """Bounded enqueue: backpressure to SSE, abort when the turn is cancelled."""
