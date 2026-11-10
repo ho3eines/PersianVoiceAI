@@ -1,11 +1,12 @@
 {
-  "version": 1,
+  "version": 2,
   "language": "fa-IR",
   "normalization_policy": "server.persian.normalize_for_eval (NFC; Arabic ي/ك → ی/ک; diacritics and tatweel removed; ۰-۹/٠-٩ → 0-9; نیم‌فاصله → space; punctuation removed; whitespace collapsed)",
   "notes": [
     "این مجموعه برای سنجش خطای بازشناسی (WER/CER) ساخته شده است، نه برای آموزش.",
     "هر جمله باید به‌صورت گفتار طبیعی و با میکروفون واقعی خوانده شود؛ متن مرجع همان text است.",
-    "بدون فایل صوتی و وزن Whisper، هیچ عدد دقتی محاسبه نمی‌شود (NOT MEASURED)."
+    "بدون فایل صوتی و وزن Whisper، هیچ عدد دقتی محاسبه نمی‌شود (NOT MEASURED).",
+    "ورودی‌های kind=no_speech مرجع متنی ندارند؛ با آن‌ها نرخ پذیرش کاذب (false-accept) سنجیده می‌شود، نه WER. برای هر ورودی، فایل <id>.wav با همان نام ضبط کنید."
   ],
   "categories": {
     "greeting": "سلام و احوال‌پرسی روزمره",
@@ -18,48 +19,251 @@
     "long_sentence": "جملهٔ بلند با چند بند",
     "spoken": "فارسی محاوره‌ای",
     "question": "پرسش با آهنگ پرسشی",
-    "command": "دستور کوتاه برای کنترل دستگاه"
+    "command": "دستور کوتاه برای کنترل دستگاه",
+    "no_speech": "کلیپ بدون گفتار (سکوت، نویز اتاق، تلویزیون) برای سنجش پذیرش کاذب"
   },
   "sentences": [
-    {"id": "fa-001", "category": "greeting", "text": "سلام، حال شما چطور است؟"},
-    {"id": "fa-002", "category": "greeting", "text": "صبح بخیر، امروز چه کاری داریم؟"},
-    {"id": "fa-003", "category": "numbers", "text": "قیمت این محصول هزار و دویست تومان است."},
-    {"id": "fa-004", "category": "numbers", "text": "شمارهٔ منزل من ۲۴ است و واحد سه."},
-    {"id": "fa-005", "category": "numbers", "text": "سه چهارم کار انجام شده است."},
-    {"id": "fa-006", "category": "datetime", "text": "جلسه ساعت ده و نیم روز شنبه برگزار می‌شود."},
-    {"id": "fa-007", "category": "datetime", "text": "امروز ۱۴۰۴/۰۸/۱۷ است."},
-    {"id": "fa-008", "category": "datetime", "text": "فردا بعدازظهر به دفتر می‌روم."},
-    {"id": "fa-009", "category": "english_terms", "text": "فایل PDF را با ایمیل برای من بفرست."},
-    {"id": "fa-010", "category": "english_terms", "text": "برنامهٔ Python روی لپ‌تاپ نصب است."},
-    {"id": "fa-011", "category": "english_terms", "text": "لطفاً Wi-Fi را روشن کن."},
-    {"id": "fa-012", "category": "names", "text": "علی رضایی و مریم احمدی به تهران رفتند."},
-    {"id": "fa-013", "category": "names", "text": "کتاب «بوف کور» نوشتهٔ صادق هدایت است."},
-    {"id": "fa-014", "category": "names", "text": "استاد کریمی در دانشگاه صنعتی شریف تدریس می‌کند."},
-    {"id": "fa-015", "category": "zwnj", "text": "کتاب‌های من روی میز است."},
-    {"id": "fa-016", "category": "zwnj", "text": "بی‌نهایت کوچک و بزرگ‌ترین عدد را بنویس."},
-    {"id": "fa-017", "category": "zwnj", "text": "می‌خواهم برنامه‌ریزی سفر را انجام دهم."},
-    {"id": "fa-018", "category": "arabic_chars", "text": "کتابخانهٔ دانشگاه کجاست؟"},
-    {"id": "fa-019", "category": "arabic_chars", "text": "مي‌خواهم يك فيلم فارسي ببينم."},
-    {"id": "fa-020", "category": "long_sentence", "text": "اگر فردا هوا آفتابی باشد و جاده باز باشد، پیش از ظهر حرکت می‌کنیم و حدود ساعت سه به مقصد می‌رسیم."},
-    {"id": "fa-021", "category": "long_sentence", "text": "این دستگاه صوتی محلی است، هیچ اطلاعاتی به اینترنت نمی‌فرستد، و تنها روی شبکهٔ خانگی کار می‌کند."},
-    {"id": "fa-022", "category": "spoken", "text": "خب، ببینم چی می‌گفتی؟"},
-    {"id": "fa-023", "category": "spoken", "text": "راستش من زیاد حال ندارم امروز."},
-    {"id": "fa-024", "category": "spoken", "text": "یه لحظه صبر کن، دارم میام."},
-    {"id": "fa-025", "category": "question", "text": "می‌توانی این متن را خلاصه کنی؟"},
-    {"id": "fa-026", "category": "question", "text": "چرا برنامه امروز اجرا نشد؟"},
-    {"id": "fa-027", "category": "question", "text": "آیا می‌شود دو دقیقه بعد تماس بگیرم؟"},
-    {"id": "fa-028", "category": "command", "text": "چراغ آشپزخانه را خاموش کن."},
-    {"id": "fa-029", "category": "command", "text": "دما را روی بیست و دو درجه تنظیم کن."},
-    {"id": "fa-030", "category": "command", "text": "پرده‌ها را ببند و تلویزیون را روشن کن."},
-    {"id": "fa-031", "category": "numbers", "text": "امسال بیست و پنج درصد رشد داشتیم."},
-    {"id": "fa-032", "category": "english_terms", "text": "این فایل را با فرمت JPEG ذخیره کن."},
-    {"id": "fa-033", "category": "datetime", "text": "دو هفتهٔ آینده تعطیلات رسمی داریم."},
-    {"id": "fa-034", "category": "zwnj", "text": "هم‌کلاسی‌های قدیمی من به‌همین دلیل نیامدند."},
-    {"id": "fa-035", "category": "names", "text": "خانم موسوی از شرکت ایران‌خودرو تماس گرفت."},
-    {"id": "fa-036", "category": "long_sentence", "text": "پژوهش‌های تازه نشان می‌دهند که خواب کافی بر حافظه تأثیر مستقیم دارد و کم‌خوابی طولانی می‌تواند تمرکز را به‌شدت کاهش دهد."},
-    {"id": "fa-037", "category": "spoken", "text": "بذار یه نگاهی بندازم بعد بهت می‌گم."},
-    {"id": "fa-038", "category": "question", "text": "میشه این کار رو فردا انجام بدیم؟"},
-    {"id": "fa-039", "category": "command", "text": "پنج دقیقهٔ دیگر مرا یادآوری کن."},
-    {"id": "fa-040", "category": "greeting", "text": "شب بخیر، فردا صحبت می‌کنیم."}
+    {
+      "id": "fa-001",
+      "category": "greeting",
+      "text": "سلام، حال شما چطور است؟"
+    },
+    {
+      "id": "fa-002",
+      "category": "greeting",
+      "text": "صبح بخیر، امروز چه کاری داریم؟"
+    },
+    {
+      "id": "fa-003",
+      "category": "numbers",
+      "text": "قیمت این محصول هزار و دویست تومان است."
+    },
+    {
+      "id": "fa-004",
+      "category": "numbers",
+      "text": "شمارهٔ منزل من ۲۴ است و واحد سه."
+    },
+    {
+      "id": "fa-005",
+      "category": "numbers",
+      "text": "سه چهارم کار انجام شده است."
+    },
+    {
+      "id": "fa-006",
+      "category": "datetime",
+      "text": "جلسه ساعت ده و نیم روز شنبه برگزار می‌شود."
+    },
+    {
+      "id": "fa-007",
+      "category": "datetime",
+      "text": "امروز ۱۴۰۴/۰۸/۱۷ است."
+    },
+    {
+      "id": "fa-008",
+      "category": "datetime",
+      "text": "فردا بعدازظهر به دفتر می‌روم."
+    },
+    {
+      "id": "fa-009",
+      "category": "english_terms",
+      "text": "فایل PDF را با ایمیل برای من بفرست."
+    },
+    {
+      "id": "fa-010",
+      "category": "english_terms",
+      "text": "برنامهٔ Python روی لپ‌تاپ نصب است."
+    },
+    {
+      "id": "fa-011",
+      "category": "english_terms",
+      "text": "لطفاً Wi-Fi را روشن کن."
+    },
+    {
+      "id": "fa-012",
+      "category": "names",
+      "text": "علی رضایی و مریم احمدی به تهران رفتند."
+    },
+    {
+      "id": "fa-013",
+      "category": "names",
+      "text": "کتاب «بوف کور» نوشتهٔ صادق هدایت است."
+    },
+    {
+      "id": "fa-014",
+      "category": "names",
+      "text": "استاد کریمی در دانشگاه صنعتی شریف تدریس می‌کند."
+    },
+    {
+      "id": "fa-015",
+      "category": "zwnj",
+      "text": "کتاب‌های من روی میز است."
+    },
+    {
+      "id": "fa-016",
+      "category": "zwnj",
+      "text": "بی‌نهایت کوچک و بزرگ‌ترین عدد را بنویس."
+    },
+    {
+      "id": "fa-017",
+      "category": "zwnj",
+      "text": "می‌خواهم برنامه‌ریزی سفر را انجام دهم."
+    },
+    {
+      "id": "fa-018",
+      "category": "arabic_chars",
+      "text": "کتابخانهٔ دانشگاه کجاست؟"
+    },
+    {
+      "id": "fa-019",
+      "category": "arabic_chars",
+      "text": "مي‌خواهم يك فيلم فارسي ببينم."
+    },
+    {
+      "id": "fa-020",
+      "category": "long_sentence",
+      "text": "اگر فردا هوا آفتابی باشد و جاده باز باشد، پیش از ظهر حرکت می‌کنیم و حدود ساعت سه به مقصد می‌رسیم."
+    },
+    {
+      "id": "fa-021",
+      "category": "long_sentence",
+      "text": "این دستگاه صوتی محلی است، هیچ اطلاعاتی به اینترنت نمی‌فرستد، و تنها روی شبکهٔ خانگی کار می‌کند."
+    },
+    {
+      "id": "fa-022",
+      "category": "spoken",
+      "text": "خب، ببینم چی می‌گفتی؟"
+    },
+    {
+      "id": "fa-023",
+      "category": "spoken",
+      "text": "راستش من زیاد حال ندارم امروز."
+    },
+    {
+      "id": "fa-024",
+      "category": "spoken",
+      "text": "یه لحظه صبر کن، دارم میام."
+    },
+    {
+      "id": "fa-025",
+      "category": "question",
+      "text": "می‌توانی این متن را خلاصه کنی؟"
+    },
+    {
+      "id": "fa-026",
+      "category": "question",
+      "text": "چرا برنامه امروز اجرا نشد؟"
+    },
+    {
+      "id": "fa-027",
+      "category": "question",
+      "text": "آیا می‌شود دو دقیقه بعد تماس بگیرم؟"
+    },
+    {
+      "id": "fa-028",
+      "category": "command",
+      "text": "چراغ آشپزخانه را خاموش کن."
+    },
+    {
+      "id": "fa-029",
+      "category": "command",
+      "text": "دما را روی بیست و دو درجه تنظیم کن."
+    },
+    {
+      "id": "fa-030",
+      "category": "command",
+      "text": "پرده‌ها را ببند و تلویزیون را روشن کن."
+    },
+    {
+      "id": "fa-031",
+      "category": "numbers",
+      "text": "امسال بیست و پنج درصد رشد داشتیم."
+    },
+    {
+      "id": "fa-032",
+      "category": "english_terms",
+      "text": "این فایل را با فرمت JPEG ذخیره کن."
+    },
+    {
+      "id": "fa-033",
+      "category": "datetime",
+      "text": "دو هفتهٔ آینده تعطیلات رسمی داریم."
+    },
+    {
+      "id": "fa-034",
+      "category": "zwnj",
+      "text": "هم‌کلاسی‌های قدیمی من به‌همین دلیل نیامدند."
+    },
+    {
+      "id": "fa-035",
+      "category": "names",
+      "text": "خانم موسوی از شرکت ایران‌خودرو تماس گرفت."
+    },
+    {
+      "id": "fa-036",
+      "category": "long_sentence",
+      "text": "پژوهش‌های تازه نشان می‌دهند که خواب کافی بر حافظه تأثیر مستقیم دارد و کم‌خوابی طولانی می‌تواند تمرکز را به‌شدت کاهش دهد."
+    },
+    {
+      "id": "fa-037",
+      "category": "spoken",
+      "text": "بذار یه نگاهی بندازم بعد بهت می‌گم."
+    },
+    {
+      "id": "fa-038",
+      "category": "question",
+      "text": "میشه این کار رو فردا انجام بدیم؟"
+    },
+    {
+      "id": "fa-039",
+      "category": "command",
+      "text": "پنج دقیقهٔ دیگر مرا یادآوری کن."
+    },
+    {
+      "id": "fa-040",
+      "category": "greeting",
+      "text": "شب بخیر، فردا صحبت می‌کنیم."
+    },
+    {
+      "id": "ns-001",
+      "category": "no_speech",
+      "kind": "no_speech",
+      "text": "",
+      "prompt": "سکوت کامل اتاق به مدت ۵ ثانیه"
+    },
+    {
+      "id": "ns-002",
+      "category": "no_speech",
+      "kind": "no_speech",
+      "text": "",
+      "prompt": "نویز فن لپ‌تاپ بدون گفتار"
+    },
+    {
+      "id": "ns-003",
+      "category": "no_speech",
+      "kind": "no_speech",
+      "text": "",
+      "prompt": "صدای تلویزیون در اتاق دیگر (فارسی، نامفهوم)"
+    },
+    {
+      "id": "ns-004",
+      "category": "no_speech",
+      "kind": "no_speech",
+      "text": "",
+      "prompt": "موسیقی بی‌کلام با صدای کم"
+    },
+    {
+      "id": "ns-005",
+      "category": "no_speech",
+      "kind": "no_speech",
+      "text": "",
+      "prompt": "صدای صفحه‌کلید و صندلی بدون گفتار"
+    },
+    {
+      "id": "ns-006",
+      "category": "no_speech",
+      "kind": "no_speech",
+      "text": "",
+      "prompt": "همهمهٔ نامفهوم چند نفر در فاصله"
+    }
   ]
 }

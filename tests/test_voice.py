@@ -81,7 +81,7 @@ def test_bind_address_maps_to_loopback() -> None:
     assert local_api_url(Settings(api_host="0.0.0.0")) == "http://127.0.0.1:8000"
 
 
-def test_whisper_never_downloads(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_whisper_never_downloads(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     options = {}
 
     def model(path: str, **kwargs):
@@ -89,7 +89,8 @@ def test_whisper_never_downloads(monkeypatch: pytest.MonkeyPatch) -> None:
         return SimpleNamespace(transcribe=lambda *a, **k: ([SimpleNamespace(text=" سلام ")], None))
 
     monkeypatch.setattr("server.voice.dependency", lambda _: SimpleNamespace(WhisperModel=model))
-    assert LocalAudio(Settings()).transcribe(Path("in")) == "سلام"
+    (tmp_path / "model.bin").touch()
+    assert LocalAudio(Settings(asr_model_path=str(tmp_path)))._transcribe("stub") == "سلام"
     assert options["local_files_only"] is True
 
 

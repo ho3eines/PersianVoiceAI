@@ -20,7 +20,8 @@ if ($Port -gt 0) { $env:PVAI_PORT = "$Port" }
 $bind = if ($Bind) { $Bind } else { "127.0.0.1" }
 $port = if ($Port -gt 0) { $Port } else { 8000 }
 
-Write-Host "Persian Voice AI API (llama.cpp) -> http://${bind}:${port}" -ForegroundColor Cyan
-Write-Host "Docs: http://${bind}:${port}/docs" -ForegroundColor DarkGray
+$scheme = if ($env:PVAI_SSL_CERTFILE -and $env:PVAI_SSL_KEYFILE) { "https" } else { "http" }
+Write-Host "Persian Voice AI API (llama.cpp) -> ${scheme}://${bind}:${port}" -ForegroundColor Cyan
+Write-Host "Docs: ${scheme}://${bind}:${port}/docs" -ForegroundColor DarkGray
 
 & $python -m server

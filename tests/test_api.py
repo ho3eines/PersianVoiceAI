@@ -123,7 +123,7 @@ def client(settings: Settings, fake_llm: FakeLLM):
 def test_root(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
-    assert response.json()["lesson"] == 1
+    assert response.json()["service"] == "Persian Voice AI"
 
 
 def test_local_knowledge_api_and_rag_augmented_chat(tmp_path: Any) -> None:
@@ -161,17 +161,20 @@ def test_health_ok(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert body["model"] == "test-model.gguf"
-    assert body["backend"]["reachable"] is True
+    # /health is the one unauthenticated route, so it deliberately reveals
+    # nothing sensitive: no model path, no backend address, no data directory.
+    assert "model" not in body and "backend" not in body
 
 
 def test_health_degraded(settings: Settings) -> None:
     from server.main import create_app
 
     with TestClient(create_app(settings=settings, llm=FakeLLM(unavailable=True))) as client:
-        body = client.get("/health").json()
-    assert body["status"] == "degraded"
-    assert body["backend"]["reachable"] is False
+        # A dead backend must not stop the liveness probe from answering.
+        assert client.get("/health").status_code == 200
+        # The detail lives behind the token.
+        body = client.get("/ready").json()
+    assert body["status"] == "not_ready"
 
 
 def test_chat_completion(client: TestClient, fake_llm: FakeLLM) -> None:
@@ -372,13 +375,23 @@ def test_ready_reports_the_ws_transport_and_refuses_it_without_a_token(monkeypat
 
 
 def test_ws_enabled_without_a_token_is_a_configuration_error() -> None:
-    assert any("PVAI_WS_TOKEN" in error for error in Settings(ws_enabled=True, ws_token="").config_errors())
-    # A configured token satisfies the same rule.
+    assert any("PVAI_WS_TOKEN" in error for error in Settings(ws_enabled=True).config_errors())
+    # A per-device token list satisfies the same rule.
     assert not [
         error
-        for error in Settings(ws_enabled=True, ws_token="device-token").config_errors()
-        if "PVAI_WS_TOKEN" in error
+        for error in Settings(
+            ws_enabled=True, ws_tokens="esp32-a:device-token"
+        ).config_errors()
+        if "PVAI_WS" in error
     ]
+
+
+def test_a_shared_device_token_is_refused_until_explicitly_accepted() -> None:
+    """One token for every device cannot be revoked per device."""
+    settings = Settings(ws_enabled=True, ws_token="shared")
+    assert any("PVAI_WS_TOKENS" in error for error in settings.config_errors())
+    accepted = Settings(ws_enabled=True, ws_token="shared", ws_allow_shared_tokens=True)
+    assert not [error for error in accepted.config_errors() if "PVAI_WS_TOKEN" in error]
 
 
 def test_ready_reports_missing_backend(monkeypatch, tmp_path) -> None:

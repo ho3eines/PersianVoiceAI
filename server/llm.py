@@ -321,6 +321,33 @@ class LlamaServerClient:
                 "error": f"{type(exc).__name__}: {exc}",
             }
 
+    async def probe_no_thinking(self) -> dict[str, Any]:
+        """Smoke-test the actual template, not merely the requested option.
+
+        No reasoning or generated text is returned in readiness diagnostics.
+        """
+        try:
+            response = await self._client.post(
+                "/v1/chat/completions",
+                json=self._payload([{"role": "user", "content": "سلام"}],
+                                   model=None, temperature=0, max_tokens=12,
+                                   stream=False, system_prompt=None),
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            message = data["choices"][0]["message"]
+            content = str(message.get("content") or "")
+            if message.get("reasoning_content"):
+                return {"ok": False, "detail": "reasoning_content در خروجی مدل دیده شد؛ --jinja و enable_thinking را بررسی کنید."}
+            if "<think>" in content.lower() or "</think>" in content.lower():
+                return {"ok": False, "detail": "<think> در خروجی مدل دیده شد؛ --jinja و enable_thinking را بررسی کنید."}
+            if not content.strip():
+                return {"ok": False, "detail": "آزمایش قالب چت خروجی قابل بررسی نداد؛ NOT MEASURED."}
+            return {"ok": True, "detail": "آزمایش کوتاه قالب چت بدون reasoning_content/<think> بود."}
+        except (httpx.HTTPError, KeyError, ValueError, IndexError, TypeError) as exc:
+            return {"ok": False, "detail": f"آزمایش قالب چت ناموفق بود ({type(exc).__name__})."}
+
     async def version(self) -> str | None:
         try:
             response = await self._client.get("/v1/models", timeout=3.0)

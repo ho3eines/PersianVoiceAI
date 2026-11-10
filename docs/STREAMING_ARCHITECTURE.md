@@ -48,7 +48,7 @@ Queue محدود  ──►  AEC (SpeexDSP)  ──►  EnergyVAD  ──►  Pi
                         ┌──────────────────────────────┼──────────────────────────────┐
                         ▼                              ▼                              ▼
                   onset: Utterance(id)         partial هر 0.8s               endpoint/max_segment
-                  barge-in فقط اگر            پنجرهٔ هم‌پوشان ۶s             audio کامل بخش
+                  barge-in فقط اگر            پنجرهٔ هم‌پوشان ۳s             audio کامل بخش
                   THINKING/SPEAKING           → mailbox یک‌جا               → صف FIFO final
                         │                              │                              │
                         └──────────────► AsrScheduler ◄┘                              │
@@ -74,7 +74,7 @@ Queue محدود  ──►  AEC (SpeexDSP)  ──►  EnergyVAD  ──►  Pi
 تقریباً درجه‌دوم رشد می‌کرد. اکنون:
 
 - **final**: کل PCM بخش (بدون برش، فقط حذف سکوت پایانی اضافی) — دقت حفظ می‌شود.
-- **partial**: پنجرهٔ هم‌پوشان با سقف `PVAI_ASR_PARTIAL_WINDOW_S` (پیش‌فرض ۶ ثانیه)؛
+- **partial**: پنجرهٔ هم‌پوشان با سقف `PVAI_ASR_PARTIAL_WINDOW_S` (پیش‌فرض ۳ ثانیه)؛
   هزینهٔ هر decode تقریباً ثابت است.
 - ترتیب اولویت: صف final **همیشه** قبل از partial سرو می‌شود؛ partial معلق با رسیدن final
   همان utterance منسوخ می‌شود.
@@ -82,6 +82,18 @@ Queue محدود  ──►  AEC (SpeexDSP)  ──►  EnergyVAD  ──►  Pi
   گزارش می‌شود تا «پیشوند پایدار» دروغ نباشد.
 - سنجه‌ها: `asr_ms`, `asr_rtf`, `asr_final_latency_ms`, `asr_partial_latency_ms`,
   `asr_queue_depth`, `asr_dropped_partial_count`, `asr_final_job_count`, `asr_errors`.
+- **تأخیر final پشت partial (اندازه‌گیری + رفع):** یک actor تنها یعنی partialی که در حال
+  decode است، final را تا پایان خودش معطل می‌کند. `AsrJob.started_at` لحظهٔ تحویل به decoder را
+  نگه می‌دارد و سه سنجه این تأخیر را تفکیک می‌کنند:
+  `asr_final_dispatch_wait_ms` (کل انتظار در صف)، `asr_final_wait_behind_partial_ms`
+  (بخشی که صرف partial در حال اجرا شد) و `asr_final_decode_ms` (خودِ decode نهایی).
+  به‌محض صف‌شدن final، `AsrScheduler.preempt()` توکن partial در حال اجرا را set می‌کند؛
+  backendی که `transcribe_pcm(pcm, token, job)` را می‌پذیرد فوراً متوقف می‌شود
+  (`asr_partial_preempted` / `asr_partial_cancelled` / `asr_partial_wasted_ms`)، و backend
+  قدیمی `transcribe_pcm(pcm)` فقط نتیجه‌اش دور ریخته می‌شود ولی همان تأخیر در سنجه ثبت می‌شود.
+  هر partial منسوخ (final همان utterance یا جدیدتر در صف است) در `submit_partial` رد می‌شود.
+  تست: `tests/test_asr_preemption.py` (SIMULATED؛ با ۲ ثانیه partial، پاسخ از ۱۹۶۵ms به ۳ms
+  رسید — عدد دستگاه واقعی **NOT MEASURED**).
 - **backpressure**: صف final بی‌کران نیست در معنا که هیچ‌وقت drop نمی‌کند؛ فقط از
   `PVAI_ASR_MAX_FINAL_JOBS` عبور می‌کند و شمارندهٔ `backlog_warnings` بالا می‌رود. این انتخاب
   آگاهانه است: گم‌کردن متن کاربر بدتر از تأخیر است.
@@ -104,6 +116,25 @@ Queue محدود  ──►  AEC (SpeexDSP)  ──►  EnergyVAD  ──►  Pi
 گذار مجاز در `ALLOWED_TRANSITIONS`. هر گذار غیرمجاز **گزارش** می‌شود (`state_violation`) و
 شمارندهٔ `states.violations` بالا می‌رود؛ هرگز باعث crash نمی‌شود. تست:
 `tests/test_state_machine.py` (همهٔ ۲۵ جفت حالت + جریان واقعی یک نوبت + barge-in).
+
+اصلاح مرحلهٔ اخیر (رها شدن state پس از شکست): دو مسیر شکست هیچ نشانگر commitی در صف پخش
+نمی‌گذاشتند و state را در حالت قبلی رها می‌کردند، بنابراین گفتار بعدی کاربر «barge-in» علیه
+نوبتی حساب می‌شد که دیگر وجود نداشت:
+
+- TTS: مسیر exception فقط نوبت را `failed` ثبت می‌کرد و در `SPEAKING` می‌ماند
+  (`pending_turn` هم پاک نمی‌شد). همچنین توکن سراسری `self.cancel` را set می‌کرد بدون جایگزینی،
+  پس هر پاسخ بعدی در اولین خط قطع می‌شد.
+- LLM/context: `respond` با لیست خالی پیام‌ها `return` می‌کرد؛ نه commit، نه `response_end`،
+  نه خروج از `THINKING` — نوبت تا ابد معلق.
+
+اکنون هر دو مسیر از `_fail_turn` می‌گذرند: commit با وضعیت `failed` (و دلیل صریح
+`llm_error`/`history_error`/`empty_context`/`tts_error`)، پاک‌کردن نشانه‌های همان نوبت،
+جایگزینی `self.cancel` اگر set شده باشد، و گذار به `LISTENING`/`IDLE` وقتی صف پخش خالی و
+`pending_turn is None` است. تست: `tests/test_turn_failures.py`.
+
+در همین مرحله: utterance کوتاه‌تر از `PVAI_VOICE_VAD_MIN_SPEECH_MS` که VAD رد می‌کند اکنون
+رویداد `utterance_rejected` دارد؛ `_latest_utterance_id` فقط با final معتبر جلو می‌رود و
+«نوبت جدیدی که جواب نگرفت» پاسخ نوبت قبلی را حذف نمی‌کند. تست: `tests/test_short_noise_utterance.py`.
 
 اصلاح مرحلهٔ اخیر: پس از پایان پخش، حالت در `SPEAKING` گیر می‌کرد چون نشانگر commit
 (`SpeechItem` با متن خالی) آخرین آیتم صف است و شرط `reply.done()` در آن لحظه هنوز false بود.

@@ -15,6 +15,7 @@ readable checklist, not an exception.
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from typing import Any
 
@@ -30,10 +31,15 @@ def _module_available(name: str) -> bool:
 
 def check_configuration(settings: Any) -> dict[str, Any]:
     errors = list(settings.config_errors())
+    # Warnings do not affect ``ok``: a LAN bind without TLS is a documented,
+    # deliberate setup.  They are surfaced here so an operator who never looks
+    # at the startup log still sees them.
+    warnings = list(settings.config_warnings()) if hasattr(settings, "config_warnings") else []
     return {
         "ok": not errors,
         "detail": "تنظیمات معتبر است." if not errors else "؛ ".join(errors),
         "errors": errors,
+        "warnings": warnings,
     }
 
 
@@ -65,6 +71,32 @@ def check_tts(settings: Any) -> dict[str, Any]:
         return {
             "ok": False,
             "detail": f"فایل تنظیمات Piper موجود نیست: {config}",
+            "path": str(path),
+            "voice": settings.tts_voice,
+        }
+    # Presence is not enough: a truncated (or accidentally copied) .json makes
+    # PiperVoice.load fail at startup with a JSON traceback.  Report it here
+    # instead, where the message can name the file.
+    try:
+        parsed = json.loads(config.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        return {
+            "ok": False,
+            "detail": f"فایل تنظیمات Piper خواندنی نیست: {config} ({exc})",
+            "path": str(path),
+            "voice": settings.tts_voice,
+        }
+    except ValueError as exc:  # includes json.JSONDecodeError
+        return {
+            "ok": False,
+            "detail": f"فایل تنظیمات Piper معتبر نیست (JSON خراب): {config} ({exc})",
+            "path": str(path),
+            "voice": settings.tts_voice,
+        }
+    if not isinstance(parsed, dict):
+        return {
+            "ok": False,
+            "detail": f"فایل تنظیمات Piper باید یک شیء JSON باشد: {config}",
             "path": str(path),
             "voice": settings.tts_voice,
         }

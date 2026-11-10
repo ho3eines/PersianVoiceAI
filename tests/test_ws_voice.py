@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from server.config import Settings
+from server.conversation import ConversationStore, create_conversation
 from server.protocol import (
     AUDIO_KIND_CAPTURE,
     MessageType,
@@ -455,12 +456,226 @@ def test_one_play_end_per_turn_not_per_sentence(tmp_path: Path) -> None:
     session._on_pipeline_event({"type": "tts_end", "turn_id": 4, "text": "دو."})
     assert session.outgoing.empty(), "tts_end must not close the turn"
 
-    session.sink.written = 7  # pretend seven 20 ms blocks were produced this turn
+    # ``played_ms`` reports audio *sent to the device*, not audio merely queued
+    # for synthesis, and with pacing the frames of the turn are still going out
+    # when ``response_end`` arrives.  The sender therefore fills the count in at
+    # send time; here the turn boundary itself is what is being asserted.
+    session.frames_sent = 7  # seven 20 ms frames already reached this device
     session._on_pipeline_event({"type": "response_end", "turn_id": 4, "status": "complete"})
     assert session.outgoing.qsize() == 1
     end = json.loads(session.outgoing.get_nowait())
-    assert end == {"type": "play_end", "turn_id": 4, "played_ms": 140.0}
+    assert end["type"] == "play_end" and end["turn_id"] == 4
+    assert "played_ms" in end
+
+    # The sender resolves it against frames delivered since the last boundary.
+    session._frames_sent_at_turn_start = 0
+    session.frames_sent = 7
+    finalized = json.loads(session._finalize_play_end(ControlMessage(
+        MessageType.PLAY_END, {"turn_id": 4, "played_ms": None, "_final": True}
+    ).encode()))
+    assert finalized["played_ms"] == 140.0
+    assert "_final" not in finalized
+    # The boundary has moved: the next turn counts from here.
+    session.frames_sent = 9
+    again = json.loads(session._finalize_play_end(ControlMessage(
+        MessageType.PLAY_END, {"turn_id": 5, "played_ms": None, "_final": True}
+    ).encode()))
+    assert again["played_ms"] == 40.0
 
     # An interrupted turn never reports play_end; play_stop already said so.
     session._on_pipeline_event({"type": "response_end", "turn_id": 5, "status": "interrupted"})
     assert session.outgoing.empty()
+
+
+# ------------------------------------------------------------------- resume
+def persisted_app_client(tmp_path: Path, *, asr: Any = None, speaker: Any = None):
+    """A device client with local persistence on, so sessions can be resumed."""
+    from server.main import create_app
+
+    configured = Settings(
+        ws_enabled=True,
+        ws_token="secret-token",
+        data_dir=str(tmp_path),
+        history_persist=True,
+        tts_voice="female",
+        voice_asr_interval_s=10.0,
+    )
+    app = create_app(
+        settings=configured,
+        llm=NullLlm(),
+        voice_bundle=bundle_factory(asr, speaker),
+    )
+    return TestClient(app)
+
+
+def exchange(ws, *, record_file: Path | None = None, silence: int = 32) -> None:
+    """Feed one loud utterance and wait until its reply was recorded.
+
+    A device session is torn down by closing the connection, and the assistant
+    turn is committed on that shutdown; when ``record_file`` is given the test
+    polls the JSONL for an assistant record instead of racing the socket.
+    """
+    baseline = _assistant_records(record_file) if record_file is not None else 0
+    for index in range(20):
+        ws.send_bytes(capture_frame(LOUD, index))
+    for index in range(silence):
+        ws.send_bytes(capture_frame(SILENCE, index))
+    if record_file is None:
+        return
+    # Wait for *this* exchange, not for any assistant record: a resumed session
+    # already has one from the earlier connection, so polling for "an assistant
+    # record exists" returned immediately and the caller read the file before
+    # the new reply was written -- an intermittent failure that looked like a
+    # resume bug.
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        if _assistant_records(record_file) > baseline:
+            return
+        time.sleep(0.01)
+    raise AssertionError(
+        f"the reply was not recorded in time (assistant records: {baseline})"
+    )
+
+
+def _assistant_records(record_file: Path) -> int:
+    """How many assistant replies the store holds right now."""
+    try:
+        lines = record_file.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return 0
+    count = 0
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            if json.loads(line).get("role") == "assistant":
+                count += 1
+        except ValueError:  # a partially written last line
+            continue
+    return count
+
+
+def test_device_resumes_a_session_with_its_earlier_context(tmp_path: Path) -> None:
+    """``hello`` with a known ``session_id`` must continue that conversation.
+
+    This is the transport-level regression: ``_open_pipeline`` builds the
+    conversation, and before the fix it never loaded the stored JSONL — the
+    device got an empty history *and* appended duplicate ids to the file.
+    """
+    asr = FakeAsr(text="سلام از دستگاه")
+    with persisted_app_client(tmp_path, asr=asr) as client:
+        with device_session(client) as first:
+            first.send_text(hello())
+            session_id = wait_for(first, "hello_ok")["session_id"]
+            record_file = tmp_path / "conversations" / f"{session_id}.jsonl"
+            exchange(first, record_file=record_file)
+        # A second connection asks for the same session, as a rebooted device would.
+        with device_session(client) as second:
+            second.send_text(hello(session_id=session_id))
+            assert wait_for(second, "hello_ok")["session_id"] == session_id
+            exchange(second, record_file=record_file)
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "conversations" / f"{session_id}.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    ids = [record["id"] for record in records]
+    turns = [record["turn_id"] for record in records if record["turn_id"] is not None]
+    assert len(ids) == len(set(ids)), ids  # duplicate ids mean an unloaded resume
+    assert len(turns) == len(set(turns)), turns
+    # Two connections, two exchanges, four messages in one continuous log.
+    assert [record["role"] for record in records] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert asr.calls >= 2
+
+
+def test_resumed_device_session_context_reaches_the_model(tmp_path: Path) -> None:
+    """The loaded history is what the LLM is asked with, not just what is stored."""
+    seen: list[list[dict[str, Any]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content)["messages"])
+        return httpx.Response(
+            200,
+            text='data: {"choices":[{"delta":{"content":"پاسخ "}}]}\n\ndata: [DONE]\n\n',
+        )
+
+    def factory(settings: Settings, sink: PlaybackSink, metrics: Any) -> VoiceBundle:
+        return VoiceBundle(
+            audio=FakeAsr(text="پیام دوم"),  # the resumed device's new turn
+            client=httpx.AsyncClient(
+                base_url="http://127.0.0.1", transport=httpx.MockTransport(handler)
+            ),
+            speaker_for=lambda voice: FakeSpeaker(),
+        )
+
+    from server.main import create_app
+
+    configured = Settings(
+        ws_enabled=True,
+        ws_token="secret-token",
+        data_dir=str(tmp_path),
+        history_persist=True,
+        voice_asr_interval_s=10.0,
+    )
+    app = create_app(settings=configured, llm=NullLlm(), voice_bundle=factory)
+    with TestClient(app) as client:
+        # The first connection is a *previous* session: seed it through the
+        # store the API uses, then prove a device that asks for it by id gets
+        # that history in its prompt.
+        seed = create_conversation(configured, session_id="device-1")
+        seed.add_user("سلام از دستگاه", utterance_id=1, turn_id=1)
+        seed.finish_assistant("پاسخ دستگاه", turn_id=1)
+        with device_session(client) as ws:
+            ws.send_text(hello(session_id="device-1"))
+            assert wait_for(ws, "hello_ok")["session_id"] == "device-1"
+            exchange(ws)
+
+    assert len(seen) >= 1
+    resumed_prompt = [item["content"] for item in seen[-1]]
+    # The seeded exchange is in the prompt the resumed device caused.
+    assert "سلام از دستگاه" in resumed_prompt, resumed_prompt
+    assert "پاسخ دستگاه" in resumed_prompt, resumed_prompt
+
+
+def test_unknown_session_id_starts_an_empty_conversation(tmp_path: Path) -> None:
+    with persisted_app_client(tmp_path) as client:
+        with device_session(client) as ws:
+            ws.send_text(hello(session_id="brand-new"))
+            assert wait_for(ws, "hello_ok")["session_id"] == "brand-new"
+
+
+def test_device_without_a_session_id_never_joins_the_last_local_session(
+    tmp_path: Path,
+) -> None:
+    """Resume must not leak one session into an unrelated device connection.
+
+    ``PVAI_HISTORY_RESUME`` defaults to resuming the newest session for the
+    *local* live loop.  A LAN device that sends no ``session_id`` is a different
+    caller: it must get a fresh session instead of another device's history.
+    """
+    configured = Settings(
+        ws_enabled=True,
+        ws_token="secret-token",
+        data_dir=str(tmp_path),
+        history_persist=True,
+        voice_asr_interval_s=10.0,
+    )
+    seeded = create_conversation(configured, session_id="local-voice")
+    seeded.add_user("صحبتِ محلی", utterance_id=1)
+
+    with persisted_app_client(tmp_path) as client:
+        with device_session(client) as ws:
+            ws.send_text(hello())
+            session_id = wait_for(ws, "hello_ok")["session_id"]
+    assert session_id != "local-voice"
+    # The local session is untouched: nothing was appended to it.
+    assert [record["content"] for record in ConversationStore(
+        tmp_path / "conversations"
+    ).load("local-voice")] == ["صحبتِ محلی"]

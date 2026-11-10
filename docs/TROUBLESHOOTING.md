@@ -12,7 +12,8 @@ curl http://127.0.0.1:8000/health
 
 `/ready` برای هر بخش (configuration، asr_model، tts_model، dependencies، aec، storage،
 llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاسخ `503` می‌شود اگر چیزی ناقص باشد.
-`/health` فقط اتصال backend را می‌گوید.
+`/health` فقط liveness برنامه (`{"status":"ok"}`) است و اتصال backend را بررسی نمی‌کند.
+اگر توکن REST تنظیم شده، برای `/ready` هدر Authorization لازم است.
 
 ---
 
@@ -35,7 +36,7 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 | «شمارهٔ دستگاه … نامعتبر است» | index بیرون از فهرست | فهرست را دوباره بگیرید (شماره‌ها با اتصال دستگاه تغییر می‌کنند) |
 | «دستگاه … با نام «…» پیدا نشد یا کانال لازم را ندارد» | نام اشتباه یا دستگاه فقط ورودی/خروجی است | نام دقیق از فهرست؛ یا index |
 | «نام دستگاه … مبهم است (…)» | چند دستگاه با همان زیررشته | از index دقیق استفاده کنید |
-| «دستگاه … نرخ 16000Hz تک‌کاناله را نمی‌پذیرد» | میکروفون فقط 44.1/48k را می‌پذیرد | در Windows از "Advanced" دستگاه نرخ 16k را فعال کنید یا دستگاه دیگری انتخاب کنید (بازنمونه‌برداری خودکار پیاده نشده) |
+| «دستگاه … نرخ 16000Hz تک‌کاناله را نمی‌پذیرد» | میکروفون فقط 44.1/48k را می‌پذیرد | در Windows از "Advanced" دستگاه نرخ 16k را فعال کنید یا دستگاه دیگری انتخاب کنید (بازنمونه‌برداری خودکار ورودی زندهٔ دستگاه پیاده نشده؛ تبدیل خودکار فقط در ورودی فایل ASR است) |
 | «جریان صوتی بیش از N ثانیه فریم نداد؛ دستگاه قطع شده است.» | USB/هدست جدا شد یا درایور هنگ کرد | دستگاه را وصل کنید؛ برنامه تا `PVAI_AUDIO_REOPEN_ATTEMPTS` بازگشایی می‌کند و بعد خطای روشن می‌دهد |
 | «ورودی صوت عقب افتاد؛ نوبت جاری حذف شد.» | صف capture پر شد (CPU یا دیسک کند) | بار سیستم را کم کنید؛ `PVAI_AUDIO_BLOCK_MS` و threadها را بررسی کنید. **finalهای قبلی حذف نمی‌شوند** |
 
@@ -83,10 +84,22 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 | کد | معنا | راه‌حل |
 |---|---|---|
 | `503` با `backend unavailable` | llama-server در دسترس نیست | سرویس مدل را شروع کنید |
-| `404` `model not loaded` | مدل در llama-server لود نشده | `-m` را بررسی کنید |
+| `503` `model_not_loaded` | مدل در llama-server لود نشده | `-m` را بررسی کنید |
 | `502` `generation error` | خطای تولید | لاگ llama-server |
-| `400` «شناسهٔ نشست نامعتبر است.» | `session_id` کاراکتر غیرمجاز دارد | فقط حروف/رقم/`-`/`_` و حداکثر ۶۴ کاراکتر |
+| `400` «شناسهٔ نشست نامعتبر است.» | `session_id` کاراکتر غیرمجاز دارد | فقط حروف **انگلیسی**/رقم/`-`/`_`، حداکثر ۶۴ کاراکتر، و نه نام دستگاه رزروشدهٔ ویندوز (`CON`, `NUL`, `COM1`…) |
 | `404` «نشست پیدا نشد.» | نشست ذخیره نشده | `PVAI_HISTORY_PERSIST=true` و `/api/sessions` |
+
+## ۶.۱. تنظیمات `.env` بی‌اثر به نظر می‌رسد
+
+| نشانه | علت | راه‌حل |
+|---|---|---|
+| مقدار `.env` عوض می‌شود ولی رفتار سرویس تغییر نمی‌کند | llama-server دستی با پرچم‌های خودش اجرا شده؛ `PVAI_N_THREADS`/`PVAI_N_CTX`/`PVAI_N_GPU_LAYERS` را کلاینت HTTP نمی‌خواند | با `tools/start_llama.ps1` اجرا کنید یا `python -m server.config --launch` را ببینید |
+| `GET /ready` در بخش `configuration` خطای `PVAI_...` دارد | مقدار غیرعددی/نامفهوم بود و به پیش‌فرض برگشت (WARNING در لاگ) | مقدار آن متغیر را در `.env` اصلاح کنید |
+| «مقدار کلمپ شد» در لاگ | عدد خارج از بازهٔ مجاز بود | بازهٔ مجاز را در `docs/CONFIGURATION.md` ببینید |
+| `.env` ساخته شده ولی خوانده نمی‌شود | فایل در پوشهٔ جاری و ریشهٔ پروژه نیست | `.env` را در ریشهٔ پروژه بگذارید؛ `PVAI_DATA_DIR`/مسیرها نسبت به همان‌جا خوانده می‌شوند |
+
+> کامنت هم‌خط حذف می‌شود، ولی توضیح را در خط جدا بنویسید: `PVAI_AUDIO_INPUT_DEVICE=Realtek Microphone`
+> با یک ` # ...` در ادامه، نام دستگاه را می‌بُرد.
 
 ## ۷. عیب‌یابی داده و حافظه
 
@@ -95,12 +108,19 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 .\.venv\Scripts\python.exe -m server.sessions list
 .\.venv\Scripts\python.exe -m server.sessions show <session_id>
 .\.venv\Scripts\python.exe -m server.sessions delete <session_id>
-.\.venv\Scripts\python.exe -m server.sessions delete --all
+.\.venv\Scripts\python.exe -m server.sessions delete-all
+.\.venv\Scripts\python.exe -m server.sessions purge --days 30
 ```
 
 - داده در `PVAI_DATA_DIR/conversations/*.jsonl` است (در `.gitignore`).
 - `PVAI_HISTORY_PERSIST=false` هیچ فایلی نمی‌سازد (تست: `test_persistence_can_be_disabled`).
 - پاسخ‌های قطع‌شده با `status=interrupted` ذخیره می‌شوند و به‌طور پیش‌فرض وارد context مدل نمی‌شوند.
+- **شروع تازه می‌خواهید؟** `PVAI_HISTORY_RESUME=off` بگذارید (هر اجرا نشست تازه) یا
+  `python -m server.sessions delete-all`. برعکس، اگر بعد از restart مکالمه ادامه نیافت،
+  `PVAI_HISTORY_PERSIST=true` و `PVAI_HISTORY_RESUME=on` را بررسی کنید؛ پیام startup
+  «ادامهٔ نشست … با N پیام قبلی» نشان می‌دهد resume انجام شده است.
+- **`sessions purge` می‌گوید «مدت نگه‌داری تعیین نشده است»؟** `PVAI_HISTORY_RETENTION_DAYS`
+  را تنظیم کنید یا `--days N` بدهید (پیش‌فرض کد `30` روز است؛ مقدار `0` پاک‌سازی را غیرفعال می‌کند).
 
 ## ۸. اگر مشکل پیدا نشد
 

@@ -17,6 +17,7 @@ WS   /ws/voice               LAN device audio transport (opt-in, token required)
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import time
@@ -31,7 +32,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
 from .config import Settings
-from .conversation import STATUS_COMPLETE, Conversation, open_store
+from .conversation import STATUS_COMPLETE, Conversation, open_store, purge_expired, SessionInUse
+from .metrics import Metrics
+from .protocol import check_token
+from .security import PUBLIC_PATHS, RateLimiter, _bearer_token
 from .protocol import describe as describe_protocol
 from .ws_voice import build_router as build_ws_router
 from .ws_voice import default_bundle as default_voice_bundle
@@ -126,6 +130,16 @@ def _apply_rag(messages: list[dict[str, str]], knowledge: KnowledgeBase, query: 
     return [{"id": hit["id"], "title": hit["title"]} for hit in hits]
 
 
+async def periodic_retention(settings: Settings, store: Any, interval_s: float = 86400) -> None:
+    """Purge plain-text transcripts once daily without blocking API requests."""
+    while True:
+        await asyncio.sleep(interval_s)
+        try:
+            await asyncio.to_thread(purge_expired, settings, store)
+        except OSError:
+            logger.exception("periodic session retention failed")
+
+
 def create_app(
     settings: Settings | None = None,
     llm: LlamaServerClient | Any | None = None,
@@ -150,21 +164,81 @@ def create_app(
         app.state.llm = llm or LlamaServerClient(resolved)
         app.state.store = open_store(resolved)
         app.state.knowledge = KnowledgeBase(Path(resolved.data_dir) / "knowledge")
+        # Retention runs now and on a daily task: transcripts are plain text
+        # on disk even when the server has not restarted for weeks.
+        removed = purge_expired(resolved, app.state.store)
+        if removed:
+            logger.info(
+                "retention removed %d session(s) older than %s day(s)",
+                len(removed),
+                resolved.history_retention_days,
+            )
         app.state.voice_bundle = voice_bundle or default_voice_bundle
+        app.state.metrics = Metrics(enabled=resolved.metrics_enabled)
+        app.state.rate_limiter = (
+            RateLimiter(resolved.api_rate_limit_per_s, resolved.api_rate_burst)
+            if resolved.api_rate_limit_per_s > 0
+            else None
+        )
+        if resolved.api_token:
+            logger.info("REST authentication is enabled (Bearer token)")
+        else:
+            logger.info("REST authentication disabled: loopback-only bind assumed")
+        for warning in resolved.config_warnings():
+            # Loud, but not fatal: these are deliberate deployments, not bugs.
+            logger.warning("configuration: %s", warning)
         logger.info(
             "Persian Voice AI %s | model=%s",
             __version__,
             resolved.model_path,
         )
-        yield
-        await app.state.llm.aclose()
+        retention_task = asyncio.create_task(periodic_retention(resolved, app.state.store))
+        try:
+            yield
+        finally:
+            retention_task.cancel()
+            await asyncio.gather(retention_task, return_exceptions=True)
+            await app.state.llm.aclose()
 
     app = FastAPI(
         title="Persian Voice AI",
-        description="Local Persian LLM core (llama.cpp). Lesson 1: text chat + local API.",
+        description="Local Persian LLM and voice API (llama.cpp).",
         version=__version__,
         lifespan=lifespan,
     )
+
+    # ------------------------------------------------------------ REST auth
+    # Everything REST is behind a Bearer token except the liveness probe.  The
+    # REST surface can read every stored transcript, delete sessions and spend
+    # the local LLM, so it must never be unauthenticated just because the
+    # device transport happens to be on (that was the design hole: only
+    # /ws/voice was protected, while PVAI_HOST=0.0.0.0 exposed the rest of the
+    # app to the whole LAN).
+    @app.middleware("http")
+    async def require_api_token(request: Request, call_next: Any) -> Any:
+        path = request.url.path
+        if path in PUBLIC_PATHS or request.method == "OPTIONS":
+            return await call_next(request)
+        expected = resolved.api_token
+        if not expected:
+            # No token configured: loopback-only operation.  config_errors()
+            # refuses to start a non-loopback bind without a token, so reaching
+            # here unauthenticated means the caller is on this machine.
+            return await call_next(request)
+        provided = _bearer_token(request.headers.get("authorization"))
+        if provided is None:
+            provided = request.headers.get("x-api-key")
+        if not check_token(provided, expected):
+            app.state.metrics.increment("api_auth_failures")
+            return JSONResponse(
+                status_code=401,
+                content={
+                    "error": "unauthorized",
+                    "detail": "توکن API لازم است (Authorization: Bearer …).",
+                },
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return await call_next(request)
 
     # ---------------------------------------------------------------- errors
     @app.exception_handler(ModelNotLoaded)
@@ -195,6 +269,41 @@ def create_app(
             content={"error": "backend_error", "detail": str(exc)},
         )
 
+    @app.middleware("http")
+    async def limit_rate(request: Request, call_next: Any) -> Any:
+        limiter = app.state.rate_limiter
+        if limiter is None or request.url.path in PUBLIC_PATHS:
+            return await call_next(request)
+        client = request.client.host if request.client else "unknown"
+        # Bucket per authenticated identity, falling back to the peer address.
+        # This middleware runs *outside* the auth check on purpose: an
+        # unauthenticated flood must be throttled before it can be used to
+        # guess the token.  But keying only by address means an anonymous flood
+        # would lock the legitimate client out too — and behind a TLS reverse
+        # proxy (the documented setup) every client shares one address, so one
+        # attacker would lock out everybody.  A *valid* token therefore gets its
+        # own bucket; an invalid or absent one is throttled by address, so
+        # varying the token does not buy an attacker more attempts.
+        expected = resolved.api_token
+        if expected:
+            token = _bearer_token(request.headers.get("authorization"))
+            if token is None:
+                token = request.headers.get("x-api-key")
+            if token and check_token(token, expected):
+                client = "token:" + hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+        allowed, retry_after = limiter.check(client)
+        if not allowed:
+            app.state.metrics.increment("api_rate_limited")
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "rate_limited",
+                    "detail": "تعداد درخواست‌ها بیش از حد مجاز است؛ کمی بعد تلاش کنید.",
+                },
+                headers={"Retry-After": f"{retry_after:.1f}"},
+            )
+        return await call_next(request)
+
     # ---------------------------------------------------------------- basics
     if resolved.ws_enabled:
         # Opt-in LAN voice transport; each connection gets its own Pipeline and
@@ -208,23 +317,23 @@ def create_app(
         return {
             "service": "Persian Voice AI",
             "version": __version__,
-            "lesson": 1,
             "docs": "/docs",
             "health": "/health",
         }
 
     @app.get("/health", tags=["meta"])
     async def health(request: Request) -> dict[str, Any]:
-        backend = await request.app.state.llm.health()
-        healthy = bool(backend.get("reachable") and backend.get("model_available"))
+        """Minimal liveness probe — the only route without a token.
+
+        Deliberately reveals nothing an unauthenticated caller could use: no
+        model path, no backend address, no directory.  The detailed checklist
+        lives in ``/ready`` behind the token.
+        """
         return {
-            "status": "ok" if healthy else "degraded",
+            "status": "ok",
             "service": "persian-voice-ai",
             "version": __version__,
-            "model": resolved.model_path.split("\\")[-1].split("/")[-1],
             "uptime_s": round(time.time() - request.app.state.started_at, 1),
-            "backend": backend,
-            "ready": "/ready",
         }
 
     @app.get("/ready", tags=["meta"])
@@ -232,6 +341,11 @@ def create_app(
         """Full readiness checklist; never raises on a broken installation."""
         backend = await request.app.state.llm.health()
         report = collect_readiness(request.app.state.settings, backend=backend)
+        if backend.get("reachable") and backend.get("model_available"):
+            probe = getattr(request.app.state.llm, "probe_no_thinking", None)
+            if callable(probe):
+                report["checks"]["thinking"] = await probe()
+                report["ready"] = report["ready"] and bool(report["checks"]["thinking"]["ok"])
         status_code = 200 if report["ready"] else 503
         return JSONResponse(
             status_code=status_code,
@@ -386,7 +500,7 @@ def create_app(
         )
 
     # ------------------------------------------------------------- sessions
-    def _conversation(session_id: str | None) -> Conversation:
+    def _conversation(session_id: str | None, *, write: bool = False) -> Conversation:
         """Load a persisted session, or build a RAM-only conversation."""
         options = {
             "max_messages": resolved.history_max_messages,
@@ -395,9 +509,19 @@ def create_app(
         }
         if not session_id:
             return Conversation(store=None, **options)
+        lease = None
         try:
-            return Conversation.load(request_store(), session_id, **options)
-        except ValueError as exc:  # invalid identifier (path traversal etc.)
+            store = request_store()
+            if write and getattr(store, "enabled", False):
+                lease = store.claim(session_id)
+            conversation = Conversation.load(store, session_id, **options)
+            conversation._lease = lease
+            return conversation
+        except (ValueError, SessionInUse) as exc:
+            if lease is not None:
+                lease.close()
+            if isinstance(exc, SessionInUse):
+                raise HTTPException(status_code=409, detail="session_in_use") from exc
             raise HTTPException(status_code=400, detail="شناسهٔ نشست نامعتبر است.") from exc
 
     def request_store():
@@ -406,10 +530,16 @@ def create_app(
     @app.get("/api/sessions", tags=["sessions"])
     async def list_sessions(request: Request) -> dict[str, Any]:
         store = request_store()
+        # Counting lines still reads every file; keep the blocking IO off the
+        # event loop so audio frames and WebSocket traffic are not stalled by a
+        # session listing.
+        sessions = await asyncio.to_thread(store.sessions)
+        # The directory is *not* returned: it discloses the user's home layout
+        # and the local data root to anything that can reach the API.  It is
+        # discoverable from PVAI_DATA_DIR on the machine itself.
         return {
             "persistence": bool(store.enabled),
-            "directory": str(store.root) if store.enabled else None,
-            "sessions": store.sessions(),
+            "sessions": sessions,
         }
 
     @app.get("/api/sessions/{session_id}", tags=["sessions"])
@@ -421,7 +551,10 @@ def create_app(
 
     @app.delete("/api/sessions/{session_id}", tags=["sessions"])
     async def delete_session(session_id: str, request: Request) -> dict[str, Any]:
-        deleted = request_store().delete(session_id)
+        try:
+            deleted = request_store().delete(session_id, raise_on_locked=True)
+        except SessionInUse as exc:
+            raise HTTPException(status_code=409, detail="session_in_use") from exc
         if not deleted:
             raise HTTPException(status_code=404, detail="نشست پیدا نشد.")
         return {"deleted": True, "session_id": session_id}
@@ -451,32 +584,35 @@ def create_app(
     # -------------------------------------------------------- simple endpoint
     @app.post("/api/chat", tags=["simple"])
     async def simple_chat(payload: SimpleChatRequest, request: Request) -> dict[str, Any]:
-        conversation = _conversation(payload.session_id)
-        turn_id = conversation.new_turn_id()
-        conversation.add_user(payload.message, turn_id=turn_id)
-        messages = conversation.context_with_system(payload.system or resolved.system_prompt)
-        sources = _apply_rag(messages, request.app.state.knowledge, payload.message) if payload.use_rag else []
+        conversation = _conversation(payload.session_id, write=True)
+        try:
+            turn_id = conversation.new_turn_id()
+            conversation.add_user(payload.message, turn_id=turn_id)
+            messages = conversation.context_with_system(payload.system or resolved.system_prompt)
+            sources = _apply_rag(messages, request.app.state.knowledge, payload.message) if payload.use_rag else []
 
-        result = await request.app.state.llm.chat(
-            messages,
-            model=payload.model,
-            temperature=payload.temperature,
-            max_tokens=payload.max_tokens,
-        )
-        conversation.finish_assistant(
-            result.content, status=STATUS_COMPLETE, turn_id=turn_id
-        )
-        body: dict[str, Any] = {
-            "reply": result.content,
-            "model": result.model,
-            "finish_reason": result.finish_reason,
-            "timings": result.timings.as_dict(),
-        }
-        if payload.session_id:
-            body["session"] = conversation.summary()
-        if sources:
-            body["sources"] = sources
-        return body
+            result = await request.app.state.llm.chat(
+                messages,
+                model=payload.model,
+                temperature=payload.temperature,
+                max_tokens=payload.max_tokens,
+            )
+            conversation.finish_assistant(
+                result.content, status=STATUS_COMPLETE, turn_id=turn_id
+            )
+            body: dict[str, Any] = {
+                "reply": result.content,
+                "model": result.model,
+                "finish_reason": result.finish_reason,
+                "timings": result.timings.as_dict(),
+            }
+            if payload.session_id:
+                body["session"] = conversation.summary()
+            if sources:
+                body["sources"] = sources
+            return body
+        finally:
+            conversation.close()
 
     return app
 

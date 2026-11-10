@@ -46,8 +46,16 @@ def test_evaluation_set_is_valid_and_covers_persian_cases(persian_eval) -> None:
     for required in ("zwnj", "arabic_chars", "numbers", "datetime", "english_terms", "names"):
         assert required in categories
     for entry in data["sentences"]:
+        if entry.get("kind") == "no_speech":
+            # A negative-set clip: no reference text by definition, and it
+            # must not pretend to be a scored Persian sentence.
+            assert not entry["text"].strip()
+            assert entry["id"].startswith("ns-")
+            continue
         assert entry["text"].strip()
         assert entry["id"].startswith("fa-")
+    # The silence/noise set exists, or the false-accept metric has no input.
+    assert any(entry.get("kind") == "no_speech" for entry in data["sentences"])
 
 
 def test_duplicate_ids_are_rejected(persian_eval, tmp_path: Path) -> None:
@@ -224,3 +232,161 @@ def test_silence_never_triggers_the_detector(benchmark_voice) -> None:
     benchmark_voice.scenario_idle_measured(report, settings, 0.2)
     rows = {row.metric: row for row in report.rows}
     assert rows["vad_false_positives"].value == 0
+
+
+def test_text_benchmark_standalone_script_imports_local_auth_helper():
+    import subprocess
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run([sys.executable, 'benchmarks/bench_chat.py', '--help'], cwd=root,
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+
+
+# ------------------------------------------------------- recording integrity
+def test_read_wav_accepts_exactly_the_documented_format(persian_eval, tmp_path: Path) -> None:
+    import warnings
+
+    import numpy as np
+    import soundfile as sf
+
+    path = tmp_path / "fa-001.wav"
+    sf.write(path, np.zeros(1600, dtype=np.float32), 16000, subtype="PCM_16")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # soundfile bit-depth chatter
+        frames = persian_eval.read_wav_mono16k(path)
+    assert len(frames) == 1600 * 2  # 16-bit mono
+
+
+@pytest.mark.parametrize("kind", ["empty", "truncated", "not-a-wav", "stereo", "resampled"])
+def test_unusable_recordings_name_the_file(persian_eval, tmp_path: Path, kind: str) -> None:
+    """A broken recording must be a clear ``ValueError``, not a raw traceback.
+
+    ``persian_eval --audio-dir`` used to die with ``wave.Error``/``EOFError``
+    halfway through a scoring run, with nothing saying which of the forty
+    recordings was the problem.  Stereo and non-16 kHz files are rejected on
+    purpose: the documented policy is to refuse a format the pipeline does not
+    produce (see ``docs/PC_VOICE.md``), never to silently resample it.
+    """
+    import numpy as np
+    import soundfile as sf
+
+    path = tmp_path / "fa-001.wav"
+    if kind == "empty":
+        sf.write(path, np.zeros(0, dtype=np.float32), 16000, subtype="PCM_16")
+    elif kind == "truncated":
+        sf.write(path, np.zeros(1600, dtype=np.float32), 16000, subtype="PCM_16")
+        data = path.read_bytes()
+        path.write_bytes(data[: len(data) // 2])
+    elif kind == "not-a-wav":
+        path.write_bytes(b"RIFF-not-really-a-wave-file")
+    elif kind == "stereo":
+        sf.write(path, np.zeros((1600, 2), dtype=np.float32), 16000, subtype="PCM_16")
+    else:
+        sf.write(path, np.zeros(4410, dtype=np.float32), 44100, subtype="PCM_16")
+
+    with pytest.raises(ValueError) as excinfo:
+        persian_eval.read_wav_mono16k(path)
+    assert path.name in str(excinfo.value)
+
+
+def test_audio_dir_scoring_closes_the_model(persian_eval, tmp_path: Path, monkeypatch) -> None:
+    """The real Whisper model is released after a scoring run.
+
+    Without this the tool left the model loaded, so an operator who reran it
+    (or ran the benchmark afterwards) measured a machine that already held
+    hundreds of megabytes of weights.
+    """
+    from types import SimpleNamespace
+
+    import numpy as np
+    import soundfile as sf
+
+    import server.voice as voice_module
+
+    closed: list[bool] = []
+
+    class FakeAudio:
+        def __init__(self, settings_obj=None, metrics=None) -> None:
+            pass
+
+        def validate(self) -> None:
+            pass
+
+        def transcribe_pcm(self, pcm, *args, **kwargs) -> str:
+            return "سلام"
+
+        def close(self) -> None:
+            closed.append(True)
+
+    monkeypatch.setattr(voice_module, "LocalAudio", FakeAudio)
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+    sf.write(audio_dir / "fa-001.wav", np.zeros(1600, dtype=np.float32), 16000, subtype="PCM_16")
+
+    hypotheses, missing = persian_eval.transcribe_with_local_model(
+        audio_dir, {"fa-001": "سلام"}, SimpleNamespace()
+    )
+    assert hypotheses == {"fa-001": "سلام"} and missing == []
+    assert closed == [True]
+
+
+def test_benchmark_closes_real_components(benchmark_voice) -> None:
+    """``_close_quietly`` must release models and tolerate a missing ``close``."""
+    released: list[str] = []
+
+    class Component:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def close(self) -> None:
+            released.append(self.name)
+
+    benchmark_voice._close_quietly(Component("asr"))
+    benchmark_voice._close_quietly(Component("tts"))
+    benchmark_voice._close_quietly(object())  # no close method: not an error
+    benchmark_voice._close_quietly(None)
+
+    class Broken:
+        def close(self) -> None:
+            raise RuntimeError("device gone")
+
+    benchmark_voice._close_quietly(Broken())  # cleanup never fails a run
+    assert released == ["asr", "tts"]
+
+
+def test_the_measured_policy_survives_real_asr_output_shapes(persian_eval) -> None:
+    """End-to-end: transcripts the way a Persian ASR model actually writes them.
+
+    Both differences below are *formatting* — Arabic ``ي``/``ك``/``إ`` instead of
+    Persian letters, Persian thousands ``٬`` instead of ASCII digits — so the
+    score must stay zero.  Before the review fixes the Arabic alef was left
+    untouched and the thousands mark reached the comparison, so each of these
+    produced a non-zero WER.
+    """
+    data = persian_eval.load_set()
+    reference = persian_eval.references(data)
+    hypothesis = dict(reference)
+    hypothesis["fa-019"] = "مي‌خواهم يك فيلم فارسي ببينم."  # Arabic yeh + kaf
+    hypothesis["fa-004"] = "شماره منزل من ٢٤ است و واحد سه."  # Arabic-Indic digits
+    report = persian_eval.score(reference, hypothesis)
+    assert report["wer"] == 0.0, report
+    assert report["cer"] == 0.0, report
+
+
+def test_policy_limits_are_documented_not_hidden(persian_eval) -> None:
+    """The two known non-equivalences must keep costing, not be normalised away.
+
+    * a quantity written as digits is not the same token as the same quantity
+      written in words (``۱۲۰۰`` vs «هزار و دویست»);
+    * the ezafe written as a نیم‌فاصله (``کتابخانهٔ`` → ``کتابخانه‌ی``) becomes
+      two tokens, because the policy maps ZWNJ to a space.
+
+    Both are stated in ``docs/BENCHMARKS.md``; pinning them stops a later
+    "cleanup" from silently making the metric lenient.
+    """
+    from server.persian import wer
+
+    assert wer("هزار و دویست تومان", "۱۲۰۰ تومان") > 0
+    assert wer("کتابخانهٔ دانشگاه", "کتابخانه‌ی دانشگاه") > 0

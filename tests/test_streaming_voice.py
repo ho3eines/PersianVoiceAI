@@ -383,3 +383,199 @@ def test_llm_failure_releases_the_state_and_the_next_turn_recovers() -> None:
                 await pipeline.close()
 
     asyncio.run(scenario())
+
+
+# ------------------------------------------------------------------- resume
+def test_resumed_pipeline_continues_ids_and_keeps_the_first_new_utterance(
+    tmp_path,
+) -> None:
+    """A restart must not reuse utterance ids that the store already owns.
+
+    Before the fix ``create_pipeline`` always built an empty conversation and
+    the pipeline always started its utterance counter at 1; after a resume the
+    first new final therefore looked like a replay of a stored utterance and was
+    silently dropped by dedupe (the transcript event still fired, so nothing
+    looked broken).
+    """
+    import asyncio
+
+    import httpx
+
+    from server.conversation import Conversation
+    from server.conversation import ConversationStore
+    from voicekit import FakeAsr, FakeSpeaker, feed_utterance, make_settings, sse, until
+
+    store = ConversationStore(tmp_path / "conversations")
+    previous = Conversation(store=store, session_id="resume-1")
+    previous.add_user("سلامِ قبلی", utterance_id=1, turn_id=1)
+    previous.finish_assistant("پاسخِ قبلی", turn_id=1, utterance_id=1)
+    previous.add_user("پرسش دوم", utterance_id=2, turn_id=2)
+    previous.finish_assistant("پاسخ دوم", turn_id=2, utterance_id=2)
+
+    settings = make_settings(voice_asr_interval_s=10.0)
+    conversation = Conversation.load(
+        store,
+        "resume-1",
+        max_messages=settings.history_max_messages,
+        token_budget=settings.history_token_budget,
+        max_stored_messages=settings.history_max_stored_messages,
+        include_interrupted=settings.history_include_interrupted,
+    )
+    client = httpx.AsyncClient(
+        base_url="http://127.0.0.1",
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, text=sse("پاسخ تازه. "))),
+    )
+
+    events: list[dict] = []
+
+    async def scenario() -> None:
+        pipeline = Pipeline(
+            settings,
+            FakeAsr(text="سلامِ جدید"),
+            FakeSpeaker(),
+            client,
+            events.append,
+            conversation=conversation,
+        )
+        # The counter starts after the stored utterances, not at 1.
+        assert pipeline._next_utterance_id == 3
+        pipeline.start()
+        try:
+            feed_utterance(pipeline)
+            await until(
+                lambda: any(m.content == "سلامِ جدید" for m in conversation.messages),
+                timeout=5,
+            )
+            # The reply is committed by the play actor when its last sentence
+            # finishes, so wait for that event rather than for a state.
+            await until(
+                lambda: any(event["type"] == "response_end" for event in events),
+                timeout=5,
+            )
+            # The committed text keeps the sentence terminator the model
+            # produced; the reply is only committed once playback finished.
+            await until(
+                lambda: any(m.content.startswith("پاسخ تازه") for m in conversation.messages),
+                timeout=5,
+            )
+        finally:
+            await pipeline.close()
+
+    asyncio.run(scenario())
+    texts = [message.content for message in conversation.messages]
+    assert texts[:4] == ["سلامِ قبلی", "پاسخِ قبلی", "پرسش دوم", "پاسخ دوم"]
+    assert "سلامِ جدید" in texts
+    assert any(text.startswith("پاسخ تازه") for text in texts)
+    # The resumed turn got a fresh turn id (the store already owns 1 and 2),
+    # so the answer is not deduplicated away.
+    assert conversation.messages[-1].turn_id == 3
+    assert conversation.messages[-2].utterance_id == 3
+    # And the context handed to the model still starts with the old exchange.
+    assert conversation.context()[0]["content"] == "سلامِ قبلی"
+
+
+def test_fresh_pipeline_still_starts_its_utterance_ids_at_one() -> None:
+    from voicekit import make_settings
+
+    pipeline = Pipeline(
+        make_settings(), None, None, None, lambda event: None
+    )
+    assert pipeline._next_utterance_id == 1
+
+
+# ------------------------------------------------------- shutdown hygiene
+def test_close_drains_transient_audio_but_keeps_the_transcript() -> None:
+    """Shutdown releases buffers *and* the closing session's history.
+
+    ``Pipeline.close`` used to keep the queued playback sentences and the
+    half-finished utterance alive for as long as anything referenced the
+    pipeline object (the LAN transport keeps one per connection).  Draining
+    them is what makes the object collectable; the recorded messages must
+    survive, because the last turn is exactly what a restart resumes.
+    """
+
+    async def scenario() -> None:
+        events: list[dict] = []
+        speaker = FakeSpeaker()
+        async with httpx.AsyncClient(
+            base_url="http://127.0.0.1",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, text=sse("درود! ", "خوبی؟"))
+            ),
+        ) as client:
+            pipeline, _ = make_pipeline(speaker=speaker, client=client, events=events)
+            pipeline.start()
+            for _ in range(20):
+                pipeline.feed(frame())
+            for _ in range(32):
+                pipeline.feed(frame(0))
+            await until(lambda: any(e["type"] == "response_end" for e in events))
+            recorded = list(pipeline.conversation.messages)
+            pipeline.speech.put_nowait("یک جملهٔ پخش‌نشده")
+            await pipeline.close()
+        assert pipeline.speech.empty()
+        assert len(pipeline.scheduler.finals) == 0
+        assert pipeline.scheduler.partial is None
+        assert pipeline.utterance is None
+        assert pipeline.conversation.messages == recorded
+        assert any(message.role == "assistant" for message in recorded)
+
+    asyncio.run(scenario())
+
+
+def test_recognize_releases_each_job_before_decoding_the_next() -> None:
+    """The ASR worker must not pin the previous job's PCM while it waits.
+
+    A final job carries the whole utterance as bytes.  Keeping the last one in a
+    loop variable meant the single ASR actor held up to a full utterance of
+    audio while idle on every connection — unexplained RSS growth on a long run.
+    """
+
+    async def scenario() -> None:
+        import gc
+        import weakref
+
+        from server.streaming_voice import AsrJob
+
+        class Pcm(bytearray):
+            """Markable payload: it must be collectable once decoded."""
+
+        async with httpx.AsyncClient(
+            base_url="http://127.0.0.1",
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, text=sse("درود!"))
+            ),
+        ) as client:
+            pipeline, events = make_pipeline(client=client)
+            payload = Pcm(640)
+            marker = weakref.ref(payload)
+            pipeline.start()
+            try:
+                pipeline.scheduler.submit_final(
+                    AsrJob(utterance_id=1, pcm=payload, final=True,
+                           submitted_at=0.0, total_frames=1)
+                )
+                del payload
+                await until(lambda: any(e["type"] == "response_end" for e in events))
+                await until(lambda: pipeline.state.value in {"idle", "listening"})
+                gc.collect()
+                assert marker() is None, "the decoded utterance's PCM is still referenced"
+            finally:
+                await pipeline.close()
+
+    asyncio.run(scenario())
+
+
+def test_respond_does_not_copy_every_token_into_a_list() -> None:
+    """A long reply must be assembled as one string, not as a piece list.
+
+    ``respond`` kept every SSE delta in a list that was never read; a 400-token
+    answer therefore retained hundreds of tiny strings per turn for no reason.
+    """
+    import inspect
+
+    from server.streaming_voice import Pipeline as PipelineClass
+
+    source = inspect.getsource(PipelineClass.respond)
+    assert "pieces = []" not in source
+    assert "pieces.append" not in source

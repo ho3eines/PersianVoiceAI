@@ -1,0 +1,22 @@
+# Development and test dependencies. Install on top of requirements.txt:
+#   python -m pip install -r requirements-dev.txt
+# Add -r requirements-voice.txt to run audio-file conversion tests in
+# tests/test_inference_safety.py. Never needed in a deployment.
+#
+# Tooling notes:
+#   - PyYAML (MIT): YAML configuration for the data/training tooling
+#     (configs/*.yaml). JSON configurations work without it.
+#   - pyarrow (Apache-2.0): only used to *read* a Hugging Face
+#     Dataset.save_to_disk directory in tools/prepare_dataset.py. Without it that
+#     input format reports a clear error and JSONL stays fully supported.
+#   - datasets (Apache-2.0): NOT a dependency of any tool or test in this
+#     repository. It is only needed by an operator who creates a save_to_disk
+#     export; install it yourself if you do (`pip install datasets`). The two
+#     Hugging Face tests skip when it is absent.
+#   - Neither PyYAML nor pyarrow is imported by the server runtime.
+-r requirements.txt
+
+pytest==9.2.0
+starlette==1.10.0
+PyYAML>=6,<7
+pyarrow>=14,<27

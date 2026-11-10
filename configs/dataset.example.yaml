@@ -1,0 +1,41 @@
+# Example dataset configuration for tools/prepare_dataset.py.
+#
+# Copy this file next to your corpus and edit the paths, or point at it with
+#   PVAI_DATASET_CONFIG=configs/dataset.yaml
+#   python tools/prepare_dataset.py --config configs/dataset.yaml --check
+#
+# Path rules (see docs/DATASETS.md):
+#   * every path is expanded first: ${PVAI_CORPUS_ROOT:-corpus}, $HOME and ~ work;
+#   * a relative path is resolved against THIS file's directory, never the
+#     shell's working directory, so `cd` does not change which corpus is read;
+#   * an absolute path is used as-is.
+#
+# Nothing here is downloaded and nothing is written unless --out is given.
+
+version: 1
+
+# Applied to every split unless the split overrides it.
+sample_rate: 16000
+min_duration_s: 0.3      # drop/flag clips shorter than this (silence, click)
+max_duration_s: 30.0     # Whisper training segments; split longer recordings
+
+splits:
+  train:
+    # .json (array), .jsonl (one object per line) or .csv (id,audio,text)
+    # A Hugging Face save_to_disk directory is also accepted (see docs).
+    # ${VAR:-default} keeps this example runnable without exporting anything.
+    manifest: ${PVAI_CORPUS_ROOT:-corpus}/manifests/train.jsonl
+    audio_root: ${PVAI_CORPUS_ROOT:-corpus}/audio          # relative audio paths resolve here
+    out: ${PVAI_CORPUS_ROOT:-corpus}/validated/train.jsonl # optional: portable validated export
+
+  validation:
+    manifest: ${PVAI_CORPUS_ROOT:-corpus}/manifests/validation.jsonl
+    audio_root: ${PVAI_CORPUS_ROOT:-corpus}/audio
+    out: ${PVAI_CORPUS_ROOT:-corpus}/validated/validation.jsonl
+    # A split may override any dataset-level value:
+    max_duration_s: 30.0
+
+  test:
+    manifest: ${PVAI_CORPUS_ROOT:-corpus}/manifests/test.jsonl
+    audio_root: ${PVAI_CORPUS_ROOT:-corpus}/audio
+    out: ${PVAI_CORPUS_ROOT:-corpus}/validated/test.jsonl

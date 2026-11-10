@@ -1,0 +1,44 @@
+# External-trainer contract for PersianVoiceAI fine-tuning.
+#
+# This repository ships NO training loop (see docs/DATASETS.md): Whisper is run
+# through CTranslate2 and Piper through ONNX Runtime for inference only.  This
+# file exists so the hyper-parameters a trainer needs are validated, versioned
+# and reproducible instead of living in a shell history.
+#
+#   python tools/train_plan.py --config configs/training.example.yaml --check
+#   python tools/train_plan.py --config configs/training.example.yaml --write plan.json
+#
+# Paths follow the same rules as configs/dataset.example.yaml: ${VAR}, $HOME and
+# ~ are expanded, and relative paths resolve against this file's directory.
+#
+# Validate without a corpus (schema only):  --check --no-require-paths
+
+version: 1
+
+# Base checkpoint the external trainer starts from.  NOT the CTranslate2
+# model.bin used for inference; that file is not trainable.
+model: openai/whisper-small
+
+# Where the trainer writes checkpoints, logs and the exported CTranslate2 model.
+output_dir: ${PVAI_TRAIN_OUTPUT:-runs/whisper-small-fa}
+
+seed: 13
+batch_size: 8          # per device
+grad_accum: 2          # effective batch = batch_size * grad_accum
+learning_rate: 0.00001 # 1e-5
+epochs: 3
+warmup_steps: 100
+precision: fp32         # fp32 | fp16 | bf16 | int8
+
+data:
+  sample_rate: 16000
+  min_duration_s: 0.3
+  max_duration_s: 30.0
+  # Manifests validated by tools/prepare_dataset.py (JSONL/CSV/JSON or a
+  # Hugging Face save_to_disk directory).  Pretrained Whisper is 16 kHz: never
+  # point this at 22.05 kHz Piper recordings.
+  train: ${PVAI_CORPUS_ROOT:-corpus}/validated/train.jsonl
+  validation: ${PVAI_CORPUS_ROOT:-corpus}/validated/validation.jsonl
+  test: ${PVAI_CORPUS_ROOT:-corpus}/validated/test.jsonl
+
+notes: "Persian ASR fine-tune. No training is performed by this repository."

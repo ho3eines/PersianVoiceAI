@@ -57,7 +57,15 @@ PersianVoiceAI/
 ├─ AGENTS.md              ← همین فایل: قرارداد کار هر عامل
 ├─ README.md              ← معرفی پروژه + راه‌اندازی سریع درس ۱
 ├─ .env.example           ← قالب متغیرهای محیطی
+├─ LICENSE                ← GPL-3.0-or-later (اجباری به‌خاطر piper-tts)
+├─ THIRD_PARTY.md         ← مجوز وابستگی‌ها و هر مدل/صدا
+├─ requirements.txt       ← فقط زمان اجرا
+├─ requirements-dev.txt   ← pytest (فقط توسعه)
+├─ requirements-voice.txt ← پشتهٔ صوتی اختیاری
+├─ configs/               ← نمونهٔ پیکربندی داده و آموزش (JSON + YAML)
 ├─ docs/
+│  ├─ PROJECT_GUIDE.md    ← راهنمای یکپارچه؛ تولید با tools/build_docs.py
+│  ├─ DATASETS.md         ← دادهٔ سفارشی، پیکربندی JSON/YAML، قرارداد trainer خارجی
 │  ├─ SPEC.md             ← مستند جامع v1.0 (مرجع تصمیم‌ها)
 │  ├─ STATUS.md           ← وضعیت اجرایی، تست‌ها، نگاشت ۲۰ الزام به تست
 │  ├─ ISSUE_REGISTER.md   ← دفترچهٔ ایرادها: ریشه، رفع، تست، وضعیت
@@ -67,6 +75,9 @@ PersianVoiceAI/
 │  ├─ PROTOCOL.md         ← قرارداد WebSocket ESP32-S3 + transport سرور
 │  ├─ BENCHMARKS.md       ← روش‌شناسی و نتایج برچسب‌دار
 │  ├─ TROUBLESHOOTING.md  ← پیام‌های خطا و راه‌حل
+│  ├─ PC_VOICE.md         ← نصب و اجرای صوت PC
+│  ├─ PLATFORMS.md        ← Windows/Linux، اسکریپت‌ها، تفاوت‌ها
+│  ├─ AUDIT_REPORT.md     ← گزارش بازبینی (سند تاریخی)
 │  └─ HARDWARE_VALIDATION.md ← چک‌لیست تست واقعی
 ├─ server/                ← سرویس محلی پایتون (FastAPI)
 │  ├─ main.py             ← اپ FastAPI، /ready، /api/sessions، OpenAI-compatible
@@ -86,12 +97,14 @@ PersianVoiceAI/
 │  ├─ persian.py          ← نرمال‌سازی فارسی + WER/CER
 │  ├─ protocol.py         ← قرارداد فریم/پیام ESP32
 │  ├─ ws_voice.py         ← transport WebSocket سرور برای دستگاه LAN
+│  ├─ security.py         ← توکن REST/WS، rate limit، سقف اتصال
 │  ├─ cli.py              ← کلاینت چت فارسی ترمینال
 │  ├─ __main__.py         ← اجرای `python -m server`
 │  └─ __init__.py         ← نسخهٔ سرویس
 ├─ tests/                 ← pytest؛ بدون نیاز به مدل (fake LLM/ASR/TTS/دستگاه)
 ├─ benchmarks/            ← پرامپت‌های متنی + persian_eval.py + persian_eval_set.json
-├─ tools/                 ← PowerShell + benchmark_voice.py + environment_test.py
+├─ tools/                 ← اسکریپت‌های .ps1 و .sh + benchmark_voice.py + download_parallel.py
+│                             + prepare_dataset.py / train_plan.py / training_config.py
 ├─ models/                ← مدل‌های محلی GGUF (خارج از git)
 ├─ data/                  ← مکالمه/بازخورد/دانش محلی (خارج از git)
 └─ firmware/              ← (ساخته نشده) هدف: پروژهٔ ESP-IDF esp32s3_terminal
@@ -102,7 +115,11 @@ PersianVoiceAI/
 
 ---
 
-## ۴. اجرا و بررسی (Windows / PowerShell)
+## ۴. اجرا و بررسی
+
+هر اسکریپت `.ps1` یک معادل `.sh` دارد؛ جزئیات در [`docs/PLATFORMS.md`](docs/PLATFORMS.md).
+
+**Windows / PowerShell**
 
 ```powershell
 # یک‌بار: محیط
@@ -117,7 +134,8 @@ Copy-Item .env.example .env
 .\tools\chat.ps1
 .\tools\chat.ps1 --once "سلام! خودت را معرفی کن"
 
-# تست‌ها (بدون مدل) — باید همیشه سبز باشد: ۲۳۷ passed، ۲ skipped
+# تست‌ها (بدون مدل) — باید همیشه سبز باشد: نتیجهٔ جاری را با pytest ببینید
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 .\.venv\Scripts\python.exe -m pytest
 
 # آمادگی سرویس و بنچمارک زنجیرهٔ صوت (برچسب MEASURED/SIMULATED/NOT MEASURED)
@@ -126,8 +144,24 @@ curl http://127.0.0.1:8000/ready
 
 # سنجش کیفیت/سرعت پاسخ
 .\tools\benchmark.ps1
-.\.venv\Scripts\python.exe tools\verify_lesson01.py
+# ابزار قدیمی در docs/legacy بایگانی شده است
 ```
+
+**Linux / macOS / bash**
+
+```bash
+# یک‌بار: محیط
+python3 -m venv .venv
+./.venv/bin/python -m pip install -r requirements-dev.txt
+cp .env.example .env
+
+./tools/start_server.sh
+./tools/chat.sh --once "سلام! خودت را معرفی کن"
+./.venv/bin/python -m pytest
+./tools/benchmark.sh
+```
+
+(`PVAI_PYTHON=/path/to/python` اگر venv جای دیگری است.)
 
 **تعریف «انجام‌شده» برای هر تغییر:** `pytest` سبز + در صورت تغییر رفتار واقعی، یک اجرای دستی
 مستندشده + به‌روزرسانی `docs/STATUS.md`.
@@ -207,3 +241,14 @@ AEC مرجع `docs/AEC.md`: مرجع فقط از PCM ارسال‌شده در ca
 6. **firmware ESP32 هنوز وجود ندارد** (`/api/protocol` → `transport_implemented: true`,
    `firmware_implemented: false`). تا پیاده‌سازی
    transport، در README/STATUS «پیاده‌شده» نوشته نشود.
+
+
+## هم‌گام‌سازی مستندات
+
+نقطهٔ ورود یکپارچه: [docs/PROJECT_GUIDE.md](docs/PROJECT_GUIDE.md).
+این فایل از راهنماهای موجود تولید می‌شود؛ پس از ویرایش منبع،
+`python tools/build_docs.py` و `python tools/build_docs.py --check` را اجرا کنید.
+ابزار `tools/prepare_dataset.py` (ورودی JSON/JSONL/CSV یا Hugging Face `save_to_disk`)
+و `tools/train_plan.py` فقط اعتبارسنجی پیکربندی و داده‌اند؛ **trainer نداریم**. هر
+hyper-parameter جدید (يا مسیر) باید در `configs/*.example.*` و `docs/DATASETS.md`
+مستند شود و از `tools/training_config.py` رد شود، نه داخل اسکریپت hardcode.

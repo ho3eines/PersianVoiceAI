@@ -14,6 +14,8 @@ def main() -> None:
         host=settings.api_host,
         port=settings.api_port,
         log_level=settings.log_level.lower(),
+        ssl_certfile=settings.ssl_certfile or None,
+        ssl_keyfile=settings.ssl_keyfile or None,
     )
 
 

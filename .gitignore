@@ -16,3 +16,4 @@ data/feedback/
 Thumbs.db
 .vscode/
 .idea/
+*.parts/
