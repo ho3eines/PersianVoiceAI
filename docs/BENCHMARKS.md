@@ -69,7 +69,7 @@
 | idle | `vad_false_positives` | ۰ | count | MEASURED |
 | asr | `asr_ms`, `asr_rtf` | — | — | NOT MEASURED (مدل Whisper موجود نیست) |
 | llm | `llm_ttft_ms`, `llm_tokens_per_second` | — | — | NOT MEASURED (llama-server در دسترس نبود) |
-| tts | `tts_first_chunk_ms` | — | — | NOT MEASURED (مدل Piper موجود نیست) |
+| tts | `tts_first_chunk_ms` | — | — | NOT MEASURED (Piper محلی WAV ساخت؛ زمان first-chunk هنوز ثبت نشده) |
 | asr_llm | `asr_ms` + `llm_ttft_ms` + `turn_total_ms` | ~۲۰۵ | ms | SIMULATED (ASR/LLM ساختگی) |
 | asr_llm | `turn_completed` | ۱ | flag | MEASURED |
 | asr_llm_tts | `first_audible_ms` / `turn_total_ms` | ~۲۵۳ / ~۶۶۴ | ms | SIMULATED |

@@ -25,8 +25,15 @@ SpeexDSP یک فیلتر تطبیقی محلی است؛ mute حین پاسخ ی�
 
 ### Windows x64
 
-کتابخانهٔ shared از SpeexDSP را از منبع معتبر تهیه/با ابزار build خودتان بسازید؛
-درخت upstream دارای راهنمای Windows است. DLL باید نمادهای زیر را export کند:
+بستهٔ Windows x64 نسخهٔ SpeexDSP 1.2.1 از conda-forge با SHA256 بررسی می‌شود و بیرون از Git
+در `models/speexdsp/` استخراج می‌شود. 7-Zip باید در PATH باشد:
+
+```powershell
+.\tools\install_speexdsp.ps1
+```
+
+اسکریپت hash را با مقدار `064be2a5ea3e168a20d1a8319d853310f3cc3e90bd99f5a0bc2b5e15e2d91b1c` تطبیق می‌دهد.
+DLL باید نمادهای زیر را export کند:
 
 - `speex_echo_state_init`, `speex_echo_state_destroy`, `speex_echo_state_reset`
 - `speex_echo_ctl`, `speex_echo_cancellation`
@@ -35,13 +42,14 @@ SpeexDSP یک فیلتر تطبیقی محلی است؛ mute حین پاسخ ی�
 
 ```dotenv
 PVAI_AEC_ENABLED=true
-PVAI_AEC_LIBRARY=C:/AudioLibs/speexdsp/libspeexdsp.dll
+PVAI_AEC_LIBRARY=models/speexdsp/Library/bin/speexdsp.dll
 PVAI_AEC_FILTER_MS=250
 PVAI_AEC_DELAY_MS=40
 ```
 
-DLL و وابستگی‌های runtime آن باید با معماری Python (معمولاً x64) سازگار باشند.
-ما DLL ویندوز را در مخزن قرار نداده‌ایم و آن را روی Windows هدف آزمایش نکرده‌ایم.
+DLL و وابستگی‌های runtime آن باید با معماری Python (معمولاً x64) سازگار باشند. فایل native در Git
+نیست. همین DLL روی Windows x64 با هر دو تست native synthetic (حذف اکو و double-talk) بررسی شده؛
+این جایگزین تست میکروفون/بلندگو در اتاق واقعی نیست.
 
 ### Linux
 
@@ -81,6 +89,9 @@ AEC برای مسیر پیش‌فرض زنده است؛ حالت قدیمی `--t
 $env:PVAI_TEST_AEC_LIBRARY = "C:/AudioLibs/speexdsp/libspeexdsp.dll"
 .\.venv\Scripts\python.exe -m pytest -q -s tests/test_aec.py
 ```
+
+روی این رایانه مقدار محیط تست برابر مسیر `models/speexdsp/Library/bin/speexdsp.dll` بود؛ دو تست
+native گذشتند (کاهش echo برابر ۵۷٫۸۲ dB، correlation دوصدایی ۰٫۹۱۸ و RMS retention برابر ۰٫۹۹۳).
 
 در sandbox لینوکسی، بخش AEC کتابخانه از upstream commit
 `7a158783df74efe7c2d1c6ee8363c1e695c71226` با GCC و floating-point/smallft، بیرون مخزن ساخته شد.

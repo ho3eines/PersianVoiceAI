@@ -27,13 +27,13 @@ Copy-Item .env.example .env
 ```
 
 کتابخانهٔ native **SpeexDSP** را نیز طبق [راهنمای AEC](docs/AEC.md) نصب کنید؛ فقط pip کافی نیست.
-سپس مدل‌های **Qwen3-4B-Q4_K_M GGUF**، **Whisper Small CTranslate2** و **Piper فارسی** را
+سپس مدل‌های **Qwen3.5-4B-Q4_K_M GGUF**، **Whisper Small CTranslate2** و **Piper فارسی** را
 محلی تهیه و مسیرشان را در `.env` تنظیم کنید. مدل‌ها دانلود خودکار نمی‌شوند.
 اگر `.env` موجود است، فقط تنظیمات آن را ویرایش کنید.
 
 ```powershell
 # ترمینال ۱؛ مسیر باینری و مدل متناسب با سیستم خودتان
-D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 127.0.0.1 --port 8080 -t 4
+D:\Lama.cpp\bin\llama-server.exe -m models\qwen3.5-4b\Qwen3.5-4B-Q4_K_M.gguf -c 4096 --host 127.0.0.1 --port 8080 -t 4
 # ترمینال ۲
 .\tools\start_server.ps1
 # ترمینال ۳
@@ -45,10 +45,10 @@ D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 1
 
 ## وضعیت صادقانه
 
-- تست خودکار: **۲۳۷ passed، ۲ skipped** (بدون مدل/میکروفون/شبکه؛ ۲ skip فقط native SpeexDSP).
+- تست خودکار: **۲۵۸ passed، ۳ skipped** (بدون مدل/میکروفون/شبکه؛ ۲ skip برای DLL بومی SpeexDSP و ۱ برای sampler پلتفرم).
   این تست‌ها منطق و کنترل جریان را ثابت می‌کنند، نه کیفیت صدا.
-- مدل‌های واقعی (Whisper/Piper/Qwen) در مخزن نیستند؛ در sandbox نصب هم نبودند، پس
-  ASR/TTS/LLM واقعی **NOT MEASURED** است.
+- Whisper Small و Piper فارسی در `models/` محلی دریافت می‌شوند و خارج از Git می‌مانند؛ Piper با
+  تولید WAV فارسی بررسی شده است. سنجش ASR با وزن کامل و سنجش end-to-end هنوز در حال انجام است.
 - AEC با اکو/دوصدایی مصنوعی تست شده (کاهش ۵۷٫۸dB در سیگنال ساختگی)؛ اتاق و دستگاه واقعی
   تأیید نشده‌اند. بدون هدفون، کالیبراسیون `PVAI_AEC_DELAY_MS` لازم است.
 - تاریخچهٔ مکالمه محلی و ماندگار است (`data/conversations/*.jsonl`)؛ پنجرهٔ RAM محدود است.
@@ -68,10 +68,14 @@ D:\Lama.cpp\bin\llama-server.exe -m models\Qwen3-4B-Q4_K_M.gguf -c 4096 --host 1
 | `POST /v1/chat/completions` | چت JSON یا SSE با `stream=true` |
 | `POST /api/chat` | پاسخ سادهٔ یک‌پیامی با `session_id` اختیاری |
 | `GET/DELETE /api/sessions[/{id}]` | بازبینی و حذف نشست‌های محلی |
+| `/api/knowledge` | افزودن/فهرست/جست‌وجو/حذف اسناد RAG محلی |
 
 چت متنی: `python -m server.cli` یا `tools/chat.ps1`.
 مستندات API: `http://127.0.0.1:8000/docs`.
 FastAPI از طریق **async HTTP به llama-server** متصل می‌شود؛ `llama-cpp-python` لازم نیست.
+
+RAG واژه‌ای فارسی در مسیر [`docs/RAG.md`](docs/RAG.md) ذخیره و بازیابی می‌شود. اسناد در `data/knowledge/`
+می‌مانند؛ `/api/chat` از آن‌ها استفاده می‌کند و OpenAI-compatible API با `"use_rag": true`.
 
 ## تست و بنچمارک
 
@@ -99,6 +103,7 @@ API فعلی احراز هویت ندارد؛ پورت‌ها را عمومی ن
 - [AGENTS.md](AGENTS.md): قواعد توسعه و نقشهٔ مخزن
 - [SPEC](docs/SPEC.md): معماری و تصمیم‌ها
 - [STATUS](docs/STATUS.md): وضعیت واقعی پیاده‌سازی + نگاشت ۲۰ الزام به تست
+- [RAG](docs/RAG.md): افزودن و بازیابی دانش محلی
 - [ISSUE_REGISTER](docs/ISSUE_REGISTER.md): دفترچهٔ ایرادها با ریشه، رفع و تست
 - [PC_VOICE](docs/PC_VOICE.md): نصب و اجرای صوت PC
 - [STREAMING_ARCHITECTURE](docs/STREAMING_ARCHITECTURE.md): utterance/generation، صف‌ها، ماشین حالت، لغو

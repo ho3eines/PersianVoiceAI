@@ -716,6 +716,7 @@ class Pipeline:
         payload = {
             "messages": messages,
             "stream": True,
+            "use_rag": True,
             "temperature": self.settings.temperature,
             "max_tokens": self.settings.max_tokens,
         }

@@ -5,7 +5,8 @@
 
 مبنا: commit `9654a68` (پایه)، شاخهٔ `arena/31347dde-persianvoiceai`.
 تست پایه پیش از تغییر: `53 passed, 2 skipped` (تست‌های native AEC skip می‌شوند).
-تست پس از مرحلهٔ تکمیلی: `237 passed, 2 skipped` (۲ skip فقط native AEC در sandbox بدون کتابخانه).
+آخرین تست روی Windows با وابستگی‌های صوتی نصب‌شده و تست‌های RAG: `258 passed, 3 skipped in 12.77s`.
+دو skip مربوط به DLL native SpeexDSP و یکی مربوط به sampler حافظهٔ Windows است.
 
 ---
 

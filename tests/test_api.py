@@ -126,6 +126,36 @@ def test_root(client: TestClient) -> None:
     assert response.json()["lesson"] == 1
 
 
+def test_local_knowledge_api_and_rag_augmented_chat(tmp_path: Any) -> None:
+    from server.main import create_app
+
+    settings = Settings(
+        model_path="models/test-model.gguf",
+        system_prompt="سیستم تست",
+        data_dir=str(tmp_path),
+        history_persist=False,
+    )
+    llm = FakeLLM()
+    with TestClient(create_app(settings=settings, llm=llm)) as test_client:
+        added = test_client.post("/api/knowledge", json={
+            "title": "مشخصات لپ‌تاپ",
+            "text": "GeForce 940MX این لپ‌تاپ ۲ گیگابایت VRAM دارد.",
+        })
+        assert added.status_code == 200
+        search = test_client.get("/api/knowledge/search", params={"q": "940MX VRAM"})
+        assert search.status_code == 200
+        assert search.json()["results"][0]["id"] == added.json()["id"]
+
+        reply = test_client.post("/api/chat", json={"message": "چقدر VRAM دارد؟"})
+        assert reply.status_code == 200
+        assert reply.json()["sources"][0]["title"] == "مشخصات لپ‌تاپ"
+        assert "۲ گیگابایت VRAM" in llm.last_messages[0]["content"]
+
+        deleted = test_client.delete(f"/api/knowledge/{added.json()['id']}")
+        assert deleted.status_code == 200
+        assert test_client.get("/api/knowledge").json()["documents"] == []
+
+
 def test_health_ok(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200

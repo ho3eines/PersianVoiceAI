@@ -54,13 +54,13 @@
 ## C. گزارش تست
 
 ```text
-$ python -m pytest
-235 passed, 2 skipped
+$ .venv-audio/Scripts/python.exe -m pytest --tb=no -rA
+258 passed, 3 skipped in 12.77s
 ```
 
-- ۲ skip فقط تست‌های native SpeexDSP (کتابخانه در sandbox ساخته نشده).
+- ۲ skip برای تست‌های native SpeexDSP (DLL در دسترس نیست) و ۱ skip برای sampler حافظهٔ پلتفرم Windows.
 - تست پایه پیش از این کار: ۵۳ passed.
-- همهٔ تست‌ها fake/ساختگی: بدون مدل، بدون میکروفون، بدون شبکهٔ واقعی.
+- تست‌های خودکار از fake استفاده می‌کنند؛ جداگانه Piper فارسی با مدل محلی WAV تولید کرد. تست دستگاه و مکالمهٔ end-to-end انجام نشده است.
 - **تست سخت‌افزاری انجام نشده**؛ چک‌لیست آن در `docs/HARDWARE_VALIDATION.md` است.
 
 نگاشت ۲۰ الزام به تست در `docs/STATUS.md` §۲ آمده است (به‌روزرسانی‌شده با تست‌های تازه).
