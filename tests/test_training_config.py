@@ -176,7 +176,8 @@ def test_relative_paths_resolve_against_the_config_not_the_cwd(tmp_path, monkeyp
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)  # a different working directory must not matter
     assert resolve_path("data/train.jsonl", base) == base / "data/train.jsonl"
-    assert resolve_path("/abs/train.jsonl", base) == Path("/abs/train.jsonl")
+    absolute = Path(tmp_path.anchor) / "abs/train.jsonl"  # platform-native absolute path
+    assert resolve_path(str(absolute), base) == absolute
     assert resolve_path("", base) is None and resolve_path(None, base) is None
 
 

@@ -98,6 +98,7 @@ PersianVoiceAI/
 │  ├─ protocol.py         ← قرارداد فریم/پیام ESP32
 │  ├─ ws_voice.py         ← transport WebSocket سرور برای دستگاه LAN
 │  ├─ security.py         ← توکن REST/WS، rate limit، سقف اتصال
+│  ├─ rag.py              ← RAG محلی (BM25، KnowledgeBase) برای پاسخ دانش‌محور
 │  ├─ cli.py              ← کلاینت چت فارسی ترمینال
 │  ├─ __main__.py         ← اجرای `python -m server`
 │  └─ __init__.py         ← نسخهٔ سرویس

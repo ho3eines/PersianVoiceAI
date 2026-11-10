@@ -1215,7 +1215,7 @@ Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama
 
 | متغیر | پیش‌فرض | معنا |
 |---|---|---|
-| `PVAI_MODEL_PATH` | `models/Qwen3-4B-Q4_K_M.gguf` | مسیر GGUF برای llama-server (خود سرویس آن را لود می‌کند؛ فایل باید محلی باشد) |
+| `PVAI_MODEL_PATH` | `models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf` | مدل منتخب پس از ارزیابی محلی لپ‌تاپ؛ مسیر GGUF باید محلی باشد |
 | `PVAI_LLAMA_SERVER_URL` | `http://127.0.0.1:8080` | آدرس محلی llama-server؛ باید private/loopback باشد |
 | `PVAI_N_CTX` | `4096` | پنجرهٔ context (۵۱۲–۳۲۷۶۸)؛ به `llama-server -c` داده می‌شود |
 | `PVAI_N_THREADS` | `0` | thread سمت llama-server؛ `0` = خودکار (پرچم `-t` ارسال نمی‌شود). مستقل از threadهای Whisper است؛ `.env.example` مقدار پیشنهادی `4` را تنظیم می‌کند، نه پیش‌فرض `0` |
@@ -1714,8 +1714,15 @@ SpeexDSP یک فیلتر تطبیقی محلی است؛ mute حین پاسخ ی�
 
 ### Windows x64
 
-کتابخانهٔ shared از SpeexDSP را از منبع معتبر تهیه/با ابزار build خودتان بسازید؛
-درخت upstream دارای راهنمای Windows است. DLL باید نمادهای زیر را export کند:
+بستهٔ Windows x64 نسخهٔ SpeexDSP 1.2.1 از conda-forge با SHA256 بررسی می‌شود و بیرون از Git
+در `models/speexdsp/` استخراج می‌شود. 7-Zip باید در PATH باشد:
+
+```powershell
+.\tools\install_speexdsp.ps1
+```
+
+اسکریپت hash را با مقدار `064be2a5ea3e168a20d1a8319d853310f3cc3e90bd99f5a0bc2b5e15e2d91b1c` تطبیق می‌دهد.
+DLL باید نمادهای زیر را export کند:
 
 - `speex_echo_state_init`, `speex_echo_state_destroy`, `speex_echo_state_reset`
 - `speex_echo_ctl`, `speex_echo_cancellation`
@@ -1724,13 +1731,14 @@ SpeexDSP یک فیلتر تطبیقی محلی است؛ mute حین پاسخ ی�
 
 ```dotenv
 PVAI_AEC_ENABLED=true
-PVAI_AEC_LIBRARY=C:/AudioLibs/speexdsp/libspeexdsp.dll
+PVAI_AEC_LIBRARY=models/speexdsp/Library/bin/speexdsp.dll
 PVAI_AEC_FILTER_MS=250
 PVAI_AEC_DELAY_MS=40
 ```
 
-DLL و وابستگی‌های runtime آن باید با معماری Python (معمولاً x64) سازگار باشند.
-ما DLL ویندوز را در مخزن قرار نداده‌ایم و آن را روی Windows هدف آزمایش نکرده‌ایم.
+DLL و وابستگی‌های runtime آن باید با معماری Python (معمولاً x64) سازگار باشند. فایل native در Git
+نیست. همین DLL روی Windows x64 با هر دو تست native synthetic (حذف اکو و double-talk) بررسی شده؛
+این جایگزین تست میکروفون/بلندگو در اتاق واقعی نیست.
 
 ### Linux
 
@@ -1770,6 +1778,9 @@ AEC برای مسیر پیش‌فرض زنده است؛ حالت قدیمی `--t
 $env:PVAI_TEST_AEC_LIBRARY = "C:/AudioLibs/speexdsp/libspeexdsp.dll"
 .\.venv\Scripts\python.exe -m pytest -q -s tests/test_aec.py
 ```
+
+روی این رایانه مقدار محیط تست برابر مسیر `models/speexdsp/Library/bin/speexdsp.dll` بود؛ دو تست
+native گذشتند (کاهش echo برابر ۵۷٫۸۲ dB، correlation دوصدایی ۰٫۹۱۸ و RMS retention برابر ۰٫۹۹۳).
 
 در sandbox لینوکسی، بخش AEC کتابخانه از upstream commit
 `7a158783df74efe7c2d1c6ee8363c1e695c71226` با GCC و floating-point/smallft، بیرون مخزن ساخته شد.
@@ -2528,7 +2539,7 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 | idle | `vad_false_positives` | ۰ | count | MEASURED |
 | asr | `asr_ms`, `asr_rtf` | — | — | NOT MEASURED (مدل Whisper موجود نیست) |
 | llm | `llm_ttft_ms`, `llm_tokens_per_second` | — | — | NOT MEASURED (llama-server در دسترس نبود) |
-| tts | `tts_first_chunk_ms` | — | — | NOT MEASURED (مدل Piper موجود نیست) |
+| tts | `tts_first_chunk_ms` | — | — | NOT MEASURED (Piper محلی WAV ساخت؛ زمان first-chunk هنوز ثبت نشده) |
 | asr_llm | `asr_ms` + `llm_ttft_ms` + `turn_total_ms` | ~۲۰۵ | ms | SIMULATED (ASR/LLM ساختگی) |
 | asr_llm | `turn_completed` | ۱ | flag | MEASURED |
 | asr_llm_tts | `first_audible_ms` / `turn_total_ms` | ~۲۵۳ / ~۶۶۴ | ms | SIMULATED |
@@ -2983,6 +2994,7 @@ PersianVoiceAI/
 │  ├─ protocol.py         ← قرارداد فریم/پیام ESP32
 │  ├─ ws_voice.py         ← transport WebSocket سرور برای دستگاه LAN
 │  ├─ security.py         ← توکن REST/WS، rate limit، سقف اتصال
+│  ├─ rag.py              ← RAG محلی (BM25، KnowledgeBase) برای پاسخ دانش‌محور
 │  ├─ cli.py              ← کلاینت چت فارسی ترمینال
 │  ├─ __main__.py         ← اجرای `python -m server`
 │  └─ __init__.py         ← نسخهٔ سرویس
@@ -4358,13 +4370,13 @@ ASR → LLM Intent → Structured Command → Command Broker
 ## C. گزارش تست
 
 ```text
-$ python -m pytest
-235 passed, 2 skipped
+$ .venv-audio/Scripts/python.exe -m pytest --tb=no -rA
+258 passed, 3 skipped in 12.77s
 ```
 
-- ۲ skip فقط تست‌های native SpeexDSP (کتابخانه در sandbox ساخته نشده).
+- ۲ skip برای تست‌های native SpeexDSP (DLL در دسترس نیست) و ۱ skip برای sampler حافظهٔ پلتفرم Windows.
 - تست پایه پیش از این کار: ۵۳ passed.
-- همهٔ تست‌ها fake/ساختگی: بدون مدل، بدون میکروفون، بدون شبکهٔ واقعی.
+- تست‌های خودکار از fake استفاده می‌کنند؛ جداگانه Piper فارسی با مدل محلی WAV تولید کرد. تست دستگاه و مکالمهٔ end-to-end انجام نشده است.
 - **تست سخت‌افزاری انجام نشده**؛ چک‌لیست آن در `docs/HARDWARE_VALIDATION.md` است.
 
 نگاشت ۲۰ الزام به تست در `docs/STATUS.md` §۲ آمده است (به‌روزرسانی‌شده با تست‌های تازه).
