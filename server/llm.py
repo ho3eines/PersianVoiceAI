@@ -69,6 +69,76 @@ class StreamDone:
 StreamEvent = StreamDelta | StreamDone
 
 
+class _ThinkingFilter:
+    """Remove inline `` thinking`` blocks, including markers split across chunks.
+
+    Local models occasionally emit an inline reasoning block in ``content``
+    even when the chat template is asked to disable it.  ``LlamaServerClient``
+    already hides the ``reasoning_content`` field, but the benchmark harness
+    (``benchmarks/compare_models.py``) streams raw deltas and needs the same
+    cleanup so reasoning never counts as an answer.
+    """
+
+    _start = "<think>"
+    _end = "</think>"
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._inside_thinking = False
+
+    @staticmethod
+    def _possible_marker_suffix_length(text: str, marker: str) -> int:
+        for length in range(min(len(text), len(marker) - 1), 0, -1):
+            if text.endswith(marker[:length]):
+                return length
+        return 0
+
+    def feed(self, text: str) -> str:
+        self._buffer += text
+        visible: list[str] = []
+
+        while self._buffer:
+            if self._inside_thinking:
+                end_index = self._buffer.find(self._end)
+                if end_index >= 0:
+                    self._buffer = self._buffer[end_index + len(self._end) :]
+                    self._inside_thinking = False
+                    continue
+                keep = self._possible_marker_suffix_length(self._buffer, self._end)
+                self._buffer = self._buffer[-keep:] if keep else ""
+                break
+
+            start_index = self._buffer.find(self._start)
+            if start_index >= 0:
+                visible.append(self._buffer[:start_index])
+                self._buffer = self._buffer[start_index + len(self._start) :]
+                self._inside_thinking = True
+                continue
+
+            keep = self._possible_marker_suffix_length(self._buffer, self._start)
+            if keep:
+                visible.append(self._buffer[:-keep])
+                self._buffer = self._buffer[-keep:]
+            else:
+                visible.append(self._buffer)
+                self._buffer = ""
+            break
+
+        return "".join(visible)
+
+    def finish(self) -> str:
+        if self._inside_thinking:
+            self._buffer = ""
+            return ""
+        tail, self._buffer = self._buffer, ""
+        return tail
+
+
+def _strip_thinking_blocks(text: str) -> str:
+    content_filter = _ThinkingFilter()
+    return content_filter.feed(text) + content_filter.finish()
+
+
 def _ms_from_ns(value: Any) -> float:
     try:
         return round(float(value or 0) / 1_000_000, 2)

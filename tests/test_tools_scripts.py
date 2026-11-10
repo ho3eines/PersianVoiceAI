@@ -8,6 +8,7 @@ them drifting away from the PowerShell originals.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -27,6 +28,62 @@ PARITY = {
 
 BASH_SCRIPTS = sorted(TOOLS.glob("*.sh"))
 
+#: Windows ships a ``bash.exe`` on PATH that is a WSL launcher stub; with no
+#: distribution installed it exits non-zero on every ``-n`` check.  Git for
+#: Windows bundles a real ``bash`` that is not on PATH by default.  When the
+#: PATH entry cannot run a trivial command, fall back to the Git install (and
+#: skip the syntax check entirely if neither works).
+_GIT_BASH_CANDIDATES = (
+    r"C:\Program Files\Git\bin\bash.exe",
+    r"C:\Program Files (x86)\Git\bin\bash.exe",
+)
+
+
+def _usable_bash() -> str | None:
+    candidates: list[str] = []
+    on_path = shutil.which("bash")
+    if on_path:
+        candidates.append(on_path)
+    candidates.extend(_GIT_BASH_CANDIDATES)
+    for candidate in candidates:
+        if not Path(candidate).exists():
+            continue
+        try:
+            probe = subprocess.run(
+                [candidate, "-c", "exit 0"], capture_output=True, text=True, timeout=30
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if probe.returncode == 0:
+            return candidate
+    return None
+
+
+def _git_index_mode(relative: str) -> int | None:
+    """Return the executable bits git recorded for ``relative``.
+
+    NTFS cannot store POSIX mode bits, so ``Path.stat().st_mode`` always reads
+    ``0o666`` on Windows even though the repository stores ``100755``.  The git
+    index is the source of truth for cross-platform executability.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", "ls-files", "--stage", "--", relative],
+            capture_output=True,
+            text=True,
+            cwd=ROOT,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    mode = completed.stdout.split()[0]
+    try:
+        return int(mode, 8)
+    except ValueError:
+        return None
+
 
 def test_the_expected_scripts_exist() -> None:
     names = {path.name for path in BASH_SCRIPTS}
@@ -37,9 +94,9 @@ def test_the_expected_scripts_exist() -> None:
 @pytest.mark.parametrize("script", BASH_SCRIPTS, ids=lambda p: p.name)
 def test_script_parses_under_bash(script: Path) -> None:
     """`bash -n` catches the quoting and heredoc bugs that silently pass review."""
-    bash = shutil.which("bash")
+    bash = _usable_bash()
     if bash is None:
-        pytest.skip("bash is not installed")
+        pytest.skip("no usable bash interpreter (WSL stub and Git Bash both absent)")
     completed = subprocess.run(
         [bash, "-n", str(script)], capture_output=True, text=True, timeout=30
     )
@@ -48,6 +105,12 @@ def test_script_parses_under_bash(script: Path) -> None:
 
 @pytest.mark.parametrize("script", BASH_SCRIPTS, ids=lambda p: p.name)
 def test_script_is_executable(script: Path) -> None:
+    relative = script.relative_to(ROOT).as_posix()
+    if os.name == "nt":
+        git_mode = _git_index_mode(relative)
+        if git_mode is not None:
+            assert git_mode & 0o111, f"{script.name} is not marked executable in git"
+            return
     assert script.stat().st_mode & 0o111, f"{script.name} is not marked executable"
 
 
