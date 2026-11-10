@@ -1,107 +1,112 @@
-# وضعیت اجرایی پروژه
+# وضعیت اجرایی پروژه — PersianVoiceAI Conversation Engine
 
-آخرین به‌روزرسانی: ۷ نوامبر ۲۰۲۶ — تکمیل بررسی PC-0.2، ارزیابی مدل‌های GGUF روی لپ‌تاپ هدف و تأیید پایان‌به‌پایان هستهٔ متنی؛ نصب صوت به‌دلیل خطای DNS متوقف است.
+آخرین به‌روزرسانی: ۸ نوامبر ۲۰۲۶ — مرحلهٔ ۱ تا ۶ بازبینی: رفع P0، بهبود خط لولهٔ صوتی، ماندگاری مکالمه،
+ابزار بنچمارک/ارزیابی و مستندسازی. مبنای تغییر: commit `9654a68`، شاخهٔ `arena/31347dde-persianvoiceai`.
 
-این سند فقط کارهایی را ثبت می‌کند که واقعاً اجرا و بررسی شده‌اند. هدف و قرارداد معماری در [`SPEC.md`](SPEC.md) آمده است.
+این سند **وضعیت واقعی کد** است و سه سطح را از هم جدا می‌کند:
 
-## ۱. وضعیت فعلی
+- **پیاده‌شده + تست خودکار** — با fake یا داده‌ی ساختگی در `pytest` سبز است.
+- **پیاده‌شده، تست واقعی لازم** — منطق کامل است ولی بدون مدل/میکروفون/بلندگو تأیید نشده.
+- **پیاده‌نشده** — نباید به‌عنوان قابلیت موجود معرفی شود.
 
-| بخش | وضعیت |
-|---|---|
-| PC-0.2، ابزارها و محیط پایه | بررسی شده؛ Python 3.12.10، Git 2.51.0، پوشه‌ها و `.venv` موجودند |
-| هستهٔ متنی محلی | FastAPI + llama.cpp/GGUF؛ آزمون پایان‌به‌پایان با Qwen3.5 روی لپ‌تاپ هدف PASS |
-| مدل پیش‌فرض | Qwen3.5-4B Q4_K_M، اجرای CPU؛ فایل محلی زیر `models/qwen3.5-4b/` و نادیده‌گرفته‌شده توسط Git |
-| ارزیابی مدل | چهار مدل با ۸ سؤال فارسی ثابت سنجیده شدند؛ Qwen3.5 انتخاب موقت/پایهٔ PC-1 با ارزیابی کیفی مقدماتی است |
-| GPU | Vulkan کارت 940MX را می‌شناسد؛ آزمون‌های انجام‌شده سرعت تولید را نسبت به CPU بهتر نکردند |
-| تست‌های خودکار | ۲۲ تست سبز با fake/mock؛ بدون وابستگی به مدل یا شبکه |
-| ASR/TTS | هنوز نصب/تأیید نشده؛ نصب بسته‌ها در محیط جداگانه به‌دلیل حل‌نشدن DNS برای `files.pythonhosted.org` ناکام ماند |
-| RAG | در این مخزن پیاده‌سازی نشده؛ بازیابی متن می‌تواند زمینهٔ ورودی را تکمیل کند و وزن‌های مدل را تغییر نمی‌دهد |
-| ESP32 و صوت زنده | پیاده‌سازی نشده و خارج از این مرحله است |
+---
 
-## ۲. سخت‌افزار و آماده‌سازی PC-0.2
+## ۱. جدول وضعیت
 
-| بررسی | نتیجهٔ ثبت‌شده |
-|---|---|
-| سیستم‌عامل | Windows 11، build 22621 |
-| CPU و RAM | Intel Core i7-6500U، RAM برابر 16 GB |
-| GPU | NVIDIA GeForce 940MX، VRAM برابر 2048 MiB، compute 5.0، driver 581.29 |
-| پایتون | Python 3.12.10؛ `py --list` پیام `No installed Pythons found!` می‌دهد، پس از `python` استفاده شد |
-| Git | `git version 2.51.0.windows.1` |
-| فضای آزاد هنگام بررسی PC-0.2 | C: 46.83، D: 126.65، E: 34.18، F: 186.67 GB؛ فایل‌های مدل بعداً روی D: دریافت شدند |
-| محیط و پوشه‌ها | `.venv` با Python 3.12.10 و پوشه‌های `data`, `models`, `docs`, `scripts`, `logs` تأیید شدند |
-
-مدل‌های محلی و محیط صوتی در مسیرهای نادیده‌گرفته‌شده توسط Git نگهداری می‌شوند. هیچ مدل یا دادهٔ مکالمه‌ای به مخزن commit نشده است.
-
-## ۳. ارزیابی مدل‌ها روی لپ‌تاپ هدف
-
-هر نامزد با همان ۸ پرامپت فارسی، context برابر 4096، چهار thread، یک slot، temperature برابر صفر و سقف 192 توکن آزمایش شد. گزارش‌های خام در `benchmarks/results/` هستند. حافظهٔ working set و private memory مربوط به فرایند llama-server است؛ VRAM مصرفی از اختلاف شمارندهٔ سیستمی NVIDIA ثبت شده و اندازه‌گیری آن تقریبی است.
-
-| مدل و حالت | میانگین TTFT | زمان پاسخ | سرعت تولید | اوج working set | private memory | افزایش VRAM سیستمی | بازبینی کیفی دستی |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| MiniCPM5-1B Q8، CPU | 2.147 s | 9.449 s | 12.83 tok/s | 1110.6 MiB | 277.4 MiB | 0 MiB | 0/8 |
-| Qwen3-4B Q4_K_M، CPU | 4.555 s | 34.267 s | 4.71 tok/s | 4784.9 MiB | 2530.7 MiB | 0 MiB | 4.5/8 |
-| Qwen3-4B Q4_K_M، Vulkan auto-fit | 4.873 s | 43.113 s | 3.67 tok/s | 3374.3 MiB | 1888.2 MiB | 917 MiB | 4.5/8 |
-| Qwen3.5-4B Q4_K_M، CPU | 3.592 s | 37.740 s | 4.19 tok/s | 5014.1 MiB | 2894.8 MiB | 1 MiB | 5/8 |
-| Qwen3.5-4B Q4_K_M، Vulkan auto-fit | 3.566 s | 37.572 s | 3.82 tok/s | 4096.2 MiB | 2698.1 MiB | 898 MiB | 5/8 |
-| Gemma 3 4B فارسی Q4_K_M، CPU | 13.753 s | 38.535 s | 3.06 tok/s | 3964.6 MiB | 2068.6 MiB | 0 MiB | 3.5/8 |
-
-امتیاز کیفی یک بازبینی دستی و مقدماتی روی همان ۸ پاسخ است، نه ارزیابی مستقل یا آزمون جامع زبان فارسی. MiniCPM پاسخ‌های بسیار ضعیف‌تری داشت. Gemma در چند مورد خطای محتوایی و راهنمایی مبهم داد. Qwen3.5 بهترین امتیاز این مقایسه را گرفت، اما همچنان نقص دارد و دو پاسخ به سقف توکن رسیدند. بنابراین Qwen3.5 انتخاب عملی فعلی است، نه ادعای برتری قطعی.
-
-در این دستگاه اجرای Vulkan کار می‌کند، اما در آزمون‌های ثبت‌شده سرعتی بهتر از CPU نداد. برای Qwen3.5 سرعت دو حالت نزدیک بود و Vulkan حدود 0.9 GiB از working set فرایند کاست؛ CPU حالت پیش‌فرض ساده‌تر برای PC-1 است و Vulkan گزینهٔ جایگزین برای کاهش فشار RAM باقی می‌ماند.
-
-گزارش‌ها:
-
-- `pc1-cpu-20261107.json` — MiniCPM5 و Qwen3 در حالت CPU
-- `pc1-qwen3-gpu-20261107.json` — Qwen3 با Vulkan auto-fit
-- `pc1-qwen35-cpu-20261107.json` و `pc1-qwen35-gpu-20261107.json` — Qwen3.5 با CPU و Vulkan
-- `pc1-gemma-persian-cpu-20261107.json` — Gemma فارسی با CPU
-- `pc1-quality-review-20261107.json` — امتیازدهی دستی مقدماتی
-
-## ۴. سرویس/API و تأیید پایان‌به‌پایان
-
-API محلی فعلی:
-
-| متد | مسیر | کاربرد |
+| بخش | وضعیت | مرجع |
 |---|---|---|
-| `GET` | `/` | معرفی سرویس و نسخه |
-| `GET` | `/health` | وضعیت سرویس، مدل و اتصال llama-server |
-| `GET` | `/v1/models` | نمایش مدل پیکربندی‌شده |
-| `POST` | `/v1/chat/completions` | چت سازگار با OpenAI، JSON یا SSE |
-| `POST` | `/api/chat` | پاسخ یک‌پیامی برای کلاینت سبک |
+| هستهٔ متنی: FastAPI + llama.cpp + CLI فارسی | پیاده‌شده + تست (fake مدل) | `server/main.py`, `server/llm.py` |
+| API سازگار OpenAI، JSON و SSE، لغو استریم | پیاده‌شده + تست | `tests/test_api.py` |
+| ورودی میکروفون پیوستهٔ ۲۰ms، انتخاب دستگاه، recovery | پیاده‌شده + تست fake؛ دستگاه واقعی **تست نشده** | `server/audio_io.py` |
+| VAD انرژی با هیسترزیس، پیش‌رول، کف نویز تطبیقی | پیاده‌شده + تست؛ صدای واقعی **تست نشده** | `server/vad.py` |
+| ASR افزایشی: صف final بدون‌افت + partial قابل‌جایگزینی | پیاده‌شده + تست کامل P0 | `server/streaming_voice.py` |
+| جدا شدن طول عمر utterance و generation دستیار | پیاده‌شده + تست (۶ سناریوی الزامی) | `tests/test_utterance_lifecycle.py` |
+| ماشین حالت صریح `idle/listening/transcribing/thinking/speaking` | پیاده‌شده + تست جدول گذار | `tests/test_state_machine.py` |
+| barge-in: توقف LLM/TTS/پخش، بدون آسیب به صف final | پیاده‌شده + تست fake؛ تأخیر دستگاه **تست نشده** | `tests/test_tts.py`, `tests/test_long_run.py` |
+| TTS Piper: انتخاب مرد/زن، جمله‌بندی، لغو، نرمال‌سازی نرخ | پیاده‌شده + تست؛ وزن فارسی **تست نشده** | `server/live_voice.py` |
+| AEC SpeexDSP duplex پیش از VAD/ASR | پیاده‌شده + تست مصنوعی؛ اتاق واقعی **تست نشده** | `server/aec.py`, `docs/AEC.md` |
+| تاریخچه: نشست، وضعیت interrupted، برش توکنی، JSONL محلی | پیاده‌شده + تست | `server/conversation.py`, `server/sessions.py` |
+| readiness و health (`/ready`, `/health`) | پیاده‌شده + تست | `server/readiness.py`, `tests/test_api.py` |
+| سنجه‌های کامل خط لوله (شامل jitter callback، صف، CPU/RAM در اجرای زنده) | پیاده‌شده + تست | `server/metrics.py`, `server/audio_io.py` |
+| بنچمارک کل زنجیرهٔ صوت | ابزار آماده (`tools/benchmark_voice.py`)؛ اعداد واقعی هدف **NOT MEASURED** | `docs/BENCHMARKS.md` |
+| ارزیابی فارسی WER/CER | مجموعهٔ ۴۰ جمله + ابزار؛ اعداد واقعی **NOT MEASURED** | `benchmarks/persian_eval.py` |
+| پروتکل و **transport سمت سرور** WebSocket صوتی (`WS /ws/voice`) | پیاده‌شده + تست (fake)؛ احراز هویت اجباری با توکن دستگاه | `server/protocol.py`, `server/ws_voice.py`, `tests/test_ws_voice.py` |
+| firmware ESP32-S3، رجیستری per-device، OTA، تست LAN واقعی | **پیاده‌نشده / NOT MEASURED** | — |
+| Command Broker / IoT | **پیاده‌نشده** | — |
 
-با سرورهای موقت روی پورت‌های جدا از سرویس‌های از قبل فعال، `tools/verify_lesson01.py --base-url http://127.0.0.1:18000` با Qwen3.5 اجرا شد: health/backend/model PASS، پاسخ فارسی و timing PASS، و streaming/TTFT PASS. فرایندهای موقت بسته شدند؛ سرویس‌های قبلی روی پورت‌های 8000 و 8080 دست‌نخورده باقی ماندند. این آزمون محلی هستهٔ متنی را تأیید می‌کند، اما کیفیت مدل را به‌تنهایی تضمین نمی‌کند.
+## ۲. وضعیت تست
 
-خطاهای دامنه‌ای API به پاسخ‌های 503/502 نگاشت می‌شوند. `reasoning_content` و بخش‌های `<think>` از متن قابل نمایش حذف می‌شوند.
-
-## ۵. تست‌ها و بازتولید
-
-اجرای ثبت‌شده در این ممیزی: `.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider` — **۲۲ تست سبز**. تست‌ها از fake/mock استفاده می‌کنند و به مدل GGUF یا اینترنت نیاز ندارند. بررسی `py_compile` برای فایل‌های Python تغییرکرده نیز موفق بود.
-
-برای اجرای هستهٔ متنی طبق فایل‌های همین مخزن:
-
-```powershell
-# llama-server را جداگانه با مدل models\qwen3.5-4b\Qwen3.5-4B-Q4_K_M.gguf اجرا کنید.
-# تنظیمات CPU پیش‌فرض در مستند راه‌اندازی و .env.example ثبت شده است.
-.\.venv\Scripts\python.exe -m pytest
-.\tools\verify_lesson01.py
+```text
+$ python -m pytest
+254 passed, 2 skipped in 8.3s
 ```
 
-گزارش `lesson01-20261107-142850.json` سنجش قدیمی MiniCPM است و اعداد آن مبنای انتخاب فعلی نیستند.
+- دو تست skip فقط تست‌های native SpeexDSP هستند: در sandbox کتابخانهٔ native ساخته نشده و تست
+  به‌جای شکست، صریحاً skip می‌شود. اگر `libspeexdsp` نصب باشد اجرا می‌شوند (در اجرای قبلی همین
+  محیط: ۵۴ تست موفق با کتابخانهٔ ساخته‌شده).
+- تست پایه پیش از این مرحله: `53 passed, 2 skipped`. یعنی ۱۹۹ تست جدید یا گسترش‌یافته؛
+  آخرین افزوده: ۱۴ تست transport وب‌سوکت + ۱ تست قطع کلاینت SSE + ۲ تست پیکربندی/readiness.
+- **همهٔ تست‌ها fake/ساختگی‌اند**: بدون مدل Whisper/Piper/Qwen، بدون میکروفون و بلندگو، بدون شبکهٔ
+  واقعی. این تست‌ها «صحت منطق و کنترل جریان» را ثابت می‌کنند، نه کیفیت صوتی.
 
-## ۶. وضعیت ASR/TTS
+نگاشت تست‌ها به ۲۰ الزام گزارش بازبینی:
 
-اسکریپت smoke test محلی `tools/pc_audio_smoke.py` برای Piper و faster-whisper آماده شده است. محیط مجزای `.venv-audio` ایجاد شد تا وابستگی صوتی وارد محیط سرویس نشود، اما نصب `faster-whisper` و `piper-tts` به خطای DNS برای `files.pythonhosted.org` برخورد کرد. هر دو بسته نصب‌نشده‌اند؛ تولید/بازشناسی صوت و بارگیری مدل‌های صوتی هنوز اجرا یا تأیید نشده است. ادامهٔ این مرحله به دسترسی DNS سالم یا wheelhouse آفلاینِ مورد تأیید نیاز دارد.
+| # | الزام | تست |
+|---|---|---|
+| ۱ | final ASR با شروع گفتار جدید زنده می‌ماند | `test_utterance_lifecycle.py::test_final_asr_in_flight_survives_new_speech_onset` |
+| ۲ | چند utterance پشت‌سرهم حفظ می‌شوند | `…::test_multiple_consecutive_utterances_are_all_preserved` |
+| ۳ | جایگزینی partial، final را از بین نمی‌برد | `…::test_partial_replacement_never_loses_the_final` |
+| ۴ | گفتار بلند (>15s) همهٔ بخش‌ها را حفظ می‌کند | `…::test_long_speech_beyond_segment_limit_keeps_every_segment` + `test_vad.py::test_long_speech_is_segmented_without_losing_audio` |
+| ۵ | barge-in تولید LLM را لغو می‌کند | `test_streaming_voice.py::test_async_sse_stream_cancelled_without_waiting_for_next_token` |
+| ۶ | barge-in پخش TTS را متوقف می‌کند | `test_tts.py::test_playback_stops_within_one_block_and_aborts_the_stream` |
+| ۶ب | اکوی پخش، VAD را مکرر فعال نمی‌کند | `test_bargein.py::test_moderate_playback_echo_does_not_retrigger_vad_but_real_speech_does` |
+| ۷ | هیچ صدای کهنه‌ای بعد از قطع پخش نمی‌شود | `test_bargein.py::test_sentences_queued_behind_the_spoken_one_never_play_after_barge_in` + `test_streaming_voice.py::test_incremental_playback_before_remaining_tokens` |
+| ۸ | پیام کاربر تکراری ثبت نمی‌شود | `test_utterance_lifecycle.py::test_duplicate_final_result_is_not_committed_twice` |
+| ۹ | پاسخ دستیار تکراری ثبت نمی‌شود | `test_conversation.py::test_assistant_turn_is_committed_once` |
+| ۱۰ | وضعیت صریح interrupted/failed | `test_conversation.py::test_interrupted_reply_has_explicit_status_and_is_excluded_by_default` |
+| ۱۱ | نبود AEC = رفتار ایمن و پیام صریح | `test_aec.py::test_missing_library_is_explicit_not_silent_bypass` |
+| ۱۲ | حالت AEC خاموش | `test_aec.py::test_aec_config` |
+| ۱۳ | قطع دستگاه | `test_audio_io.py::test_pump_detects_a_stalled_device` |
+| ۱۴ | وصل دوباره/بازگشایی دستگاه | `test_audio_io.py::test_stream_forever_reopens_after_portaudio_failure_then_gives_up` |
+| ۱۵ | قطع llama-server و بازیابی نوبت بعد | `test_api.py::test_backend_unavailable_returns_503`, `test_stream_backend_failure_is_sse_error`, `test_streaming_voice.py::test_llm_failure_releases_the_state_and_the_next_turn_recovers` |
+| ۱۶ | خطای init مدل به‌صورت پیام | `test_voice.py::test_module_startup_missing_model_has_no_traceback`, `test_tts.py::test_missing_piper_model_is_a_user_facing_error` |
+| ۱۷ | ماندگاری context پس از restart | `test_conversation.py::test_session_is_persisted_and_reloaded`, `test_api.py::test_chat_with_session_id_persists_and_reuses_context` |
+| ۱۸ | برش توکنی | `test_conversation.py::test_context_is_truncated_by_tokens_not_only_message_count` |
+| ۱۹ | کار آفلاین بدون API خارجی | `test_voice.py::test_whisper_never_downloads`, `test_public_api_rejected` |
+| ۲۰ | نبود صف/حافظهٔ نامحدود | `test_long_run.py` (۲ تست) + `test_conversation.py` (۲ تست bounded-RAM) |
 
-## ۷. چه چیزهایی هنوز پیاده نشده‌اند
+## ۳. اعداد اندازه‌گیری‌شده در sandbox
 
-- RAG محلی و پایگاه دانش؛ این قابلیت هنوز در کد وجود ندارد و به‌خودی‌خود وزن‌های LLM را آموزش یا تغییر نمی‌دهد.
-- ASR، TTS، VAD، AEC و Barge-in روی PC.
-- Firmware ESP32-S3، Wi-Fi/WebSocket و انتقال PCM؛ در این مرحله وارد سخت‌افزار نشدیم.
-- Command Broker، کنترل GPIO/رله، احراز هویت دستگاه و OTA.
+| معیار | مقدار | معنا |
+|---|---|---|
+| طول عمر خط لوله در حالت سکوت (jitter p95) | ۰٫۳۹ ms | فقط pacing هماهنگ‌کننده؛ **jitter واقعی callback دستگاه نیست** |
+| RAM پروسه در حالت idle | ۲۹٫۵ MB | بدون مدل لود شده |
+| CPU حالت idle | ~۰٪ | بدون مدل لود شده |
+| VAD false positive روی سکوت | ۰ | باورپذیر برای آستانهٔ انرژی |
+| سنجه‌های زنده: jitter/صف/CPU/RAM | ثبت می‌شوند | `audio_io.pump` هر ۱ ثانیه (`test_pump_publishes_system_and_queue_metrics`) |
 
-## ۸. گام بعدی
+هیچ عدد ASR/LLM/TTS روی این sandbox تولید نشد: مدل‌ها نصب نیستند و llama-server اجرا نبود.
+جدول کامل با برچسب `MEASURED`/`SIMULATED`/`NOT MEASURED` در [BENCHMARKS.md](BENCHMARKS.md).
 
-1. پس از رفع DNS یا فراهم‌شدن wheelhouse، نصب Piper و faster-whisper در `.venv-audio` و اجرای smoke test کاملاً محلی.
-2. آغاز PC-1 با Qwen3.5-4B Q4_K_M در حالت CPU و قرارداد API فعلی؛ کیفیت آن با معیارهای پاسخ‌گویی واقعی پروژه بیشتر ارزیابی شود.
-3. پس از تثبیت هستهٔ متنی و صوت PC، پیاده‌سازی RAG محلی به‌عنوان بازیابی دانش، بدون ادعای تغییر وزن مدل.
-4. مراحل ESP32 و WebSocket پس از پایدارشدن اجزای PC دنبال شوند.
+## ۴. کارهایی که فقط روی سخت‌افزار هدف معنا دارند (NOT TESTED)
+
+- کیفیت و سرعت Whisper فارسی با وزن واقعی روی i7-6500U؛ RTF و تأخیر final.
+- کیفیت تلفظ Piper فارسی (اعداد، واژهٔ انگلیسی داخل جمله، نیم‌فاصله) با گوش انسان.
+- حذف اکوی اتاق واقعی و کالیبراسیون `PVAI_AEC_DELAY_MS`؛ رفتار double-talk در بلندگو.
+- jitter واقعی callback و dropout در همزمانی ASR+LLM+TTS.
+- انتخاب صدای مرد/زن با فایل‌های واقعی `.onnx` و مجوز آن‌ها.
+- قطع/وصل فیزیکی میکروفون و بلندگو در Windows 11.
+
+چک‌لیست اجرای این موارد: [HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md).
+
+## ۵. گزارش کامل بازبینی
+
+خروجی A تا F (دفترچهٔ ایراد، فایل‌ها، تست، کارایی، موارد باز، چک‌لیست پذیرش) در
+[AUDIT_REPORT.md](AUDIT_REPORT.md) است.
+
+## ۶. اولویت بعدی
+
+1. تهیهٔ وزن‌ها و اجرای `tools/benchmark_voice.py` روی هدف؛ ثبت اعداد در BENCHMARKS.
+2. اجرای چک‌لیست سخت‌افزاری، مخصوصاً barge-in و بدون هدفون.
+3. کلکسیون صدای ارزیابی (۴۰ جمله) و اجرای `benchmarks/persian_eval.py --audio-dir` برای WER واقعی.
+4. WebSocket صوتی روی `server/protocol.py` برای ESP32-S3 (پس از پاس‌شدن تست‌های PC).
