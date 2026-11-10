@@ -795,7 +795,7 @@ $ python -m pytest
 | VAD false positive روی سکوت | ۰ | باورپذیر برای آستانهٔ انرژی |
 | سنجه‌های زنده: jitter/صف/CPU/RAM | ثبت می‌شوند | `audio_io.pump` هر ۱ ثانیه (`test_pump_publishes_system_and_queue_metrics`) |
 
-هیچ عدد ASR/LLM/TTS روی این sandbox تولید نشد: مدل‌ها نصب نیستند و llama-server اجرا نبود.
+اعداد LLM روی همین لپ‌تاپ (i7-6500U + 940MX) اندازه‌گیری شد (MEASURED: Qwen3-4B TTFT 4.69s/4.64 tok/s روی CPU؛ جدول کامل در BENCHMARKS.md). هنوز هیچ عدد ASR/TTS روی سخت‌افزار تولید نشده است.
 جدول کامل با برچسب `MEASURED`/`SIMULATED`/`NOT MEASURED` در [BENCHMARKS.md](BENCHMARKS.md).
 
 ## ۴. کارهایی که فقط روی سخت‌افزار هدف معنا دارند (NOT TESTED)
@@ -2560,8 +2560,8 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 |---|---|
 | `asr_ms` / `asr_rtf` (whisper-small int8, 6s window) | NOT MEASURED |
 | `asr_final_latency_ms` (utterance 3s) | NOT MEASURED |
-| `llm_ttft_ms` (Qwen3-4B-Q4_K_M) | NOT MEASURED |
-| `llm_tokens_per_second` | NOT MEASURED |
+| `llm_ttft_ms` (Qwen3-4B-Q4_K_M) | 4.69 s CPU / 5.76 s GPU-auto (MEASURED) |
+| `llm_tokens_per_second` (Qwen3-4B-Q4_K_M) | 4.64 CPU / 3.90 GPU-auto tok/s (MEASURED) |
 | `tts_first_chunk_ms` (Piper fa) | NOT MEASURED |
 | `first_audible_ms` | NOT MEASURED |
 | `barge_in_latency_ms` (real device) | NOT MEASURED |
@@ -2575,6 +2575,36 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 `benchmarks/bench_chat.py` و `tools/benchmark.ps1` فقط مسیر متنی را می‌سنجند. نتیجهٔ تاریخی
 درس ۱ روی MiniCPM5-1B-Q8_0 (i7-6500U): TTFT ≈ ۱٫۴۵s، کل ≈ ۱۱٫۴۵s، ≈ ۱۹٫۹ tok/s.
 این اعداد **به Qwen3-4B و به مسیر صوتی تعمیم داده نمی‌شوند** و Qwen با وزن واقعی هنوز سنجیده نشده است.
+
+## ۵.۵. مقایسهٔ واقعی مدل‌های فارسی GGUF روی همین لپ‌تاپ (MEASURED)
+
+ابزار `benchmarks/compare_models.py` روی i7-6500U با 16GB RAM، GPU 940MX (2GB VRAM)،
+همان ۸ پرامپت فارسی، `temperature=0`، `max_tokens=160`، `ctx=4096`, `threads=4`.
+دو حالت: CPU خالص (`-ngl 0`) و GPU auto-fit روی Vulkan (`--device Vulkan0 --fit on`).
+گزارش‌های خام: `benchmarks/results/pc1-model-compare-20261110.json` (CPU) و
+`benchmarks/results/pc1-model-compare-gpu-20261110.json` (GPU).
+
+| مدل | حالت | TTFT میانگین | tok/s میانگین | RAM اوج | VRAM دلتا |
+|---|---|---|---|---|---|
+| MiniCPM5-1B-Q8_0 | CPU | ۲٫۰۵s | ۱۴٫۰۶ | 1119 MiB | 0 |
+| MiniCPM5-1B-Q8_0 | GPU | ۱٫۶۰s | ۱۲٫۴۱ | 1302 MiB | 880 MiB |
+| Qwen3-4B-Q4_K_M | CPU | ۴٫۶۹s | ۴٫۶۴ | 4806 MiB | 0 |
+| Qwen3-4B-Q4_K_M | GPU | ۵٫۷۶s | ۳٫۹۰ | 3319 MiB | 860 MiB |
+| Qwen3.5-4B-Q4_K_M | CPU | ۳٫۸۴s | ۳٫۸۴ | 4380 MiB | 0 |
+| Qwen3.5-4B-Q4_K_M | GPU | ۴٫۶۳s | ۳٫۸۷ | 3577 MiB | 820 MiB |
+| gemma-3-4b-persian-v0.Q4_K_M | CPU | ۱۴٫۲۲s | ۵٫۳۶ | 4264 MiB | 0 |
+| gemma-3-4b-persian-v0.Q4_K_M | GPU | ۱۷٫۱۲s | ۵٫۱۰ | 3349 MiB | 890 MiB |
+
+**نتیجهٔ کلیدی:** روی 940MX با ۲GB VRAM، بارگذاری لایه‌ها روی GPU برای مدل‌های ۴B
+**سرعت تولید را بهتر نمی‌کند** (بررسی محلی: CPU ≥ GPU). دلیل: فقط بخشی از وزن در VRAM جا می‌شود
+(Vulkan در لاگ `Flash Attention ... not supported` و تخصیص جزئی لایه‌ها گزارش می‌کند)، جابه‌جایی
+مداوم CPU↔GPU سرباری می‌سازد که از سود GPU بیشتر است. پس `PVAI_N_GPU_LAYERS=0` است و
+اجرای CPU گزینهٔ درست این لپ‌تاپ است. GPU مزیتش را فقط در صرفه‌جویی RAM نشان می‌دهد.
+
+از نظر کیفیت (بازبینی دستی همان ۸ خروجی): Qwen3.5-4B و gemma-3-4b-persian فارسی روان و
+مرتبط تولید کردند؛ MiniCPM5-1B خروجی نامفهوم و پراکنده داد. انتخاب مدل نهایی هستهٔ متنی:
+**Qwen3.5-4B-Q4_K_M**. اعتبارسنجی آماری این مقایسه انجام نشده و مقایسهٔ کیفیت تک‌بازبین است.
+
 
 ## ۶. ارزیابی فارسی (WER/CER)
 

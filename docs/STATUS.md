@@ -112,7 +112,7 @@ $ python -m pytest
 | VAD false positive روی سکوت | ۰ | باورپذیر برای آستانهٔ انرژی |
 | سنجه‌های زنده: jitter/صف/CPU/RAM | ثبت می‌شوند | `audio_io.pump` هر ۱ ثانیه (`test_pump_publishes_system_and_queue_metrics`) |
 
-هیچ عدد ASR/LLM/TTS روی این sandbox تولید نشد: مدل‌ها نصب نیستند و llama-server اجرا نبود.
+اعداد LLM روی همین لپ‌تاپ (i7-6500U + 940MX) اندازه‌گیری شد (MEASURED: Qwen3-4B TTFT 4.69s/4.64 tok/s روی CPU؛ جدول کامل در BENCHMARKS.md). هنوز هیچ عدد ASR/TTS روی سخت‌افزار تولید نشده است.
 جدول کامل با برچسب `MEASURED`/`SIMULATED`/`NOT MEASURED` در [BENCHMARKS.md](BENCHMARKS.md).
 
 ## ۴. کارهایی که فقط روی سخت‌افزار هدف معنا دارند (NOT TESTED)
