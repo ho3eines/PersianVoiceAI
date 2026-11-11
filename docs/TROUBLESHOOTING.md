@@ -88,6 +88,9 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 | `502` `generation error` | خطای تولید | لاگ llama-server |
 | `400` «شناسهٔ نشست نامعتبر است.» | `session_id` کاراکتر غیرمجاز دارد | فقط حروف **انگلیسی**/رقم/`-`/`_`، حداکثر ۶۴ کاراکتر، و نه نام دستگاه رزروشدهٔ ویندوز (`CON`, `NUL`, `COM1`…) |
 | `404` «نشست پیدا نشد.» | نشست ذخیره نشده | `PVAI_HISTORY_PERSIST=true` و `/api/sessions` |
+| WS `session_in_use` **بلافاصله بعد از قطع** | اتصال قبلی هنوز زنده است (سرور قطع را پردازش نکرده) یا نسخهٔ قدیمی قفل را در پایان teardown آزاد می‌کرد | در نسخهٔ فعلی، قفل و claim پیش از teardown مدل آزاد می‌شوند (`tests/test_session_lease_release.py`). اگر باز هم تکرار شد: دستگاه تا دریافت close frame صبر کند و با backoff کوتاه دوباره `hello` بفرستد؛ دو اتصال زنده به یک `session_id` عمداً رد می‌شود |
+| `checks.thinking_template.effective: false` در `/ready` | قالب چت llama-server به `enable_thinking` اشاره نمی‌کند، پس `chat_template_kwargs.enable_thinking` اثری ندارد | llama-server را با `--jinja` اجرا کنید (`tools/start_llama.sh` خودش اضافه می‌کند) و قالب مدل را بررسی کنید؛ اگر خروجی `reasoning_content`/`<think>` دیده شد، `checks.thinking` هم قرمز می‌شود |
+| `checks.thinking_template.effective: null` | llama-server نسخهٔ قدیمی است یا `/props` نمی‌دهد | «NOT MEASURED» یعنی سنجیده نشده، نه سالم؛ نسخهٔ llama-server را به‌روز کنید |
 
 ## ۶.۱. تنظیمات `.env` بی‌اثر به نظر می‌رسد
 

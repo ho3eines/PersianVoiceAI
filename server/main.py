@@ -275,9 +275,13 @@ def create_app(
     if resolved.ws_enabled:
         # Opt-in LAN voice transport; each connection gets its own Pipeline and
         # Conversation.  Refused unless PVAI_WS_TOKEN is configured.
-        app.include_router(
-            build_ws_router(resolved, bundle_factory=voice_bundle or default_voice_bundle)
+        ws_router = build_ws_router(
+            resolved, bundle_factory=voice_bundle or default_voice_bundle
         )
+        app.include_router(ws_router)
+        # Reachable from tests and from a supervisor that wants to know which
+        # session each live device connection owns, without scraping the log.
+        app.state.ws_counters = ws_router.counters
 
     @app.get("/", tags=["meta"])
     async def root() -> dict[str, Any]:

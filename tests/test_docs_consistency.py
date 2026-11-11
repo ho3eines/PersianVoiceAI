@@ -16,6 +16,9 @@ from __future__ import annotations
 
 import re
 import ast
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -131,6 +134,79 @@ def test_the_repository_map_lists_every_server_module() -> None:
 
 
 # --------------------------------------------------------------- claims/numbers
+#: The one line in ``docs/STATUS.md`` that carries the suite total.  It exists
+#: because a hard-coded number rots: the count is read from pytest itself, so a
+#: stale total is a failing test instead of a wrong claim.
+_TOTAL_MARK = re.compile(
+    r"تعداد تست‌های مجموعه \(pytest --collect-only\): \*\*(\d+)\*\*"
+)
+
+
+def _live_collected_tests() -> int | None:
+    """Total tests pytest collects right now; ``None`` if collection fails.
+
+    Collection only — nothing is executed — so this stays cheap and skips do not
+    change the number.  ``addopts`` is cleared so a caller's ``-k``/``-q``
+    options cannot alter what is counted.
+    """
+    completed = subprocess.run(
+        [
+            sys.executable, "-m", "pytest", "--collect-only", "-q",
+            "-p", "no:cacheprovider", "-o", "addopts=",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=900,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    if completed.returncode != 0:
+        return None
+    match = re.search(r"^(\d+) tests? collected", completed.stdout, re.M)
+    return int(match.group(1)) if match else None
+
+
+def test_the_documented_suite_total_is_the_live_collected_count() -> None:
+    """The number in STATUS.md is compared with ``pytest --collect-only``.
+
+    Once collection is clean, the assertion is exact: add a test and this fails
+    until the documented number is updated.  When the suite cannot even be
+    collected (an optional dependency is missing in this environment) the total
+    is NOT MEASURED and the check says so instead of guessing.
+    """
+    live = _live_collected_tests()
+    if live is None:
+        pytest.skip(
+            "the suite does not collect cleanly here; the suite total is NOT MEASURED"
+        )
+    text = (ROOT / "docs" / "STATUS.md").read_text(encoding="utf-8")
+    match = _TOTAL_MARK.search(text)
+    assert match, (
+        "docs/STATUS.md must carry the suite total on the marked line "
+        "(see _TOTAL_MARK in tests/test_docs_consistency.py)"
+    )
+    assert int(match.group(1)) == live, (
+        f"docs/STATUS.md claims {match.group(1)} tests, "
+        f"pytest --collect-only collected {live}"
+    )
+
+
+def test_no_second_document_contradicts_the_collected_total() -> None:
+    """One authoritative number; other files must not claim a different one."""
+    live = _live_collected_tests()
+    if live is None:
+        pytest.skip("the suite does not collect cleanly here")
+    pattern = re.compile(r"(?:مجموع|کل)\s*(?:تست‌ها|تست‌های مجموعه)?\D{0,12}(\d{2,5})\s*تست")
+    for name in ("README.md", "AGENTS.md", "docs/ISSUE_REGISTER.md", "docs/STATUS.md"):
+        text = (ROOT / name).read_text(encoding="utf-8").translate(
+            str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
+        )
+        for match in pattern.finditer(text):
+            assert int(match.group(1)) == live, (
+                f"{name} states a suite total of {match.group(1)}, collected {live}"
+            )
+
+
 def test_no_current_document_pins_a_fixed_pass_count() -> None:
     """Run pytest to learn the live total; stale hard-coded totals are forbidden."""
     for name in ("README.md", "AGENTS.md", "docs/STATUS.md", "docs/ISSUE_REGISTER.md"):

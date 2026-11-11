@@ -182,8 +182,10 @@ device            server(PC)                llama-server      piper
 - توکن در `.env` نگه داشته می‌شود؛ در مخزن commit نشود (`.gitignore`).
 - **TLS لازم است اگر شبکه مورد اعتماد نیست.** توکن روی WS و REST به‌صورت plaintext روی LAN
   می‌رود؛ در شبکهٔ مشترک (WiFi عمومی، خوابگاه، مهمان) هر کسی می‌تواند آن را بخواند.
-  جلوی سرور یک reverse proxy با `wss://`/`https://` بگذارید (Caddy یا nginx) و دستگاه را به
-  آن وصل کنید. سرور خودش TLS terminate نمی‌کند.
+  دو راه مستند در `docs/WSS_TLS.md`: TLS مستقیم روی uvicorn با `PVAI_SSL_CERTFILE` +
+  `PVAI_SSL_KEYFILE`، یا reverse proxy با `wss://`/`https://` (Caddy یا nginx) جلوی سرور.
+  هر دو مسیر تست خودکار دارند؛ اجرای واقعی Caddy/nginx و firmware روی دستگاه
+  **NOT MEASURED** است.
 - این وضعیت **هشدار** است نه خطا: در لاگ startup و در `/ready` (کلید
   `checks.configuration.warnings`) دیده می‌شود. `config_errors` عمداً چیزی نمی‌گوید، چون آن
   یکی سخت‌گیر است (`run_live` را متوقف می‌کند و `/ready` را ناآماده می‌کند) و نباید راه‌اندازی
@@ -201,19 +203,14 @@ device            server(PC)                llama-server      piper
 
 ### HTTPS / WSS در LAN
 
-با `PVAI_SSL_CERTFILE` و `PVAI_SSL_KEYFILE` روی uvicorn، دستگاه به
-`wss://host:port/ws/voice` وصل می‌شود. اگر گواهی را در reverse proxy پایان
-می‌دهید، API را فقط روی `127.0.0.1:8000` نگه دارید و توکن REST و دستگاه را
-حفظ کنید. نمونهٔ Caddy (دامنه و گواهی معتبر خودتان):
+راهنمای کامل (TLS مستقیم، Caddy، nginx، سمت دستگاه و عیب‌یابی) در
+[`docs/WSS_TLS.md`](WSS_TLS.md) است. خلاصه:
 
-```caddy
-voice.example.internal {
-    reverse_proxy 127.0.0.1:8000
-}
-```
-
-برای nginx نیز `proxy_pass http://127.0.0.1:8000`،
-`proxy_set_header Upgrade $http_upgrade` و `proxy_set_header Connection "upgrade"`
-در location `/ws/voice` ضروری است. اتصال دستگاه `wss://` باشد؛ در شبکهٔ
-غیرمطمئن `ws://` توکن hello و صوت را آشکار می‌کند. گواهی خودامضا نیاز به
-نصب CA روی firmware دارد؛ بدون آن اعتبارسنجی TLS را خاموش نکنید.
+- **TLS مستقیم:** `PVAI_SSL_CERTFILE` + `PVAI_SSL_KEYFILE` روی uvicorn؛ دستگاه به
+  `wss://host:port/ws/voice` وصل می‌شود.
+- **reverse proxy:** API را فقط روی `127.0.0.1:8000` نگه دارید و در location
+  `/ws/voice` هدرهای `Upgrade`/`Connection` را بفرستید (`proxy_pass
+  http://127.0.0.1:8000`).
+- اتصال دستگاه `wss://` باشد؛ در شبکهٔ غیرمطمئن `ws://` توکن hello و صوت را آشکار می‌کند.
+- گواهی خودامضا نیاز به نصب CA روی firmware دارد؛ بدون آن اعتبارسنجی TLS را خاموش نکنید.
+- رفتار واقعی Caddy/nginx زیر بار و handshake دستگاه: **NOT MEASURED**.

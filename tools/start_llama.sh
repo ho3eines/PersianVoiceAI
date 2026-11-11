@@ -57,6 +57,20 @@ print("WARNINGS=(" + " ".join(
 PY
 )"
 
+# ``--jinja`` is not optional: ``chat_template_kwargs.enable_thinking`` (and
+# therefore keeping Qwen's reasoning out of the TTS path) is ignored by
+# llama-server unless the model's own template is used.  ``server.config``
+# already emits the flag; this guard means a stale checkout or a hand-edited
+# PYTHONPATH cannot silently drop it.
+HAS_JINJA=0
+for part in "${COMMAND[@]}"; do
+    [[ "$part" == "--jinja" ]] && HAS_JINJA=1
+done
+if [[ $HAS_JINJA -eq 0 ]]; then
+    echo "warning: generated plan omitted --jinja; adding it (chat_template_kwargs needs it)." >&2
+    COMMAND+=(--jinja)
+fi
+
 if [[ "${COMMAND[0]}" == "llama-server" && "$EXE" == "llama-server" ]]; then
     # Resolve a bare name through PATH so a missing binary fails here with a
     # readable message instead of bash's "command not found".

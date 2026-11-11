@@ -312,6 +312,12 @@ class LlamaServerClient:
                 "model_available": available,
                 "models": models,
                 "llama_server": data,
+                # ``/props`` reports the chat template the server is actually
+                # using.  Readiness needs it to tell whether
+                # ``chat_template_kwargs.enable_thinking`` can have any effect;
+                # a server that does not expose it yields ``{}`` and readiness
+                # reports NOT MEASURED instead of guessing.
+                "props": await self.props(),
             }
         except Exception as exc:  # health endpoint must never crash
             return {
@@ -320,6 +326,16 @@ class LlamaServerClient:
                 "models": [],
                 "error": f"{type(exc).__name__}: {exc}",
             }
+
+    async def props(self) -> dict[str, Any]:
+        """The server's ``/props`` document, or ``{}`` when unavailable."""
+        try:
+            response = await self._client.get("/props", timeout=3.0)
+            response.raise_for_status()
+            data = response.json()
+            return data if isinstance(data, dict) else {}
+        except Exception:  # diagnostics only: never break health or readiness
+            return {}
 
     async def probe_no_thinking(self) -> dict[str, Any]:
         """Smoke-test the actual template, not merely the requested option.

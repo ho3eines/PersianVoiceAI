@@ -15,16 +15,17 @@
 - [بخش 5: docs/STREAMING_ARCHITECTURE.md](#section-5)
 - [بخش 6: docs/AEC.md](#section-6)
 - [بخش 7: docs/PROTOCOL.md](#section-7)
-- [بخش 8: docs/DATASETS.md](#section-8)
-- [بخش 9: docs/PLATFORMS.md](#section-9)
-- [بخش 10: docs/TROUBLESHOOTING.md](#section-10)
-- [بخش 11: docs/BENCHMARKS.md](#section-11)
-- [بخش 12: docs/HARDWARE_VALIDATION.md](#section-12)
-- [بخش 13: THIRD_PARTY.md](#section-13)
-- [بخش 14: AGENTS.md](#section-14)
-- [بخش 15: docs/SPEC.md](#section-15)
-- [بخش 16: docs/ISSUE_REGISTER.md](#section-16)
-- [بخش 17: docs/AUDIT_REPORT.md](#section-17)
+- [بخش 8: docs/WSS_TLS.md](#section-8)
+- [بخش 9: docs/DATASETS.md](#section-9)
+- [بخش 10: docs/PLATFORMS.md](#section-10)
+- [بخش 11: docs/TROUBLESHOOTING.md](#section-11)
+- [بخش 12: docs/BENCHMARKS.md](#section-12)
+- [بخش 13: docs/HARDWARE_VALIDATION.md](#section-13)
+- [بخش 14: THIRD_PARTY.md](#section-14)
+- [بخش 15: AGENTS.md](#section-15)
+- [بخش 16: docs/SPEC.md](#section-16)
+- [بخش 17: docs/ISSUE_REGISTER.md](#section-17)
+- [بخش 18: docs/AUDIT_REPORT.md](#section-18)
 
 ---
 
@@ -241,7 +242,13 @@ python tools/download_parallel.py \
   --sha256 "<64-char-sha256-from-publisher>"
 ```
 
-- `--sha256` is **required** for `.gguf`, `.onnx`, and `model.bin` files (obtain the trusted digest from the model publisher's card/manifest).
+- `--sha256` is **required** for every known model artefact — `.gguf`, `.onnx`, `.bin`,
+  `.safetensors`, `.pt`, `.ckpt`, and *any* file fetched from `huggingface.co`/`hf.co`
+  (including `config.json`/`tokenizer.json` that belong to a Whisper checkpoint). Take the
+  digest from the publisher's card/manifest; there is no flag that skips the check.
+- The digest is verified on the assembled file **before** it replaces the destination, so a
+  corrupt pull never overwrites a copy that already works.
+- Remote sources must be `https`; plain `http` is accepted only for `localhost`/`127.0.0.1`/`::1`.
 - Interrupted downloads resume cleanly across retries without redownloading completed chunks.
 
 ---
@@ -734,6 +741,11 @@ $ python -m pytest
 نتیجهٔ جاری را با اجرای python -m pytest ببینید (تعداد ثابت نیست)
 ```
 
+- تعداد تست‌های مجموعه (pytest --collect-only): **1120** تست — این تنها عدد
+  مجاز است و `tests/test_docs_consistency.py` آن را با خروجی واقعی
+  `pytest --collect-only` مقایسه می‌کند؛ عدد کهنه ⇒ تست قرمز. بقیهٔ اعداد این
+  سند **تاریخی** و مربوط به همان مرحله‌اند.
+
 - ۳۸ تست امنیتی در `tests/test_ws_security.py` و ۱۸۹ تست آماده‌سازی متن TTS در
   `tests/test_tts_text_preparation.py`: هر تست یک نقص گزارش‌شده را می‌پوشاند و
   روی کد پیش از رفع شکست می‌خورد (برای بارگذاری مدل، pacing، صف حیاتی و نرخ فریم دستی بررسی شد).
@@ -1001,6 +1013,28 @@ $ python -m pytest
 HTTP 503 مدل بارنشده و ادعای اجرای تست Windows/macOS اصلاح شدند.
 جدول مجوز با librosa هم‌گام شد؛ هیچ تأیید سخت‌افزاری تازه‌ای ادعا نشده است.
 
+## مرحلهٔ ۷ — قفل نشست، jinja، فیلتر توهم، نام‌های رزرو‌شده، دانلود و wss (۱۱ نوامبر ۲۰۲۶)
+
+هر مورد با تستِ اول‌نوشته‌شده (قرمز) و سپس رفع بسته شد؛ هیچ عدد کیفیتی ادعا نشده است.
+
+| مورد | ادعا | تست |
+|---|---|---|
+| ۱ | آزادسازی **فوری** قفل نشست (OS lease + registry) پیش از teardown کند، و آزادسازی در حالت خطا/لغو/تأخیر | `tests/test_session_lease_release.py` (۱۰ تست) + `tests/test_ws_voice.py::test_device_resumes_a_session_with_its_earlier_context` |
+| ۲ | `--jinja` در launcherها و هشدار `/ready` وقتی `chat_template_kwargs.enable_thinking` بی‌اثر است | `tests/test_llama_jinja.py` (۱۰ تست) |
+| ۳ | فیلتر توهم فقط با ترکیب `no_speech_prob`+`avg_logprob` یا `compression_ratio` | `tests/test_asr_hallucination_filter.py` (۱۰ تست) |
+| ۴ | رد نام‌های رزرو‌شدهٔ Windows با هر پسوند | `tests/test_reserved_session_names.py` |
+| ۵ | رد `http` غیرمحلی، اجباری‌بودن sha256 برای مدل‌های شناخته‌شده، تأیید پیش از rename | `tests/test_download_parallel.py` |
+| ۶ | راهنمای wss (Caddy/nginx/TLS مستقیم) و برخاستن واقعی uvicorn با TLS | `tests/test_tls_wss.py` + `docs/WSS_TLS.md` |
+| ۷ | عدد تست از `pytest --collect-only` خوانده می‌شود، نه دستی | `tests/test_docs_consistency.py` |
+
+### NOT MEASURED در این مرحله
+
+- بهینهٔ آستانه‌های فیلتر توهم روی **دادهٔ فارسی برچسب‌دار**: هیچ مجموعهٔ سکوت/نویز
+  فارسی با transcript مرجع در مخزن نیست ⇒ آستانه‌ها پیش‌فرض‌اند، نه کالیبره‌شده.
+- اجرای واقعی Caddy/nginx زیر بار و handshake `wss://` از ESP32-S3.
+- ASR/TTS/LLM واقعی برای هر تغییر این مرحله (همهٔ تست‌ها fake هستند).
+- رفتار قفل فایل روی Windows (`msvcrt.locking`) در این نشست اجرا نشد؛ فقط Linux.
+
 ---
 
 <a id="section-3"></a>
@@ -1261,9 +1295,9 @@ Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama
 | `PVAI_ASR_LANGUAGE` | `fa` | زبان Whisper. پیش‌تر در کد **سخت‌کد** بود. `auto` = انتخاب خود Whisper (برای گویندهٔ دوزبانه) |
 | `PVAI_ASR_INITIAL_PROMPT` | خالی | متن آغازین؛ املا/واژگان را جهت می‌دهد (بدون آن Whisper گاهی پاسخ فارسی را با حروف عربی می‌نویسد) |
 | `PVAI_ASR_NO_SPEECH_THRESHOLD` | `0.6` | آستانهٔ `no_speech_prob` خود Whisper |
-| `PVAI_ASR_LOG_PROB_THRESHOLD` | `-1.0` | اگر `avg_logprob` سگمنت از این کمتر باشد، دور ریخته می‌شود |
+| `PVAI_ASR_LOG_PROB_THRESHOLD` | `-1.0` | آستانهٔ `avg_logprob`؛ سگمنت فقط وقتی دور ریخته می‌شود که **همین** مقدار کمتر از آستانه باشد **و** `no_speech_prob` هم از `PVAI_ASR_MAX_NO_SPEECH_PROB` بیشتر باشد (یک سیگنال تنها کافی نیست) |
 | `PVAI_ASR_COMPRESSION_RATIO` | `2.4` | بالاتر از این = حلقهٔ تکرار، دور ریخته می‌شود |
-| `PVAI_ASR_MAX_NO_SPEECH_PROB` | `0.75` | اگر `no_speech_prob` سگمنت از این بیشتر باشد، **کل سگمنت** حذف می‌شود |
+| `PVAI_ASR_MAX_NO_SPEECH_PROB` | `0.75` | آستانهٔ `no_speech_prob`؛ سگمنت فقط با ترکیب آن با `avg_logprob` کمتر از `PVAI_ASR_LOG_PROB_THRESHOLD` حذف می‌شود؛ `no_speech_prob` بالا به‌تنهایی چیزی را رد نمی‌کند |
 | `PVAI_ASR_HALLUCINATION_PHRASES` | فهرست فارسی/انگلیسی | عبارت‌های توهمی روی سکوت/نویز، جداشده با ویرگول. خالی = فیلتر خاموش (توصیه نمی‌شود) |
 | `PVAI_ASR_PARTIAL_WINDOW_S` | `3.0` | طول پنجرهٔ هم‌پوشان برای partial؛ cost هر decode را ثابت نگه می‌دارد. باید ≥ ۲× `PVAI_VOICE_ASR_INTERVAL` باشد |
 | `PVAI_ASR_MAX_FINAL_JOBS` | `16` | آستانهٔ هشدار عمق صف final؛ **هیچ final حذف نمی‌شود** |
@@ -1275,8 +1309,16 @@ Whisper روی سکوت و نویز «هیچ» برنمی‌گرداند؛ یک 
 («زیرنویس‌ها توسط تیم ما تهیه شده است»، «ممنون از تماشای شما»). چون متن ناتهی یک نوبت
 کامل LLM را شروع می‌کند، یک توهم یعنی پاسخ مطمئن به پرسشی که کسی نپرسیده.
 
-چهار سیگنال مستقل، هر سگمنت را رد می‌کند: `no_speech_prob`، `avg_logprob`،
-`compression_ratio` و فهرست عبارت‌ها. فیلتر عمداً محافظه‌کار است: فقط عبارت‌های کوتاه
+قاعدهٔ رد کردن عمداً ترکیبی است، نه تک‌سیگنالی:
+
+- `no_speech_prob` بالا **و** `avg_logprob` پایین، هر دو با هم: یعنی هر دو امتیاز
+  هم‌داستان‌اند که صدا گفتارِ قابل‌اتکا ندارد.
+- `compression_ratio` بالاتر از `PVAI_ASR_COMPRESSION_RATIO`: حلقهٔ تکرار کلاسیک.
+- متن در فهرست عبارت‌های توهمی (`PVAI_ASR_HALLUCINATION_PHRASES`).
+
+`no_speech_prob` بالا با `avg_logprob` خوب، یا `avg_logprob` پایین با
+`no_speech_prob` کم، **رد نمی‌شود**: گفتار آرام ولی روشن فارسی همین‌طور است و
+حذف آن یعنی پاک‌کردن نوبت کاربر. هر سه آستانه از `PVAI_*` خوانده می‌شوند. فیلتر عمداً محافظه‌کار است: فقط عبارت‌های کوتاه
 (`WHOLE_TRANSCRIPT_ONLY` در `server/voice.py`) باید **کل متن** باشند، وگرنه
 «به مادرم گفتم خداحافظ و رفتم» هم دور ریخته می‌شد — بدتر از رد نکردن یک توهم.
 شمارندهٔ `asr_segments_rejected` در متریک‌ها ثبت می‌شود.
@@ -1978,8 +2020,10 @@ device            server(PC)                llama-server      piper
 - توکن در `.env` نگه داشته می‌شود؛ در مخزن commit نشود (`.gitignore`).
 - **TLS لازم است اگر شبکه مورد اعتماد نیست.** توکن روی WS و REST به‌صورت plaintext روی LAN
   می‌رود؛ در شبکهٔ مشترک (WiFi عمومی، خوابگاه، مهمان) هر کسی می‌تواند آن را بخواند.
-  جلوی سرور یک reverse proxy با `wss://`/`https://` بگذارید (Caddy یا nginx) و دستگاه را به
-  آن وصل کنید. سرور خودش TLS terminate نمی‌کند.
+  دو راه مستند در `docs/WSS_TLS.md`: TLS مستقیم روی uvicorn با `PVAI_SSL_CERTFILE` +
+  `PVAI_SSL_KEYFILE`، یا reverse proxy با `wss://`/`https://` (Caddy یا nginx) جلوی سرور.
+  هر دو مسیر تست خودکار دارند؛ اجرای واقعی Caddy/nginx و firmware روی دستگاه
+  **NOT MEASURED** است.
 - این وضعیت **هشدار** است نه خطا: در لاگ startup و در `/ready` (کلید
   `checks.configuration.warnings`) دیده می‌شود. `config_errors` عمداً چیزی نمی‌گوید، چون آن
   یکی سخت‌گیر است (`run_live` را متوقف می‌کند و `/ready` را ناآماده می‌کند) و نباید راه‌اندازی
@@ -1997,28 +2041,180 @@ device            server(PC)                llama-server      piper
 
 ### HTTPS / WSS در LAN
 
-با `PVAI_SSL_CERTFILE` و `PVAI_SSL_KEYFILE` روی uvicorn، دستگاه به
-`wss://host:port/ws/voice` وصل می‌شود. اگر گواهی را در reverse proxy پایان
-می‌دهید، API را فقط روی `127.0.0.1:8000` نگه دارید و توکن REST و دستگاه را
-حفظ کنید. نمونهٔ Caddy (دامنه و گواهی معتبر خودتان):
+راهنمای کامل (TLS مستقیم، Caddy، nginx، سمت دستگاه و عیب‌یابی) در
+[`docs/WSS_TLS.md`](WSS_TLS.md) است. خلاصه:
 
-```caddy
-voice.example.internal {
-    reverse_proxy 127.0.0.1:8000
-}
-```
-
-برای nginx نیز `proxy_pass http://127.0.0.1:8000`،
-`proxy_set_header Upgrade $http_upgrade` و `proxy_set_header Connection "upgrade"`
-در location `/ws/voice` ضروری است. اتصال دستگاه `wss://` باشد؛ در شبکهٔ
-غیرمطمئن `ws://` توکن hello و صوت را آشکار می‌کند. گواهی خودامضا نیاز به
-نصب CA روی firmware دارد؛ بدون آن اعتبارسنجی TLS را خاموش نکنید.
+- **TLS مستقیم:** `PVAI_SSL_CERTFILE` + `PVAI_SSL_KEYFILE` روی uvicorn؛ دستگاه به
+  `wss://host:port/ws/voice` وصل می‌شود.
+- **reverse proxy:** API را فقط روی `127.0.0.1:8000` نگه دارید و در location
+  `/ws/voice` هدرهای `Upgrade`/`Connection` را بفرستید (`proxy_pass
+  http://127.0.0.1:8000`).
+- اتصال دستگاه `wss://` باشد؛ در شبکهٔ غیرمطمئن `ws://` توکن hello و صوت را آشکار می‌کند.
+- گواهی خودامضا نیاز به نصب CA روی firmware دارد؛ بدون آن اعتبارسنجی TLS را خاموش نکنید.
+- رفتار واقعی Caddy/nginx زیر بار و handshake دستگاه: **NOT MEASURED**.
 
 ---
 
 <a id="section-8"></a>
 
-## بخش 8 — docs/DATASETS.md
+## بخش 8 — docs/WSS_TLS.md
+
+# wss و TLS برای دستگاه LAN — Caddy، nginx و TLS مستقیم
+
+این سند فقط چیزی را می‌گوید که در همین مخزن قابل بررسی است. جایی که به سخت‌افزار
+واقعی (ESP32-S3)، نصب واقعی Caddy/nginx یا گواهی معتبر دامنه نیاز است، صریحاً
+**NOT MEASURED** نوشته شده است.
+
+## چرا wss لازم است
+
+توکن دستگاه (`PVAI_WS_TOKENS`) و متن مکالمه روی `ws://` به‌صورت plaintext در شبکه
+می‌روند. روی یک LAN مورد‌اعتماد این انتخاب آگاهانه است؛ روی Wi-Fi مشترک، هتل یا هر
+شبکه‌ای که خودتان کنترل نمی‌کنید نیست: هر کسی که ترافیک را ببیند هم توکن را دارد و
+هم می‌تواند صدای کاربر را بازپخش کند.
+
+دو راه برای `wss://` وجود دارد:
+
+| راه | چه‌کسی TLS را تمام می‌کند | مناسب برای |
+|---|---|---|
+| **TLS مستقیم uvicorn** | خود سرور، با `PVAI_SSL_CERTFILE` + `PVAI_SSL_KEYFILE` | یک گواهی ساده، بدون نصب نرم‌افزار اضافه |
+| **reverse proxy** (Caddy/nginx) | proxy؛ سرور روی `127.0.0.1` بدون TLS | چند سرویس روی یک ماشین، گواهی خودکار (Caddy)، خاتمهٔ TLS متمرکز |
+
+هر دو مسیر با احراز هویت توکن سازگارند و **TLS جای توکن را نمی‌گیرد**؛ هم
+`PVAI_API_TOKEN` (REST) و هم توکن per-device (WS) همچنان اجباری‌اند.
+
+## ۱) TLS مستقیم روی uvicorn
+
+```bash
+# .env
+PVAI_HOST=0.0.0.0
+PVAI_API_PORT=8443
+PVAI_API_TOKEN=<token>
+PVAI_WS_ENABLED=true
+PVAI_WS_TOKENS="esp32-a:<token-a>"
+PVAI_SSL_CERTFILE=/etc/pvai/fullchain.pem
+PVAI_SSL_KEYFILE=/etc/pvai/privkey.pem
+```
+
+سپس `tools/start_server.sh` (یا `python -m server`). آدرس‌ها `https://` و `wss://`
+می‌شوند: `wss://<host>:8443/ws/voice`.
+
+- هر دو فایل با هم تنظیم می‌شوند؛ یکی‌بدون‌دیگری در `config_errors()` رد می‌شود و
+  وجود فایل‌ها هم بررسی می‌شود.
+- کلید خصوصی را در git نگذارید (`.gitignore` پوشهٔ `models/` و `data/` را می‌گیرد،
+  کلید را جای دیگری نگه دارید).
+- `server.voice.local_api_url` وقتی همین دو تنظیم باشند خودش `https://` می‌سازد تا
+  کلاینت داخلی هم به همان سرور TLS‌دار وصل شود.
+
+تست خودکار: `tests/test_tls_wss.py::test_uvicorn_serves_https_when_the_certificate_is_configured`
+با یک گواهی self-signed واقعی، uvicorn را بالا می‌آورد و `GET /health` را روی
+`https://` می‌خواند. یعنی مسیر «گواهی تنظیم شد ⇒ سرور با TLS بالا آمد» **اندازه‌گیری
+شده** است (روی Linux sandbox؛ Windows/macOS در این نشست اجرا نشده).
+
+## ۲) Caddy (گواهی خودکار، ساده‌ترین مسیر با دامنه)
+
+سرور را فقط روی loopback بالا بیاورید (بدون `PVAI_SSL_*`) و Caddy را جلوی آن بگذارید:
+
+```caddyfile
+voice.example.com {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+Caddy به‌طور پیش‌فرض ارتقای WebSocket را انجام می‌دهد و `wss://` روی همان پورت ۴۴۳
+کار می‌کند: `wss://voice.example.com/ws/voice`.
+
+اگر گواهی را از قبل دارید و DNS ندارید:
+
+```caddyfile
+:8443 {
+    tls /etc/pvai/fullchain.pem /etc/pvai/privkey.pem
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+نکته‌ها:
+
+- `PVAI_HOST=127.0.0.1` بمانید؛ سرور بدون توکن روی `0.0.0.0` بالا نمی‌آید و پشت
+  proxy هم فقط loopback لازم است.
+- طول عمر اتصال: سرور هر `PVAI_WS_HEARTBEAT_S` پینگ می‌فرستد و پس از
+  `PVAI_WS_IDLE_TIMEOUT_S` سکوت، اتصال را می‌بندد. proxy نباید زودتر از این‌ها
+  اتصال را قطع کند (پیش‌فرض Caddy برای WebSocket بی‌نهایت است، اما اگر
+  `timeouts` را تغییر داده‌اید، بزرگ‌تر از idle timeout بگذارید).
+- buffer کردن پاسخ‌ها را خاموش نگذارید؟ برای WS لازم نیست؛ Caddy در حالت upgrade
+  بافر نمی‌کند. فقط مطمئن شوید هیچ `encode`/`gzip` اضافه‌ای روی `/ws/voice` نیست
+  (فشرده‌سازی روی فریم‌های صوتی ۲۰ms تأخیر اضافه می‌کند).
+
+## ۳) nginx
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 443 ssl;
+    server_name voice.example.com;
+
+    ssl_certificate     /etc/pvai/fullchain.pem;
+    ssl_certificate_key /etc/pvai/privkey.pem;
+
+    # صدا ۲۰ms/بلوک است؛ بافر کردن یا تأخیر اضافه، مکالمه را می‌شکند.
+    location /ws/voice {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;   # باید > PVAI_WS_IDLE_TIMEOUT_S باشد
+        proxy_send_timeout 3600s;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+}
+```
+
+`Upgrade` و `Connection` **الزامی** هستند؛ بدون آن‌ها nginx درخواست را به‌عنوان HTTP
+معمولی رد می‌کند و دستگاه فقط `400`/قطع اتصال می‌بیند.
+
+## ۴) سمت دستگاه
+
+- آدرس: `wss://<host>/ws/voice` (یا `wss://<host>:8443/ws/voice` در TLS مستقیم).
+- اولین قاب `hello` با `token` دستگاه و `device_id`؛ توکن به همان دستگاه قفل است.
+- گواهی self-signed: CA را روی firmware نصب کنید (`esp_crt_bundle` یا CA اختصاصی).
+  **اعتبارسنجی گواهی را خاموش نکنید** — آن‌ها همان محافظتی است که wss را معنا می‌کند.
+- اگر پشت proxy هستید، `X-Forwarded-For` را برای rate limit و لاگ نگه دارید؛
+  محدودیت نرخ بر اساس آدرس کلاینت است.
+
+## ۵) عیب‌یابی
+
+| نشانه | علت محتمل |
+|---|---|
+| `426`/`400` هنگام upgrade | `Upgrade`/`Connection` در nginx تنظیم نشده |
+| اتصال هر ۶۰ ثانیه قطع می‌شود | `proxy_read_timeout` کمتر از `PVAI_WS_IDLE_TIMEOUT_S` |
+| `ssl_certificate` خطا در startup | `PVAI_SSL_CERTFILE` بدون `PVAI_SSL_KEYFILE` یا فایل ناموجود |
+| صدا پخش می‌شود ولی متن نه | WS وصل است ولی `PVAI_WS_TOKENS` توکن دستگاه را ندارد |
+| `session_in_use` بعد از قطع | برگردید به `tests/test_session_lease_release.py`؛ قفل نشست باید فوری آزاد شود |
+
+## چه چیزی اندازه‌گیری نشده است
+
+- اجرای واقعی Caddy/nginx و رفتارشان زیر بار: **NOT MEASURED** (در sandbox نصب
+  نیستند؛ فقط پیکربندی استاندارد بالا مستند شده است).
+- handshake TLS از ESP32-S3 با CA نصب‌شده: **NOT MEASURED** (firmware وجود ندارد).
+- تأخیر افزودهٔ proxy روی مکالمهٔ واقعی: **NOT MEASURED**.
+- اجرای `tests/test_tls_wss.py` روی Windows/macOS: **NOT MEASURED**؛ فقط Linux.
+
+---
+
+<a id="section-9"></a>
+
+## بخش 9 — docs/DATASETS.md
 
 # آماده‌سازی دادهٔ سفارشی و قرارداد آموزش (آفلاین)
 
@@ -2252,9 +2448,9 @@ markdown/ایموجی/لینک)، نه تولید واج. بنابراین:
 
 ---
 
-<a id="section-9"></a>
+<a id="section-10"></a>
 
-## بخش 9 — docs/PLATFORMS.md
+## بخش 10 — docs/PLATFORMS.md
 
 # Platform support
 
@@ -2313,9 +2509,9 @@ that a Persian conversation has been held on a Linux desktop.
 
 ---
 
-<a id="section-10"></a>
+<a id="section-11"></a>
 
-## بخش 10 — docs/TROUBLESHOOTING.md
+## بخش 11 — docs/TROUBLESHOOTING.md
 
 # عیب‌یابی — پیام‌ها، علت و راه‌حل
 
@@ -2407,6 +2603,9 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 | `502` `generation error` | خطای تولید | لاگ llama-server |
 | `400` «شناسهٔ نشست نامعتبر است.» | `session_id` کاراکتر غیرمجاز دارد | فقط حروف **انگلیسی**/رقم/`-`/`_`، حداکثر ۶۴ کاراکتر، و نه نام دستگاه رزروشدهٔ ویندوز (`CON`, `NUL`, `COM1`…) |
 | `404` «نشست پیدا نشد.» | نشست ذخیره نشده | `PVAI_HISTORY_PERSIST=true` و `/api/sessions` |
+| WS `session_in_use` **بلافاصله بعد از قطع** | اتصال قبلی هنوز زنده است (سرور قطع را پردازش نکرده) یا نسخهٔ قدیمی قفل را در پایان teardown آزاد می‌کرد | در نسخهٔ فعلی، قفل و claim پیش از teardown مدل آزاد می‌شوند (`tests/test_session_lease_release.py`). اگر باز هم تکرار شد: دستگاه تا دریافت close frame صبر کند و با backoff کوتاه دوباره `hello` بفرستد؛ دو اتصال زنده به یک `session_id` عمداً رد می‌شود |
+| `checks.thinking_template.effective: false` در `/ready` | قالب چت llama-server به `enable_thinking` اشاره نمی‌کند، پس `chat_template_kwargs.enable_thinking` اثری ندارد | llama-server را با `--jinja` اجرا کنید (`tools/start_llama.sh` خودش اضافه می‌کند) و قالب مدل را بررسی کنید؛ اگر خروجی `reasoning_content`/`<think>` دیده شد، `checks.thinking` هم قرمز می‌شود |
+| `checks.thinking_template.effective: null` | llama-server نسخهٔ قدیمی است یا `/props` نمی‌دهد | «NOT MEASURED» یعنی سنجیده نشده، نه سالم؛ نسخهٔ llama-server را به‌روز کنید |
 
 ## ۶.۱. تنظیمات `.env` بی‌اثر به نظر می‌رسد
 
@@ -2453,9 +2652,9 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 
 ---
 
-<a id="section-11"></a>
+<a id="section-12"></a>
 
-## بخش 11 — docs/BENCHMARKS.md
+## بخش 12 — docs/BENCHMARKS.md
 
 # روش‌شناسی بنچمارک و نتایج
 
@@ -2631,9 +2830,9 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 
 ---
 
-<a id="section-12"></a>
+<a id="section-13"></a>
 
-## بخش 12 — docs/HARDWARE_VALIDATION.md
+## بخش 13 — docs/HARDWARE_VALIDATION.md
 
 # چک‌لیست اعتبارسنجی روی سخت‌افزار واقعی
 
@@ -2743,9 +2942,9 @@ WER/CER فارسی: …
 
 ---
 
-<a id="section-13"></a>
+<a id="section-14"></a>
 
-## بخش 13 — THIRD_PARTY.md
+## بخش 14 — THIRD_PARTY.md
 
 # Third-party components and model licences
 
@@ -2879,9 +3078,9 @@ loopback-only test sources. Do not claim a model's licence from its extension.
 
 ---
 
-<a id="section-14"></a>
+<a id="section-15"></a>
 
-## بخش 14 — AGENTS.md
+## بخش 15 — AGENTS.md
 
 # AGENTS.md — نقطهٔ ورود هر مدل/عامل به پروژهٔ Persian Voice AI
 
@@ -2958,6 +3157,7 @@ PersianVoiceAI/
 │  ├─ CONFIGURATION.md    ← مرجع کامل متغیرهای PVAI_*
 │  ├─ AEC.md              ← SpeexDSP، تأخیر، چک‌لیست
 │  ├─ PROTOCOL.md         ← قرارداد WebSocket ESP32-S3 + transport سرور
+│  ├─ WSS_TLS.md          ← wss/TLS: مستقیم روی uvicorn، Caddy، nginx، سمت دستگاه
 │  ├─ BENCHMARKS.md       ← روش‌شناسی و نتایج برچسب‌دار
 │  ├─ TROUBLESHOOTING.md  ← پیام‌های خطا و راه‌حل
 │  ├─ PC_VOICE.md         ← نصب و اجرای صوت PC
@@ -3140,9 +3340,9 @@ hyper-parameter جدید (يا مسیر) باید در `configs/*.example.*` و 
 
 ---
 
-<a id="section-15"></a>
+<a id="section-16"></a>
 
-## بخش 15 — docs/SPEC.md
+## بخش 16 — docs/SPEC.md
 
 # مستند جامع پروژه Persian Voice AI
 
@@ -3558,9 +3758,9 @@ ASR → LLM Intent → Structured Command → Command Broker
 
 ---
 
-<a id="section-16"></a>
+<a id="section-17"></a>
 
-## بخش 16 — docs/ISSUE_REGISTER.md
+## بخش 17 — docs/ISSUE_REGISTER.md
 
 # دفترچهٔ ایرادها — PersianVoiceAI Conversation Engine
 
@@ -4294,9 +4494,9 @@ ASR → LLM Intent → Structured Command → Command Broker
 
 ---
 
-<a id="section-17"></a>
+<a id="section-18"></a>
 
-## بخش 17 — docs/AUDIT_REPORT.md
+## بخش 18 — docs/AUDIT_REPORT.md
 
 # گزارش نهایی بازبینی موتور مکالمهٔ PersianVoiceAI
 

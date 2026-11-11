@@ -24,6 +24,13 @@ if ($LASTEXITCODE -ne 0) { throw "python -m server.config --launch failed" }
 $plan = $launch | ConvertFrom-Json
 
 $command = $plan.command
+# ``--jinja`` is required: llama-server ignores ``chat_template_kwargs`` (and so
+# ``enable_thinking``) without it. `server.config` emits it; this guard stops a
+# stale checkout or a hand-edited environment from dropping it silently.
+if ($command -notcontains '--jinja') {
+    Write-Host "warning: generated plan omitted --jinja; adding it (chat_template_kwargs needs it)." -ForegroundColor Yellow
+    $command += '--jinja'
+}
 if ($command[0] -eq "llama-server") {
     # Resolve a bare name through PATH so a missing binary fails here with a
     # readable message instead of a PowerShell "term is not recognized" dump.

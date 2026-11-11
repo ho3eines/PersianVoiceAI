@@ -73,6 +73,7 @@ PersianVoiceAI/
 │  ├─ CONFIGURATION.md    ← مرجع کامل متغیرهای PVAI_*
 │  ├─ AEC.md              ← SpeexDSP، تأخیر، چک‌لیست
 │  ├─ PROTOCOL.md         ← قرارداد WebSocket ESP32-S3 + transport سرور
+│  ├─ WSS_TLS.md          ← wss/TLS: مستقیم روی uvicorn، Caddy، nginx، سمت دستگاه
 │  ├─ BENCHMARKS.md       ← روش‌شناسی و نتایج برچسب‌دار
 │  ├─ TROUBLESHOOTING.md  ← پیام‌های خطا و راه‌حل
 │  ├─ PC_VOICE.md         ← نصب و اجرای صوت PC

@@ -72,6 +72,25 @@ WINDOWS_RESERVED_NAMES = frozenset(
 )
 """Device names Windows refuses as ``<name>.jsonl`` regardless of the extension."""
 
+
+def is_reserved_device_name(name: str) -> bool:
+    """True when ``name`` (*any* extension) names a Windows character device.
+
+    Windows resolves ``CON.jsonl``, ``nul.txt`` and ``com1.lock`` to the device,
+    not to a file, and it strips trailing dots and spaces before comparing — so
+    ``"con. "`` is ``CON`` too.  The comparison is therefore made on the stem
+    (everything before the first dot) after trimming, case-folded.
+
+    Checking this *before* the alphabet gives the honest reason: ``CON.jsonl``
+    is refused everywhere (the dot is also outside the alphabet), but a reader
+    must not be told "invalid character" for a name whose real problem is that
+    Windows will not create it.
+    """
+    trimmed = str(name).strip().rstrip(" .")
+    stem = trimmed.split(".", 1)[0].strip().lower()
+    return stem in WINDOWS_RESERVED_NAMES
+
+
 MESSAGE_OVERHEAD_TOKENS = 4
 """Chat-template per-message overhead (role markers, separators)."""
 
@@ -170,19 +189,40 @@ class SessionLease:
         self.handle.flush()
 
     def close(self) -> None:
+        """Release the lock; safe to call twice and safe to call on a bad fd.
+
+        Two properties are load-bearing, and both were missing:
+
+        * **The descriptor is always closed.**  POSIX (``flock``) and Windows
+          (``msvcrt.locking``/``LockFile``) both drop a lock when the *handle*
+          that owns it closes.  An error on the explicit unlock path — a
+          truncated file, a refused unlock, a device that vanished — used to
+          raise *before* ``handle.close()``, leaving the lock held for the life
+          of the process and every later reconnect answered with
+          ``session_in_use``.
+        * **The diagnostic PID is best-effort.**  Failing to rewrite the
+          informational PID must not keep the session locked either.
+        """
         if self.handle.closed:
             return
-        self.handle.seek(0)
-        self.handle.truncate()
-        self.handle.flush()
-        if os.name == "nt":
-            import msvcrt
+        try:
             self.handle.seek(0)
-            msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
-        self.handle.close()
+            self.handle.truncate()
+            self.handle.flush()
+        except (OSError, ValueError):  # informational only; never authoritative
+            pass
+        try:
+            if os.name == "nt":
+                import msvcrt
+                self.handle.seek(0)
+                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+        except (OSError, ValueError):
+            pass  # the close below frees the lock on both platforms
+        finally:
+            self.handle.close()
 
     def __enter__(self) -> SessionLease:
         return self
@@ -253,6 +293,11 @@ class ConversationStore:
         directory, so it happens on the write path in :meth:`append`.
         """
         raw = str(session_id).strip()
+        if is_reserved_device_name(raw):
+            # Checked first so the message names the real problem: this id
+            # cannot become ``<id>.jsonl`` (or ``<id>.lock``) on Windows, with
+            # or without an extension.
+            raise ValueError(f"session id {raw!r} is a reserved device name")
         cleaned = "".join(char for char in raw if char in SESSION_ID_ALPHABET)
         if not cleaned or cleaned != raw:
             raise ValueError(
@@ -522,10 +567,26 @@ class Conversation:
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------- lifecycle
+    def release_lease(self) -> None:
+        """Release the session's OS lease (idempotent).
+
+        The lease is detached before it is closed, so a failure inside
+        :meth:`SessionLease.close` cannot leave the conversation believing it
+        still owns the file — and a second call is a no-op instead of closing
+        somebody else's descriptor.
+
+        The conversation object itself stays usable (recording the turn that is
+        being interrupted only needs the store); only the *lock* is dropped, so
+        a device that reconnects immediately can resume the same session
+        without waiting for model teardown.
+        """
+        lease, self._lease = self._lease, None
+        if lease is not None:
+            lease.close()
+
     def close(self) -> None:
-        if self._lease is not None:
-            self._lease.close()
-            self._lease = None
+        """End the conversation: the lease is released, writes are not fenced."""
+        self.release_lease()
 
     def next_utterance_id(self) -> int:
         """First utterance id that cannot collide with anything already stored."""

@@ -148,15 +148,16 @@ def test_the_parts_directory_is_removed_on_success(tmp_path, server):
 def test_a_truncated_part_fails_loudly_instead_of_producing_a_short_file(tmp_path):
     """A short part must never reach the joined output."""
     downloader = load_downloader()
-    parts = tmp_path / "x.bin.parts"
+    parts = tmp_path / "x.dat.parts"
     parts.mkdir()
     # A server that answers 200 with fewer bytes than the range asks for.
     (parts / "part0000.bin").write_bytes(b"short")
 
     with pytest.raises(RuntimeError):
         # No server is listening on this port, so every attempt fails and the
-        # function must raise rather than emit a partial file.
-        downloader.download("http://127.0.0.1:9/none.bin", tmp_path / "x.bin", 1, 1, 1)
+        # function must raise rather than emit a partial file.  ``.dat`` keeps
+        # this test about truncation, not about the checksum rule for weights.
+        downloader.download("http://127.0.0.1:9/none.dat", tmp_path / "x.dat", 1, 1, 1)
 
 
 def test_invalid_arguments_are_rejected_before_any_network_call(capsys):
@@ -204,3 +205,92 @@ def test_bad_cached_part_is_invalidated_after_checksum_mismatch(tmp_path, server
     assert not (parts/'part0000.bin').exists()
     downloader.download(server, output, 3, 1, 1, sha256=digest)
     assert output.read_bytes() == PAYLOAD
+
+
+# ------------------------------------------------------- known-model integrity
+
+def test_a_model_host_artifact_requires_a_checksum(tmp_path):
+    """A Hugging Face ``resolve`` URL is a model file whatever it is called."""
+    downloader = load_downloader()
+    url = "https://huggingface.co/Systran/faster-whisper-small/resolve/main/tokenizer.json"
+    with pytest.raises(ValueError, match="sha256"):
+        downloader.download(url, tmp_path / "tokenizer.json", 1, 1, 1)
+
+
+@pytest.mark.parametrize(
+    "name", ["voice.onnx", "weights.safetensors", "model.bin", "adapter.pt", "llm.ckpt"]
+)
+def test_every_known_weight_format_requires_a_checksum(tmp_path, server, name):
+    downloader = load_downloader()
+    with pytest.raises(ValueError, match="sha256"):
+        downloader.download(server, tmp_path / name, 1, 1, 1)
+
+
+def test_a_plain_text_asset_from_a_local_server_needs_no_checksum(tmp_path, server):
+    """Not every download is a model: a local manifest may skip the digest."""
+    downloader = load_downloader()
+    output = downloader.download(server, tmp_path / "manifest.txt", 1, 1, 1)
+    assert output.read_bytes() == PAYLOAD
+
+
+def test_a_checksum_mismatch_never_replaces_an_existing_destination(tmp_path, server):
+    """A bad pull must not destroy the copy that already works."""
+    downloader = load_downloader()
+    output = tmp_path / "model.gguf"
+    output.write_bytes(b"previous verified download")
+    with pytest.raises(RuntimeError, match="sha256"):
+        downloader.download(server, output, 2, 1, 1, sha256="f" * 64)
+    assert output.read_bytes() == b"previous verified download"
+    assert not (tmp_path / "model.gguf.part").exists()
+
+
+def test_the_checksum_is_computed_before_the_destination_is_renamed(
+    tmp_path, server, monkeypatch
+):
+    """Ordering proof: a digest exists before the final rename happens."""
+    downloader = load_downloader()
+    output = tmp_path / "model.gguf"
+    expected = hashlib.sha256(PAYLOAD).hexdigest()
+
+    state = {"verified": False}
+    real_sha256 = hashlib.sha256
+
+    class TrackedDigest:
+        def __init__(self) -> None:
+            self.inner = real_sha256()
+
+        def update(self, block: bytes) -> None:
+            self.inner.update(block)
+
+        def hexdigest(self) -> str:
+            state["verified"] = True
+            return self.inner.hexdigest()
+
+    monkeypatch.setattr(hashlib, "sha256", lambda *args, **kwargs: TrackedDigest())
+    original_replace = Path.replace
+
+    def guarded_replace(self, target):
+        if Path(target).name == output.name:
+            assert state["verified"], (
+                "the destination was renamed before its sha256 was checked"
+            )
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", guarded_replace)
+    downloader.download(server, output, 2, 1, 1, sha256=expected)
+    assert state["verified"]
+    assert output.read_bytes() == PAYLOAD
+
+
+def test_plain_http_is_refused_for_lookalike_local_hosts(tmp_path):
+    """``localhost.evil.example`` and userinfo tricks are not localhost."""
+    downloader = load_downloader()
+    for url in (
+        "http://localhost.evil.example/model.gguf",
+        "http://localhost@evil.example/model.gguf",
+        "http://127.0.0.1.nip.io/model.gguf",
+        "HTTP://example.org/model.gguf",
+        "ftp://example.org/model.gguf",
+    ):
+        with pytest.raises(ValueError, match="https"):
+            downloader.download(url, tmp_path / "model.gguf", 1, 1, 1, sha256="0" * 64)

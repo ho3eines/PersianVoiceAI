@@ -153,6 +153,51 @@ def check_ws(settings: Any) -> dict[str, Any]:
     }
 
 
+def check_thinking_template(settings: Any, backend: dict[str, Any] | None) -> dict[str, Any]:
+    """Does ``chat_template_kwargs.enable_thinking`` actually reach the template?
+
+    The option is only a request: llama-server ignores ``chat_template_kwargs``
+    unless it was started with ``--jinja`` *and* the model's own template reads
+    ``enable_thinking``.  When the template never mentions it, the payload is
+    accepted and silently does nothing — a Qwen3 template that always reasons
+    then streams ``reasoning_content`` into TTS.
+
+    Readiness therefore inspects the template llama-server reports on
+    ``/props`` (a static fact, no generation) and *warns* rather than fails:
+    a model whose template has no thinking branch is perfectly usable, and
+    ``ok`` must not mean "I could not tell".  ``effective: None`` with the
+    literal ``NOT MEASURED`` is what an unreadable template yields.
+    """
+    props = (backend or {}).get("props")
+    template = props.get("chat_template") if isinstance(props, dict) else None
+    requested = bool(getattr(settings, "llm_enable_thinking", False))
+    if not isinstance(template, str) or not template.strip():
+        return {
+            "ok": True,
+            "effective": None,
+            "requested": requested,
+            "detail": "قالب چت سرور خوانده نشد؛ اثر chat_template_kwargs.enable_thinking "
+            "اندازه‌گیری نشد (NOT MEASURED).",
+        }
+    if "enable_thinking" in template:
+        return {
+            "ok": True,
+            "effective": True,
+            "requested": requested,
+            "detail": "قالب چت به enable_thinking اشاره می‌کند؛ پارامتر اثر دارد.",
+        }
+    return {
+        "ok": True,
+        "effective": False,
+        "requested": requested,
+        "warning": "قالب چت llama-server به enable_thinking اشاره نمی‌کند؛ "
+        "chat_template_kwargs.enable_thinking اثری ندارد. اگر مدل thinking اجباری دارد، "
+        "llama-server را با --jinja اجرا کنید (tools/start_llama.sh) و قالب مدل را بررسی کنید.",
+        "detail": "پارامتر enable_thinking در این قالب وجود ندارد؛ تنظیم PVAI_LLM_ENABLE_THINKING "
+        "در این نصب بی‌اثر است.",
+    }
+
+
 def check_storage(settings: Any) -> dict[str, Any]:
     if not getattr(settings, "history_persist", False):
         return {"ok": True, "skipped": True, "detail": "ذخیره‌سازی محلی خاموش است."}
@@ -189,6 +234,7 @@ def collect(settings: Any, *, backend: dict[str, Any] | None = None) -> dict[str
     if backend is not None:
         reachable = bool(backend.get("reachable"))
         available = bool(backend.get("model_available"))
+        checks["thinking_template"] = check_thinking_template(settings, backend)
         checks["llm_backend"] = {
             "ok": reachable and available,
             "reachable": reachable,
