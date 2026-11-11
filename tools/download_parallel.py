@@ -28,6 +28,41 @@ from pathlib import Path
 
 CHUNK = 1 << 20  # 1 MiB read buffer
 
+KNOWN_MODEL_SUFFIXES = frozenset(
+    {".gguf", ".onnx", ".bin", ".safetensors", ".pt", ".ckpt"}
+)
+"""Container formats this project loads as model weights.
+
+A corrupt weight file does not fail loudly: inference returns nonsense, and the
+nonsense is spoken out loud.  These are the extensions for which a checksum is
+mandatory rather than optional.
+"""
+
+KNOWN_MODEL_HOSTS = frozenset(
+    {"huggingface.co", "hf.co", "cdn-lfs.huggingface.co", "cdn-lfs-us-1.huggingface.co"}
+)
+"""Hosts that serve this project's documented models (Qwen GGUF, Whisper,
+Piper voices).  A file fetched from there is a model artefact whatever it is
+called — ``config.json`` and ``tokenizer.json`` next to ``model.bin`` decide
+whether a Whisper checkpoint is the one that was evaluated."""
+
+
+def requires_checksum(url: str, output: Path) -> bool:
+    """Is ``--sha256`` mandatory for this download?
+
+    Known model artefacts are recognised by extension, by file name, and by
+    *where they came from*: a Hugging Face ``resolve`` URL is a model file even
+    when its name says ``tokenizer.json``.  There is deliberately no override
+    flag — an unverified multi-gigabyte weight file is exactly the failure this
+    tool exists to prevent.
+    """
+    name = output.name.lower()
+    suffix = output.suffix.lower()
+    if suffix in KNOWN_MODEL_SUFFIXES or name == "model.bin":
+        return True
+    host = (urlsplit(url).hostname or "").lower()
+    return host in KNOWN_MODEL_HOSTS
+
 
 def _safe_url(url: str) -> None:
     parsed = urlsplit(url)
@@ -107,8 +142,12 @@ def fetch_part(url: str, path: Path, start: int, length: int, retries: int) -> N
 def download(url: str, output: Path, connections: int, part_mb: int, retries: int,
              sha256: str | None = None) -> Path:
     _safe_url(url)
-    if (output.suffix.lower() in {".gguf", ".onnx"} or output.name.lower() == "model.bin") and not sha256:
-        raise ValueError("--sha256 is required for GGUF/ONNX/Whisper model.bin files")
+    if not sha256 and requires_checksum(url, output):
+        raise ValueError(
+            "--sha256 is required for known model files "
+            "(GGUF/ONNX/BIN/SafeTensors and anything from a model host); "
+            "take the digest from the publisher's card or manifest"
+        )
     if sha256 is not None and not re.fullmatch(r"[0-9a-fA-F]{64}", sha256):
         raise ValueError("--sha256 must contain 64 hexadecimal characters")
     total = remote_length(url, retries=retries)

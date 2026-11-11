@@ -51,6 +51,11 @@ $ python -m pytest
 نتیجهٔ جاری را با اجرای python -m pytest ببینید (تعداد ثابت نیست)
 ```
 
+- تعداد تست‌های مجموعه (pytest --collect-only): **1120** تست — این تنها عدد
+  مجاز است و `tests/test_docs_consistency.py` آن را با خروجی واقعی
+  `pytest --collect-only` مقایسه می‌کند؛ عدد کهنه ⇒ تست قرمز. بقیهٔ اعداد این
+  سند **تاریخی** و مربوط به همان مرحله‌اند.
+
 - ۳۸ تست امنیتی در `tests/test_ws_security.py` و ۱۸۹ تست آماده‌سازی متن TTS در
   `tests/test_tts_text_preparation.py`: هر تست یک نقص گزارش‌شده را می‌پوشاند و
   روی کد پیش از رفع شکست می‌خورد (برای بارگذاری مدل، pacing، صف حیاتی و نرخ فریم دستی بررسی شد).
@@ -317,3 +322,25 @@ $ python -m pytest
 (کد: صفر/خودکار، نمونهٔ env: چهار)، نگه‌داری تاریخچه (۳۰ روز)، شرط توکن روی loopback،
 HTTP 503 مدل بارنشده و ادعای اجرای تست Windows/macOS اصلاح شدند.
 جدول مجوز با librosa هم‌گام شد؛ هیچ تأیید سخت‌افزاری تازه‌ای ادعا نشده است.
+
+## مرحلهٔ ۷ — قفل نشست، jinja، فیلتر توهم، نام‌های رزرو‌شده، دانلود و wss (۱۱ نوامبر ۲۰۲۶)
+
+هر مورد با تستِ اول‌نوشته‌شده (قرمز) و سپس رفع بسته شد؛ هیچ عدد کیفیتی ادعا نشده است.
+
+| مورد | ادعا | تست |
+|---|---|---|
+| ۱ | آزادسازی **فوری** قفل نشست (OS lease + registry) پیش از teardown کند، و آزادسازی در حالت خطا/لغو/تأخیر | `tests/test_session_lease_release.py` (۱۰ تست) + `tests/test_ws_voice.py::test_device_resumes_a_session_with_its_earlier_context` |
+| ۲ | `--jinja` در launcherها و هشدار `/ready` وقتی `chat_template_kwargs.enable_thinking` بی‌اثر است | `tests/test_llama_jinja.py` (۱۰ تست) |
+| ۳ | فیلتر توهم فقط با ترکیب `no_speech_prob`+`avg_logprob` یا `compression_ratio` | `tests/test_asr_hallucination_filter.py` (۱۰ تست) |
+| ۴ | رد نام‌های رزرو‌شدهٔ Windows با هر پسوند | `tests/test_reserved_session_names.py` |
+| ۵ | رد `http` غیرمحلی، اجباری‌بودن sha256 برای مدل‌های شناخته‌شده، تأیید پیش از rename | `tests/test_download_parallel.py` |
+| ۶ | راهنمای wss (Caddy/nginx/TLS مستقیم) و برخاستن واقعی uvicorn با TLS | `tests/test_tls_wss.py` + `docs/WSS_TLS.md` |
+| ۷ | عدد تست از `pytest --collect-only` خوانده می‌شود، نه دستی | `tests/test_docs_consistency.py` |
+
+### NOT MEASURED در این مرحله
+
+- بهینهٔ آستانه‌های فیلتر توهم روی **دادهٔ فارسی برچسب‌دار**: هیچ مجموعهٔ سکوت/نویز
+  فارسی با transcript مرجع در مخزن نیست ⇒ آستانه‌ها پیش‌فرض‌اند، نه کالیبره‌شده.
+- اجرای واقعی Caddy/nginx زیر بار و handshake `wss://` از ESP32-S3.
+- ASR/TTS/LLM واقعی برای هر تغییر این مرحله (همهٔ تست‌ها fake هستند).
+- رفتار قفل فایل روی Windows (`msvcrt.locking`) در این نشست اجرا نشد؛ فقط Linux.

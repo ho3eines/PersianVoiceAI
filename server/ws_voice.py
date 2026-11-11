@@ -438,6 +438,7 @@ class VoiceWebSocket:
         self.voice: str = settings.tts_voice
         self.authenticated = False
         self.claim_capacity: Callable[[], tuple[bool, str]] | None = None
+        self.release_capacity: Callable[[], None] | None = None
         self.handshake_done: Callable[[], None] | None = None
         self.capacity_owned = False
         self.peer = getattr(getattr(websocket, "client", None), "host", "unknown")
@@ -860,6 +861,19 @@ class VoiceWebSocket:
         logger.info("ws device=%s session=%s connected", self.device_id, self.session_id)
         return True
 
+    async def _refuse_shared_session(self) -> None:
+        """Refuse a second live connection for one session, with a reason."""
+        self._notify(
+            "session_in_use",
+            "این نشست هم‌اکنون در اتصال دیگری باز است؛ دو دستگاه نباید یک "
+            "فایل مکالمه را هم‌زمان بنویسند.",
+        )
+        await self._reject(
+            "session_in_use",
+            "این نشست هم‌اکنون در اتصال دیگری باز است.",
+            CLOSE_UNAVAILABLE,
+        )
+
     @staticmethod
     def _validate_session_id(session_id: str) -> None:
         from .conversation import ConversationStore
@@ -871,29 +885,38 @@ class VoiceWebSocket:
         # asked for a ``session_id`` still resumes that session, while a device
         # that asked for nothing gets its own new one instead of joining
         # whatever the last session on this PC was.
+        #
+        # Claim order is registry → OS lease, and release order is lease →
+        # registry (see :meth:`close`).  The registry is therefore the *gate*:
+        # while it names an owner, the lease is held or about to be; once it is
+        # free, nothing of the old session is left.  Claiming in the other order
+        # left a window where a session held its lock but not its registry entry,
+        # and a reconnecting device was refused with ``session_in_use`` for a
+        # session that looked free.
+        owner = f"{self.device_id or 'device'}#{id(self):x}"
+        requested = self.session_id
+        if self.session_registry is not None and requested is not None:
+            if not self.session_registry.claim(requested, owner):
+                await self._refuse_shared_session()
+                return False
+            self._owned_session = requested
+            self._session_owner = owner
         try:
             conversation = create_conversation(
                 self.settings, session_id=self.session_id, resume=False, exclusive=True
             )
         except SessionInUse:
+            self._release_claims()
             await self._reject("session_in_use", "این نشست هم‌اکنون در فرایند دیگری باز است.", CLOSE_UNAVAILABLE)
             return False
         self._leased_conversation = conversation
         self.session_id = conversation.session_id
-        if self.session_registry is not None:
-            owner = f"{self.device_id or 'device'}#{id(self):x}"
+        if self.session_registry is not None and self._owned_session is None:
+            # A session id the server generated: nobody can be holding it, but
+            # the claim still has to happen so that *both* claims exist.
             if not self.session_registry.claim(self.session_id, owner):
-                self._notify(
-                    "session_in_use",
-                    "این نشست هم‌اکنون در اتصال دیگری باز است؛ دو دستگاه نباید یک "
-                    "فایل مکالمه را هم‌زمان بنویسند.",
-                )
-                await self._reject(
-                    "session_in_use",
-                    "این نشست هم‌اکنون در اتصال دیگری باز است.",
-                    CLOSE_UNAVAILABLE,
-                )
-                conversation.close()
+                self._release_claims()
+                await self._refuse_shared_session()
                 return False
             self._owned_session = self.session_id
             self._session_owner = owner
@@ -1224,14 +1247,41 @@ class VoiceWebSocket:
             await self.close()
 
     async def close(self) -> None:
-        # Release ownership first and unconditionally: it is pure bookkeeping,
-        # and if the task is cancelled mid-teardown (the TestClient does this at
-        # block exit) a leaked claim would lock the session out for every later
-        # connection.
-        self._release_session()
-        self.sink.close()
-        self._frame_stamps.clear()
-        self._overflow.clear()
+        """Tear the session down; never leaves the session id locked out.
+
+        Order matters, and it is the opposite of the obvious one:
+
+        1. commit the reply that was in flight (synchronous, so the JSONL is
+           final before anyone else may load it);
+        2. release *both* claims — the OS lease on ``<id>.lock`` first, then the
+           in-process registry — with no ``await`` in between;
+        3. only then close the sink, the pipeline and the HTTP client, which
+           can take seconds (Whisper/Piper teardown) or fail.
+
+        Releasing the lease at the end of step 3 (the previous order) is what
+        produced ``session_in_use`` on a device that reconnected while the old
+        pipeline was still shutting down; doing it after a teardown that raised
+        locked the id out for the life of the process.
+        """
+        finalize = getattr(self.pipeline, "finalize_pending_turn", None)
+        if callable(finalize):
+            try:
+                # Synchronous on purpose: the JSONL must be final before the
+                # lock is dropped, or a reconnect could load a file that is
+                # still one record short.
+                finalize()
+            except Exception:  # a broken pipeline must not keep the lock
+                logger.exception(
+                    "ws device=%s final turn commit failed", self.device_id
+                )
+        self._release_capacity()
+        self._release_claims()
+        try:
+            self.sink.close()
+            self._frame_stamps.clear()
+            self._overflow.clear()
+        except Exception:  # cleanup must not stop the rest of cleanup
+            logger.exception("ws device=%s sink teardown failed", self.device_id)
         try:
             if self._send_task is not None:
                 self._send_task.cancel()
@@ -1244,13 +1294,62 @@ class VoiceWebSocket:
                 await asyncio.gather(self.bundle.aclose(), return_exceptions=True)
                 self.bundle = None
         finally:
-            self._release_session()
-            if self._leased_conversation is not None:
-                self._leased_conversation.close()
-                self._leased_conversation = None
+            self._release_claims()
+            self._release_capacity()
         if self.authenticated:
             self.counters.bump("active", -1)
         logger.info("ws device=%s session=%s closed", self.device_id, self.session_id)
+
+    def _release_claims(self) -> None:
+        """Release the OS lease *and* the registry claim, in that order.
+
+        The registry is the gate a new connection checks (``_open_pipeline``
+        claims it before the lease), so it may only say "free" once the lock is
+        really gone.  This single entry point exists because the belt-and-braces
+        release in :func:`build_router` used to free the registry on its own
+        when a connection was cancelled hard — leaving the file locked but the
+        session looking available, which is exactly the ``session_in_use`` a
+        reconnecting device saw.
+        """
+        self._release_lease()
+        self._release_session()
+
+    def _release_capacity(self) -> None:
+        """Return this connection's slot to the limiter, exactly once.
+
+        Same reasoning as the session lock: the slot is not part of the audio
+        pipeline.  Holding it until model teardown finished meant a device that
+        reconnected quickly was answered ``too_many_connections`` even though
+        ``PVAI_WS_MAX_CONNECTIONS`` was never actually exceeded.
+        """
+        if not self.capacity_owned:
+            return
+        self.capacity_owned = False
+        release = self.release_capacity
+        if release is not None:
+            try:
+                release()
+            except Exception:  # pragma: no cover - defensive
+                logger.exception("ws device=%s capacity release failed", self.device_id)
+
+    def _release_lease(self) -> None:
+        """Drop the OS lease on this session's JSONL, keeping the object.
+
+        The conversation object stays attached to the pipeline (it is closed
+        again, harmlessly, by ``Pipeline.close``) but the *lock* is gone, so a
+        reconnect can resume the session immediately.
+        """
+        conversation = self._leased_conversation
+        if conversation is None:
+            return
+        closer = getattr(conversation, "release_lease", None)
+        try:
+            if callable(closer):
+                closer()
+            else:  # a stub conversation in a test
+                conversation.close()
+        except Exception:  # pragma: no cover - defensive, close() is total
+            logger.exception("ws device=%s lease release failed", self.device_id)
 
     def _release_session(self) -> None:
         if self._owned_session is not None and self.session_registry is not None:
@@ -1295,6 +1394,7 @@ def build_router(
             session_registry=shared.registry,
         )
         session.claim_capacity = limiter.acquire
+        session.release_capacity = limiter.release
         session.handshake_done = leave_handshake
         try:
             await session.serve()
@@ -1303,10 +1403,12 @@ def build_router(
             # ``serve``'s finally never runs (TestClient teardown, server
             # shutdown), the session claim must still be released or the id is
             # locked out for the life of the process.
-            session._release_session()
+            session._release_claims()
+            session._release_capacity()
             leave_handshake()
-            if session.capacity_owned:
+            if session.capacity_owned:  # belt and braces; normally already free
                 limiter.release()
+                session.capacity_owned = False
 
     router.counters = shared  # type: ignore[attr-defined]
     return router

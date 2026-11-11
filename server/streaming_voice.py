@@ -1492,13 +1492,24 @@ class Pipeline:
     def metrics_snapshot(self) -> dict[str, Any]:
         return self.metrics.snapshot()
 
+    def finalize_pending_turn(self) -> None:
+        """Commit the in-flight reply to the JSONL now, without awaiting.
+
+        Called by the transport *before* it releases the session's OS lease.
+        That ordering is what makes an immediate reconnect safe: the old
+        session's last record is on disk before another connection is allowed
+        to resume and load the same file.  Idempotent — ``_commit_turn``
+        ignores a turn that is already committed.
+        """
+        turn = self.pending_turn
+        if turn is not None and not turn.committed:
+            self._commit_turn(turn, STATUS_INTERRUPTED, reason="shutdown")
+
     async def close(self) -> None:
         if self._closed:
             return
         self._closed = True
-        turn = self.pending_turn
-        if turn is not None and not turn.committed:
-            self._commit_turn(turn, STATUS_INTERRUPTED, reason="shutdown")
+        self.finalize_pending_turn()
         self.cancel.set()
         tasks = list(self.actors)
         if self.reply is not None:
@@ -1536,15 +1547,23 @@ def create_pipeline(
     last session instead of a new one on every restart.
     """
     conversation = create_conversation(settings, session_id=session_id, local=True, exclusive=True)
-    return Pipeline(
-        settings,
-        audio,
-        speaker,
-        client,
-        emit,
-        conversation=conversation,
-        metrics=metrics,
-    )
+    try:
+        return Pipeline(
+            settings,
+            audio,
+            speaker,
+            client,
+            emit,
+            conversation=conversation,
+            metrics=metrics,
+        )
+    except BaseException:
+        # The lease is taken before the pipeline exists: a constructor failure
+        # (a bad VAD setting, a missing device) would otherwise hold the local
+        # session's lock until the process exits, and the next `run_live` would
+        # fail with session_in_use.
+        conversation.close()
+        raise
 
 
 async def run_live(settings: Settings) -> None:

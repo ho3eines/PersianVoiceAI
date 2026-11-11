@@ -207,7 +207,13 @@ python tools/download_parallel.py \
   --sha256 "<64-char-sha256-from-publisher>"
 ```
 
-- `--sha256` is **required** for `.gguf`, `.onnx`, and `model.bin` files (obtain the trusted digest from the model publisher's card/manifest).
+- `--sha256` is **required** for every known model artefact — `.gguf`, `.onnx`, `.bin`,
+  `.safetensors`, `.pt`, `.ckpt`, and *any* file fetched from `huggingface.co`/`hf.co`
+  (including `config.json`/`tokenizer.json` that belong to a Whisper checkpoint). Take the
+  digest from the publisher's card/manifest; there is no flag that skips the check.
+- The digest is verified on the assembled file **before** it replaces the destination, so a
+  corrupt pull never overwrites a copy that already works.
+- Remote sources must be `https`; plain `http` is accepted only for `localhost`/`127.0.0.1`/`::1`.
 - Interrupted downloads resume cleanly across retries without redownloading completed chunks.
 
 ---
