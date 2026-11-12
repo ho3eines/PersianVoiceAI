@@ -1,0 +1,17 @@
+# Normalize line endings so the repository behaves the same on every platform.
+* text=auto
+
+# POSIX launchers must keep LF endings: a CRLF shebang/body breaks bash on
+# Linux/macOS and confuses `bash -n`, even though the Python beneath is portable.
+*.sh text eol=lf
+
+# Windows launchers are edited on Windows; keep their native endings.
+*.ps1 text eol=crlf
+
+# Binary-ish assets that must never be rewritten.
+*.gguf binary
+*.onnx binary
+*.wav binary
+*.png binary
+*.jpg binary
+*.jpeg binary

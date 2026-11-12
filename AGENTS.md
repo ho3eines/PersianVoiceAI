@@ -74,6 +74,7 @@ PersianVoiceAI/
 │  ├─ AEC.md              ← SpeexDSP، تأخیر، چک‌لیست
 │  ├─ PROTOCOL.md         ← قرارداد WebSocket ESP32-S3 + transport سرور
 │  ├─ WSS_TLS.md          ← wss/TLS: مستقیم روی uvicorn، Caddy، nginx، سمت دستگاه
+│  ├─ RAG.md              ← بازیابی دانش محلی (BM25) و endpointهای /api/knowledge
 │  ├─ BENCHMARKS.md       ← روش‌شناسی و نتایج برچسب‌دار
 │  ├─ TROUBLESHOOTING.md  ← پیام‌های خطا و راه‌حل
 │  ├─ PC_VOICE.md         ← نصب و اجرای صوت PC
@@ -99,6 +100,7 @@ PersianVoiceAI/
 │  ├─ protocol.py         ← قرارداد فریم/پیام ESP32
 │  ├─ ws_voice.py         ← transport WebSocket سرور برای دستگاه LAN
 │  ├─ security.py         ← توکن REST/WS، rate limit، سقف اتصال
+│  ├─ rag.py              ← RAG محلی (BM25، KnowledgeBase) برای پاسخ دانش‌محور
 │  ├─ cli.py              ← کلاینت چت فارسی ترمینال
 │  ├─ __main__.py         ← اجرای `python -m server`
 │  └─ __init__.py         ← نسخهٔ سرویس

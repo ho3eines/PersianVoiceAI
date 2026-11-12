@@ -12,7 +12,7 @@ OUTPUT = ROOT / 'docs/PROJECT_GUIDE.md'
 SOURCES = [
     'README.md', 'docs/STATUS.md', 'docs/PC_VOICE.md', 'docs/CONFIGURATION.md',
     'docs/STREAMING_ARCHITECTURE.md', 'docs/AEC.md', 'docs/PROTOCOL.md',
-    'docs/WSS_TLS.md',
+    'docs/WSS_TLS.md', 'docs/RAG.md',
     'docs/DATASETS.md', 'docs/PLATFORMS.md', 'docs/TROUBLESHOOTING.md',
     'docs/BENCHMARKS.md', 'docs/HARDWARE_VALIDATION.md', 'THIRD_PARTY.md',
     'AGENTS.md', 'docs/SPEC.md', 'docs/ISSUE_REGISTER.md', 'docs/AUDIT_REPORT.md',

@@ -31,7 +31,7 @@
 
 | متغیر | پیش‌فرض | معنا |
 |---|---|---|
-| `PVAI_MODEL_PATH` | `models/Qwen3-4B-Q4_K_M.gguf` | مسیر GGUF برای llama-server (خود سرویس آن را لود می‌کند؛ فایل باید محلی باشد) |
+| `PVAI_MODEL_PATH` | `models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf` | مدل منتخب پس از ارزیابی محلی لپ‌تاپ؛ مسیر GGUF باید محلی باشد |
 | `PVAI_LLAMA_SERVER_URL` | `http://127.0.0.1:8080` | آدرس محلی llama-server؛ باید private/loopback باشد |
 | `PVAI_N_CTX` | `4096` | پنجرهٔ context (۵۱۲–۳۲۷۶۸)؛ به `llama-server -c` داده می‌شود |
 | `PVAI_N_THREADS` | `0` | thread سمت llama-server؛ `0` = خودکار (پرچم `-t` ارسال نمی‌شود). مستقل از threadهای Whisper است؛ `.env.example` مقدار پیشنهادی `4` را تنظیم می‌کند، نه پیش‌فرض `0` |

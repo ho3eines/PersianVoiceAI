@@ -17,7 +17,12 @@ logger = logging.getLogger("persian_voice_ai.config")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 """(repository root, i.e. the directory that holds ``.env.example``)."""
 
-DEFAULT_MODEL_PATH = str(Path(__file__).resolve().parents[1] / "models" / "Qwen3-4B-Q4_K_M.gguf")
+DEFAULT_MODEL_PATH = str(
+    Path(__file__).resolve().parents[1]
+    / "models"
+    / "qwen3.5-4b"
+    / "Qwen3.5-4B-Q4_K_M.gguf"
+)
 DEFAULT_LLAMA_SERVER_URL = "http://127.0.0.1:8080"
 DEFAULT_API_HOST = "127.0.0.1"
 DEFAULT_API_PORT = 8000

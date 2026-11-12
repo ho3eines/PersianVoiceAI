@@ -97,3 +97,22 @@ def test_reasoning_is_not_a_spoken_reply() -> None:
         assert payload['chat_template_kwargs'] == {'enable_thinking': False}
     finally:
         asyncio.run(client.aclose())
+
+
+def test_thinking_filter_strips_inline_blocks_across_chunks() -> None:
+    """`benchmarks/compare_models.py` imports this helper; keep it working.
+
+    Reasoning must never be counted as an answer, even when the `` thinking``
+    markers arrive split across stream chunks.
+    """
+    from server.llm import _ThinkingFilter, _strip_thinking_blocks
+
+    content_filter = _ThinkingFilter()
+    assert content_filter.feed("<thi") == ""
+    assert content_filter.feed("nk>hidden</thi") == ""
+    assert content_filter.feed("nk>visible") == "visible"
+    assert content_filter.finish() == ""
+
+    assert _strip_thinking_blocks("ab") == "ab"
+    assert _strip_thinking_blocks("plain answer") == "plain answer"
+    assert _strip_thinking_blocks("<think>only reasoning") == ""

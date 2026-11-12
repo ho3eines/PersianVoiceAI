@@ -8,8 +8,10 @@ __pycache__/
 .env.*
 !.env.example
 models/
+.venv-audio/
 data/conversations/
 data/feedback/
+data/knowledge/
 *.log
 .DS_Store
 Thumbs.db
