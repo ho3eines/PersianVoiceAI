@@ -51,16 +51,17 @@ $ python -m pytest
 نتیجهٔ جاری را با اجرای python -m pytest ببینید (تعداد ثابت نیست)
 ```
 
-- تعداد تست‌های مجموعه (pytest --collect-only): **1139** تست — این تنها عدد
+- تعداد تست‌های مجموعه (pytest --collect-only): **1141** تست — این تنها عدد
   مجاز است و `tests/test_docs_consistency.py` آن را با خروجی واقعی
   `pytest --collect-only` مقایسه می‌کند؛ عدد کهنه ⇒ تست قرمز. بقیهٔ اعداد این
   سند **تاریخی** و مربوط به همان مرحله‌اند.
 
-- ۳۸ تست امنیتی در `tests/test_ws_security.py` و ۱۸۹ تست آماده‌سازی متن TTS در
+- ۵۱ تست امنیتی/منابع در `tests/test_ws_security.py` و ۲۰۲ تست آماده‌سازی متن TTS در
   `tests/test_tts_text_preparation.py`: هر تست یک نقص گزارش‌شده را می‌پوشاند و
   روی کد پیش از رفع شکست می‌خورد (برای بارگذاری مدل، pacing، صف حیاتی و نرخ فریم دستی بررسی شد).
   (تصحیح: پیش‌تر «۳۶ امنیتی» و «متن/ASR» نوشته شده بود؛ فیلتر توهم ASR در
-  `tests/test_voice.py` تست می‌شود، نه در آن فایل.)
+  `tests/test_voice.py` تست می‌شود، نه در آن فایل. تعداد فعلی از `pytest --collect-only`
+  همان اجراست، نه شمارش دستی.)
 
 - تست‌های native SpeexDSP در sandbox بدون کتابخانهٔ ساخته‌شده صریحاً skip می‌شوند؛ اگر
   `libspeexdsp` نصب باشد اجرا می‌شوند (در اجرای قبلی همین محیط: ۵۴ تست موفق با کتابخانه).
@@ -122,6 +123,12 @@ $ python -m pytest
 انسان ضعیف. آن اجرا **به `BENCHMARKS.md` منتقل نشده** چون زمان‌هایش پایدار نبود و دامنه‌اش
 فقط همین ماشین است.
 جدول کامل با برچسب `MEASURED`/`SIMULATED`/`NOT MEASURED` در [BENCHMARKS.md](BENCHMARKS.md).
+
+اجرای دوبارهٔ پنج وزن محلی با llama.cpp build 11040 در ۱۲ نوامبر ۲۰۲۶ انجام شد (MEASURED):
+Qwen3.5-4B با ۴٫۰۱ tok/s و TTFT ۴٫۶۴s بهترین تعادل را داشت؛ gemma-3-4b-persian با
+TTFT ۱۵٫۲۷s و پاسخ ریاضی غلط، و دو مدل کوچک (MiniCPM5-1B و qwen3-0.6b) با فارسی
+شکسته کنار گذاشته شدند. جزئیات در BENCHMARKS §۵٫۶؛ گزارش خام در
+`benchmarks/results/pc1-model-compare-20261112.json`.
 
 ## ۴. کارهایی که فقط روی سخت‌افزار هدف معنا دارند (NOT TESTED)
 
@@ -351,3 +358,28 @@ HTTP 503 مدل بارنشده و ادعای اجرای تست Windows/macOS ا�
 - اجرای واقعی Caddy/nginx زیر بار و handshake `wss://` از ESP32-S3.
 - ASR/TTS/LLM واقعی برای هر تغییر این مرحله (همهٔ تست‌ها fake هستند).
 - رفتار قفل فایل روی Windows (`msvcrt.locking`) در این نشست اجرا نشد؛ فقط Linux.
+
+## پیش‌بارگذاری مدل مشترک ASR در startup — ۱۲ نوامبر ۲۰۲۶
+
+بدون این تغییر، اولین اتصال ESP32 در `ModelPool` مدل Whisper را از صفر بار می‌کرد.
+روی این لپ‌تاپ دو‌هسته‌ای، `asr_model_load_ms` در `tools/mic_probe.py` برابر
+**۴۵٫۹ تا ۶۳٫۷ ثانیه** اندازه‌گیری شد (MEASURED، بخش ۹.۳ `docs/HARDWARE_VALIDATION.md`) —
+یعنی اولین utterance دستگاه عملاً به timeout می‌خورد.
+
+| مورد | رفتار | تست |
+|---|---|---|
+| `PVAI_ASR_WARMUP=true` + `PVAI_WS_ENABLED=true` | `MODEL_POOL.preload()` در thread daemon: `audio()` (لود) و `warmup()` (decode ۲۰۰ms سکوت) | `test_ws_security.py::test_preload_warms_the_shared_model_once` |
+| بدون transport صوتی (`ws_enabled=False`) | هیچ مدلی بار نمی‌شود؛ سرور فقط REST هزینهٔ ASR را نمی‌پردازد | `test_ws_security.py::test_startup_preload_needs_the_voice_transport` |
+| `voice_bundle` تزریق‌شده (تست/اپ میزبان) | preload اجرا نمی‌شود؛ مالکیت مدل دست فراخوان است | همان تست |
+| شکست لود (وزن غایب/خراب) | فقط `logger.warning` + traceback؛ startup و `/ready` سالم می‌مانند | پوشش با همان مسیر `_preload_voice_models` |
+| `ModelPool.reset()` | حالا `telemetry` را هم صفر می‌کند تا شمارش بارگذاری بین تست‌ها/ری‌ست‌ها تجمع نکند | `test_resetting_the_model_pool_releases_the_whisper_model` |
+
+startup **بلاک نمی‌شود**: thread جدا و daemon است، پس `/health` و `/ready` بلافاصله پاسخ می‌دهند.
+این عدد صرفه‌جویی (چند ده ثانیه) روی دستگاه واقعی اندازه‌گیری نشده است؛ فقط می‌دانیم لود مدل
+چقدر طول می‌کشد. صرفه‌جویی خودکار = همان مدت لود که به startup منتقل شده است (SIMULATED).
+
+### NOT MEASURED در این مرحله
+
+- زمان «اولین utterance» روی ESP32-S3 واقعی قبل و بعد از preload.
+- مقدار حافظهٔ بلندمدت اشغال‌شده توسط مدل پیش‌بارگذاری‌شده در سروری که هیچ دستگاه وصل نمی‌کند
+  (با `PVAI_WS_ENABLED=false` این مسیر کلاً اجرا نمی‌شود، پس مورد بحث نیست).

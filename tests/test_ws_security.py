@@ -163,6 +163,16 @@ def wait_for(ws, kind: str, *, limit: int = 200) -> dict[str, Any]:
     raise AssertionError(f"{kind} not received")
 
 
+def _wait_until(predicate: Any, *, timeout: float = 5.0) -> None:
+    """Poll ``predicate`` until it is true; the preload runs in a daemon thread."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError("condition was not met before the timeout")
+
+
 def app_client(tmp_path: Path, *, asr: Any = None, speaker: Any = None, **overrides: Any):
     from server.main import create_app
 
@@ -323,6 +333,77 @@ def test_whisper_model_is_shared_across_connections(tmp_path: Path) -> None:
     assert first is second
     assert MODEL_POOL.telemetry["asr_loads"] == 1
     assert MODEL_POOL.telemetry["hits"] >= 1
+
+
+def test_preload_warms_the_shared_model_once(tmp_path: Path) -> None:
+    """Startup preload must load Whisper once and run its warmup decode.
+
+    Without it the first device connection paid the full model load (tens of
+    seconds on a two-core laptop) and its first utterance timed out.
+    """
+    warmups: list[int] = []
+
+    class FakeLocalAudio:
+        def __init__(self, settings_obj, metrics=None):
+            self.settings = settings_obj
+
+        def warmup(self) -> None:
+            warmups.append(1)
+
+    import server.voice as voice_module
+
+    original = voice_module.LocalAudio
+    voice_module.LocalAudio = FakeLocalAudio  # type: ignore[assignment]
+    try:
+        MODEL_POOL.preload(settings(tmp_path))
+        MODEL_POOL.preload(settings(tmp_path))
+    finally:
+        voice_module.LocalAudio = original  # type: ignore[assignment]
+
+    # One model load, and warming it twice is harmless but not a second load.
+    assert MODEL_POOL.telemetry["asr_loads"] == 1
+    assert len(warmups) == 2
+
+
+def test_startup_preload_needs_the_voice_transport(tmp_path: Path) -> None:
+    """Only the LAN transport uses the pool; REST-only servers must not load ASR."""
+    from server.main import create_app
+
+    calls: list[Any] = []
+
+    class FakePool:
+        def preload(self, settings_obj) -> None:
+            calls.append(settings_obj)
+
+    import server.ws_voice as ws_module
+
+    original = ws_module.MODEL_POOL
+    ws_module.MODEL_POOL = FakePool()  # type: ignore[assignment]
+    try:
+        # ws_enabled=False: the shared pool has no consumer, so nothing loads.
+        with TestClient(
+            create_app(settings=settings(tmp_path, ws_enabled=False), llm=NullLlm())
+        ):
+            pass
+        assert calls == []
+
+        # An injected voice bundle means the test/app owns model lifetime.
+        with TestClient(
+            create_app(
+                settings=settings(tmp_path),
+                llm=NullLlm(),
+                voice_bundle=bundle_factory(),
+            )
+        ):
+            pass
+        assert calls == []
+
+        # The real LAN transport: preload runs, in a daemon thread.
+        with TestClient(create_app(settings=settings(tmp_path), llm=NullLlm())):
+            _wait_until(lambda: len(calls) == 1)
+        assert len(calls) == 1
+    finally:
+        ws_module.MODEL_POOL = original  # type: ignore[assignment]
 
 
 def test_connection_limit_refuses_the_extra_device() -> None:

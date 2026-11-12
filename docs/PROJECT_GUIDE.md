@@ -742,16 +742,17 @@ $ python -m pytest
 نتیجهٔ جاری را با اجرای python -m pytest ببینید (تعداد ثابت نیست)
 ```
 
-- تعداد تست‌های مجموعه (pytest --collect-only): **1139** تست — این تنها عدد
+- تعداد تست‌های مجموعه (pytest --collect-only): **1141** تست — این تنها عدد
   مجاز است و `tests/test_docs_consistency.py` آن را با خروجی واقعی
   `pytest --collect-only` مقایسه می‌کند؛ عدد کهنه ⇒ تست قرمز. بقیهٔ اعداد این
   سند **تاریخی** و مربوط به همان مرحله‌اند.
 
-- ۳۸ تست امنیتی در `tests/test_ws_security.py` و ۱۸۹ تست آماده‌سازی متن TTS در
+- ۵۱ تست امنیتی/منابع در `tests/test_ws_security.py` و ۲۰۲ تست آماده‌سازی متن TTS در
   `tests/test_tts_text_preparation.py`: هر تست یک نقص گزارش‌شده را می‌پوشاند و
   روی کد پیش از رفع شکست می‌خورد (برای بارگذاری مدل، pacing، صف حیاتی و نرخ فریم دستی بررسی شد).
   (تصحیح: پیش‌تر «۳۶ امنیتی» و «متن/ASR» نوشته شده بود؛ فیلتر توهم ASR در
-  `tests/test_voice.py` تست می‌شود، نه در آن فایل.)
+  `tests/test_voice.py` تست می‌شود، نه در آن فایل. تعداد فعلی از `pytest --collect-only`
+  همان اجراست، نه شمارش دستی.)
 
 - تست‌های native SpeexDSP در sandbox بدون کتابخانهٔ ساخته‌شده صریحاً skip می‌شوند؛ اگر
   `libspeexdsp` نصب باشد اجرا می‌شوند (در اجرای قبلی همین محیط: ۵۴ تست موفق با کتابخانه).
@@ -813,6 +814,12 @@ $ python -m pytest
 انسان ضعیف. آن اجرا **به `BENCHMARKS.md` منتقل نشده** چون زمان‌هایش پایدار نبود و دامنه‌اش
 فقط همین ماشین است.
 جدول کامل با برچسب `MEASURED`/`SIMULATED`/`NOT MEASURED` در [BENCHMARKS.md](BENCHMARKS.md).
+
+اجرای دوبارهٔ پنج وزن محلی با llama.cpp build 11040 در ۱۲ نوامبر ۲۰۲۶ انجام شد (MEASURED):
+Qwen3.5-4B با ۴٫۰۱ tok/s و TTFT ۴٫۶۴s بهترین تعادل را داشت؛ gemma-3-4b-persian با
+TTFT ۱۵٫۲۷s و پاسخ ریاضی غلط، و دو مدل کوچک (MiniCPM5-1B و qwen3-0.6b) با فارسی
+شکسته کنار گذاشته شدند. جزئیات در BENCHMARKS §۵٫۶؛ گزارش خام در
+`benchmarks/results/pc1-model-compare-20261112.json`.
 
 ## ۴. کارهایی که فقط روی سخت‌افزار هدف معنا دارند (NOT TESTED)
 
@@ -1042,6 +1049,31 @@ HTTP 503 مدل بارنشده و ادعای اجرای تست Windows/macOS ا�
 - اجرای واقعی Caddy/nginx زیر بار و handshake `wss://` از ESP32-S3.
 - ASR/TTS/LLM واقعی برای هر تغییر این مرحله (همهٔ تست‌ها fake هستند).
 - رفتار قفل فایل روی Windows (`msvcrt.locking`) در این نشست اجرا نشد؛ فقط Linux.
+
+## پیش‌بارگذاری مدل مشترک ASR در startup — ۱۲ نوامبر ۲۰۲۶
+
+بدون این تغییر، اولین اتصال ESP32 در `ModelPool` مدل Whisper را از صفر بار می‌کرد.
+روی این لپ‌تاپ دو‌هسته‌ای، `asr_model_load_ms` در `tools/mic_probe.py` برابر
+**۴۵٫۹ تا ۶۳٫۷ ثانیه** اندازه‌گیری شد (MEASURED، بخش ۹.۳ `docs/HARDWARE_VALIDATION.md`) —
+یعنی اولین utterance دستگاه عملاً به timeout می‌خورد.
+
+| مورد | رفتار | تست |
+|---|---|---|
+| `PVAI_ASR_WARMUP=true` + `PVAI_WS_ENABLED=true` | `MODEL_POOL.preload()` در thread daemon: `audio()` (لود) و `warmup()` (decode ۲۰۰ms سکوت) | `test_ws_security.py::test_preload_warms_the_shared_model_once` |
+| بدون transport صوتی (`ws_enabled=False`) | هیچ مدلی بار نمی‌شود؛ سرور فقط REST هزینهٔ ASR را نمی‌پردازد | `test_ws_security.py::test_startup_preload_needs_the_voice_transport` |
+| `voice_bundle` تزریق‌شده (تست/اپ میزبان) | preload اجرا نمی‌شود؛ مالکیت مدل دست فراخوان است | همان تست |
+| شکست لود (وزن غایب/خراب) | فقط `logger.warning` + traceback؛ startup و `/ready` سالم می‌مانند | پوشش با همان مسیر `_preload_voice_models` |
+| `ModelPool.reset()` | حالا `telemetry` را هم صفر می‌کند تا شمارش بارگذاری بین تست‌ها/ری‌ست‌ها تجمع نکند | `test_resetting_the_model_pool_releases_the_whisper_model` |
+
+startup **بلاک نمی‌شود**: thread جدا و daemon است، پس `/health` و `/ready` بلافاصله پاسخ می‌دهند.
+این عدد صرفه‌جویی (چند ده ثانیه) روی دستگاه واقعی اندازه‌گیری نشده است؛ فقط می‌دانیم لود مدل
+چقدر طول می‌کشد. صرفه‌جویی خودکار = همان مدت لود که به startup منتقل شده است (SIMULATED).
+
+### NOT MEASURED در این مرحله
+
+- زمان «اولین utterance» روی ESP32-S3 واقعی قبل و بعد از preload.
+- مقدار حافظهٔ بلندمدت اشغال‌شده توسط مدل پیش‌بارگذاری‌شده در سروری که هیچ دستگاه وصل نمی‌کند
+  (با `PVAI_WS_ENABLED=false` این مسیر کلاً اجرا نمی‌شود، پس مورد بحث نیست).
 
 ---
 
@@ -1339,7 +1371,7 @@ $env:PYTHONIOENCODING = "utf-8"
 | `PVAI_ASR_HALLUCINATION_PHRASES` | فهرست فارسی/انگلیسی | عبارت‌های توهمی روی سکوت/نویز، جداشده با ویرگول. خالی = فیلتر خاموش (توصیه نمی‌شود) |
 | `PVAI_ASR_PARTIAL_WINDOW_S` | `3.0` | طول پنجرهٔ هم‌پوشان برای partial؛ cost هر decode را ثابت نگه می‌دارد. باید ≥ ۲× `PVAI_VOICE_ASR_INTERVAL` باشد |
 | `PVAI_ASR_MAX_FINAL_JOBS` | `16` | آستانهٔ هشدار عمق صف final؛ **هیچ final حذف نمی‌شود** |
-| `PVAI_ASR_WARMUP` | `true` | لود و warmup مدل در startup به‌جای اولین utterance |
+| `PVAI_ASR_WARMUP` | `true` | لود و warmup مدل در startup به‌جای اولین utterance. با `PVAI_WS_ENABLED=true` مدل مشترک `MODEL_POOL` در یک thread daemon از پیش بارگذاری و با ۲۰۰ms سکوت warm می‌شود، پس اولین اتصال ESP32 هزینهٔ لود را نمی‌پردازد؛ بدون transport صوتی هیچ مدلی بار نمی‌شود. شکست لود فقط در لاگ هشدار می‌دهد و `/ready` را خراب نمی‌کند |
 
 ### فیلتر توهم Whisper
 
@@ -2882,6 +2914,48 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 مرتبط تولید کردند؛ MiniCPM5-1B خروجی نامفهوم و پراکنده داد. انتخاب مدل نهایی هستهٔ متنی:
 **Qwen3.5-4B-Q4_K_M**. اعتبارسنجی آماری این مقایسه انجام نشده و مقایسهٔ کیفیت تک‌بازبین است.
 
+
+## ۵.۶. اجرای دوبارهٔ پنج وزن محلی با llama.cpp build 11040 — ۱۲ نوامبر ۲۰۲۶ (MEASURED)
+
+همان ماشین (i7-6500U، ۱۵٫۸۷GB RAM، ۹۴۰MX که استفاده نشد)، ویندوز ۱۱.
+موتور: `D:\Lama.cpp\bin\llama-server.exe` نسخهٔ `0.4.1-dev (build 11040, 5b335f413)`.
+فرمان: `benchmarks/compare_models.py --gpu-layers 0 --ctx-size 4096 --threads 4 --max-tokens 48`
+(CPU خالص، `--parallel 1`، `temperature=0`، همان ۸ پرامپت فارسی).
+گزارش خام: `benchmarks/results/pc1-model-compare-20261112.json`.
+
+| مدل | TTFT میانگین | tok/s میانگین | زمان کل میانگین | RAM اوج پروسه | VRAM delta |
+|---|---|---|---|---|---|
+| Qwen3.5-4B-Q4_K_M | ۴٫۶۴s | ۴٫۰۱ | ۱۶٫۷۰s | ۳۰۴۷MiB | ۷۲MiB |
+| Qwen3-4B-Q4_K_M | ۶٫۵۱s | ۳٫۳۷ | ۲۰٫۶۷s | ۴۱۱۰MiB | ۱۲۴MiB |
+| gemma-3-4b-persian-v0.Q4_K_M | ۱۵٫۲۷s | ۶٫۱۷ | ۲۱٫۹۷s | ۴۲۴۱MiB | ۷۸MiB |
+| MiniCPM5-1B-Q8_0 | ۲٫۱۲s | ۱۵٫۸۴ | ۵٫۰۸s | ۱۰۹۱MiB | ۵۰MiB |
+| qwen3-0.6b-Q4_K_M | ۰٫۸۲s | ۲۲٫۱۸ | ۲٫۸۴s | ۱۱۲۳MiB | ۴۵MiB |
+
+**کیفیت (بازبینی دستی، تک‌بازبین؛ `max_tokens=48` یعنی همهٔ پاسخ‌ها بریده‌اند و این سنجش کامل نیست):**
+
+- **Qwen3.5-4B**: فارسی روان و درست؛ پرسش ریاضی (۱۲۰ صفحه ÷ ۱۵ صفحه در روز) با پاسخ درست آغاز شد.
+- **Qwen3-4B**: روان ولی موجزتر و کم‌دقت‌تر از Qwen3.5.
+- **gemma-3-4b-persian**: متن روان، ولی **پاسخ ریاضی غلط** (ابتدا «چهل و پنج روز»، سپس «۴ روز»؛ پاسخ درست ۸ است). کندی prefill قبلی هم تکرار شد: TTFT ۱۵٫۳s.
+- **MiniCPM5-1B و qwen3-0.6b**: فارسی شکسته/نامفهوم؛ برای دستیار فارسی قابل استفاده نیستند.
+
+`token_limit_reached` برای هر سه مدل ۴B برابر ۸ از ۸ است، پس سرعت این جدول دست‌کم گرفته نشده
+ولی مقایسهٔ کیفیت فقط یک بازبینی سطحی است. انتخاب قبلی (Qwen3.5-4B) با این اجرا نقض نشد.
+
+### ۵.۶.۱ مسیر REST خود پروژه (MEASURED)
+
+یک درخواست واقعی `POST /api/chat` با `max_tokens=64` روی همان سرور
+(`-ngl 0 -c 4096`, چهار اسلات پیش‌فرض llama-server):
+
+| معیار | مقدار |
+|---|---|
+| توکن تولیدشده | ۴۶ |
+| زمان کل | ۲۱٫۵۵s |
+| `prompt_eval` | ۳٫۶۱s (۲۷۳ توکن) |
+| `generation` | ۱۷٫۹۳s |
+| tok/s | ۲٫۵۱ |
+
+این عدد از میانگین ۸ پرامپت جدول بالا کمتر است چون **اولین درخواست پس از لود مدل** و بدون
+`--parallel 1` است؛ برای مقایسهٔ مدل‌ها از جدول ۵٫۶ استفاده کنید، نه این ردیف.
 
 ## ۶. ارزیابی فارسی (WER/CER)
 

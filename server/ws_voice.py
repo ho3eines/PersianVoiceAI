@@ -227,6 +227,18 @@ class ModelPool:
                 # connection that may already have gone away.
             return self._audio
 
+    def preload(self, settings: Settings) -> None:
+        """Load and warm the shared Whisper model before the first device connects.
+
+        Without this the first ESP32 connection pays the full model load
+        (tens of seconds on a two-core CPU) and its first utterance times out.
+        """
+        audio = self.audio(settings, Metrics(enabled=settings.metrics_enabled))
+        warmup = getattr(audio, "warmup", None)
+        if callable(warmup):
+            warmup()
+            logger.info("Whisper model preloaded for the LAN voice transport")
+
     def piper_voice(self, settings: Settings, voice: str) -> Any:
         """The loaded Piper model for ``voice`` (``male``/``female`` only)."""
         key = (voice or settings.tts_voice or "female").strip().lower()
@@ -265,6 +277,7 @@ class ModelPool:
             self.asr_metrics = None
             self._voices.clear()
             self._voice_locks.clear()
+            self.telemetry = {"asr_loads": 0, "voice_loads": 0, "hits": 0}
         if audio is not None:
             closer = getattr(audio, "close", None)
             if callable(closer):
