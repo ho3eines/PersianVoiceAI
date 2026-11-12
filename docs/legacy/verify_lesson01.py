@@ -3,7 +3,7 @@
 Checks, in order:
   1. local API is up and llama.cpp model is loaded
   2. the configured GGUF model file is available
-  3. the model generates a response (content or reasoning)
+  3. the model generates user-visible response content
   4. streaming works and time-to-first-token is measurable
   5. the OpenAI-compatible model endpoint responds
 
@@ -11,13 +11,13 @@ Usage:
     python tools/verify_lesson01.py
 Exit code 0 means all criteria passed.
 
-Note: MiniCPM5-1B is primarily a Chinese/English model and outputs to
-reasoning_content field. Persian support requires a model like Qwen3-4B.
-This verification checks that the PIPELINE works, not the model's language quality.
+This verification checks the local pipeline and user-visible response content;
+it does not score Persian language quality. Private reasoning fields are ignored.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
@@ -26,7 +26,7 @@ from typing import Any
 
 import httpx
 
-BASE_URL = "http://127.0.0.1:8000"
+DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 PERSIAN_RE = re.compile(r"[\u0600-\u06FF]")
 
 
@@ -42,7 +42,12 @@ def _persian_ratio(text: str) -> float:
     return sum(1 for char in letters if PERSIAN_RE.match(char)) / len(letters)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Verify the local llama.cpp + FastAPI text path")
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="local FastAPI URL")
+    args = parser.parse_args(argv)
+    base_url = args.base_url.rstrip("/")
+
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
@@ -52,7 +57,7 @@ def main() -> int:
     with httpx.Client(timeout=httpx.Timeout(300.0, connect=5.0)) as client:
         # 1. health
         try:
-            health_response = client.get(f"{BASE_URL}/health", timeout=10.0)
+            health_response = client.get(f"{base_url}/health", timeout=10.0)
             health_response.raise_for_status()
             health: dict[str, Any] = health_response.json()
         except (httpx.HTTPError, ValueError) as exc:
@@ -79,11 +84,11 @@ def main() -> int:
             "" if backend.get("model_available") else "فایل .gguf در models/ نیست",
         )
 
-        # 2. non-streaming response (any content or reasoning)
+        # 2. non-streaming response (user-visible content only)
         started = time.perf_counter()
         try:
             chat_response = client.post(
-                f"{BASE_URL}/v1/chat/completions",
+                f"{base_url}/v1/chat/completions",
                 json={
                     "messages": [
                         {
@@ -96,10 +101,9 @@ def main() -> int:
             )
             chat_response.raise_for_status()
             body = chat_response.json()
-            # Check both content and reasoning_content
             choice = body["choices"][0]
             message = choice.get("message", {})
-            content = message.get("content") or message.get("reasoning_content") or ""
+            content = message.get("content") or ""
             wall_ms = (time.perf_counter() - started) * 1000
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             _line(False, "پاسخ از مدل دریافت شد", str(exc))
@@ -109,7 +113,7 @@ def main() -> int:
         results.append(has_response)
         _line(
             has_response,
-            "پاسخ از مدل دریافت شد (content یا reasoning)",
+            "پاسخ متنی قابل نمایش از مدل دریافت شد",
             f"{len(content)} کاراکتر، {wall_ms / 1000:.2f}s",
         )
 
@@ -119,7 +123,7 @@ def main() -> int:
         _line(
             persian_ok,
             "پاسخ حاوی متن فارسی است (اطلاعی)",
-            f"{ratio:.0%} حروف فارسی" if ratio > 0 else "بدون متن فارسی (محدودیت مدل MiniCPM)",
+            f"{ratio:.0%} حروف فارسی" if ratio > 0 else "پاسخ حاوی حرف فارسی نیست",
         )
 
         timings = body.get("timings", {})
@@ -131,7 +135,7 @@ def main() -> int:
             f"tokens={timings.get('completion_tokens')} tok/s={timings.get('tokens_per_second')}",
         )
 
-        # 3. streaming + TTFT (check both content and reasoning_content in delta)
+        # 3. streaming + TTFT (user-visible content only)
         stream_ok = False
         ttft_ms = None
         streamed_any: list[str] = []
@@ -139,7 +143,7 @@ def main() -> int:
             started = time.perf_counter()
             with client.stream(
                 "POST",
-                f"{BASE_URL}/v1/chat/completions",
+                f"{base_url}/v1/chat/completions",
                 json={
                     "messages": [{"role": "user", "content": "سلام"}],
                     "stream": True,
@@ -159,8 +163,7 @@ def main() -> int:
                     choices = event.get("choices") or []
                     if choices:
                         delta = choices[0].get("delta") or {}
-                        # Check both content and reasoning_content
-                        piece = delta.get("content") or delta.get("reasoning_content") or ""
+                        piece = delta.get("content") or ""
                         if piece:
                             if ttft_ms is None:
                                 ttft_ms = (time.perf_counter() - started) * 1000
@@ -178,7 +181,7 @@ def main() -> int:
 
         # 4. models endpoint
         try:
-            models = client.get(f"{BASE_URL}/v1/models", timeout=10.0).json().get("data", [])
+            models = client.get(f"{base_url}/v1/models", timeout=10.0).json().get("data", [])
             ids = [item.get("id") for item in models]
             models_ok = bool(ids)
         except (httpx.HTTPError, ValueError):
@@ -188,14 +191,11 @@ def main() -> int:
         _line(models_ok, "API فهرست مدل‌ها را برمی‌گرداند", ", ".join(str(i) for i in ids))
 
         print("\nپاسخ نمونه:\n" + "-" * 60)
-        print(content.strip() if content else "(خالی - مدل به reasoning_content می‌نویسد)")
+        print(content.strip() if content else "(پاسخ متنی قابل نمایش دریافت نشد)")
         print("-" * 60)
 
     passed = all(results)
     print(f"\nنتیجه نهایی: {'همهٔ معیارها PASS شدند' if passed else 'برخی معیارها FAIL شدند'}")
-    if not passed:
-        print("\n⚠️  نکته: مدل MiniCPM5-1B خروجی را در reasoning_content می‌نویسد و پوشش فارسی ندارد.")
-        print("   برای تولید فارسی، مدل Qwen3-4B-Q4_K_M یا مشابه پیشنهاد می‌شود.")
     return 0 if passed else 1
 
 

@@ -649,7 +649,10 @@ class VoiceSession:
             raise VoiceError("گفتاری تشخیص داده نشد؛ دوباره تلاش کنید.")
         messages = self.history[-10:] + [{"role": "user", "content": text}]
         try:
-            response = self.client.post("/v1/chat/completions", json={"messages": messages, "stream": False})
+            response = self.client.post(
+                "/v1/chat/completions",
+                json={"messages": messages, "stream": False, "use_rag": True},
+            )
             assert_local_api_authorized(response)
             response.raise_for_status()
             data = response.json()

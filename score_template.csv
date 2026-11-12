@@ -1,0 +1,13 @@
+id,category,score,critical_fail
+fa-001,greeting,,,0
+fa-003,numbers,,,0
+fa-006,datetime,,,0
+fa-009,english_terms,,,0
+fa-012,names,,,0
+fa-014,zwnj,,,0
+fa-017,arabic_chars,,,0
+fa-019,long_sentence,,,0
+fa-021,spoken,,,0
+fa-024,question,,,0
+fa-027,command,,,0
+fa-040,greeting,,,0

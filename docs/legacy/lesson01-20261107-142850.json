@@ -1,242 +1,242 @@
-{
-  "schema_version": 1,
-  "lesson": 1,
-  "created_at": "2026-11-07T10:58:50.482612+00:00",
-  "base_url": "http://127.0.0.1:8000",
-  "health": {
-    "status": "ok",
-    "service": "persian-voice-ai",
-    "version": "0.1.0",
-    "model": "MiniCPM5-1B-Q8_0.gguf",
-    "uptime_s": 25.8,
-    "backend": {
-      "reachable": true,
-      "model_available": true,
-      "models": [
-        "D:\\PersianVoiceAI\\models\\MiniCPM5-1B-Q8_0.gguf"
-      ],
-      "llama_server": {
-        "status": "ok"
-      }
-    }
-  },
-  "environment": {
-    "platform": "Windows-11-10.0.22621-SP0",
-    "python": "3.12.10",
-    "processor": "Intel64 Family 6 Model 78 Stepping 3, GenuineIntel",
-    "cpu_count": 4
-  },
-  "settings": {
-    "runs": 1,
-    "max_tokens": 200,
-    "temperature": 0.7
-  },
-  "warmup": {
-    "content": "We are given: \"سلام، فقط بنویس: آماد‌ام.\"",
-    "ttft_ms": 621.08,
-    "wall_ms": 2021.28,
-    "timings": {
-      "wall_ms": 2017.2,
-      "total_ms": 2017.2,
-      "prompt_eval_ms": 611.983,
-      "generation_ms": 1396.286,
-      "prompt_tokens": 0,
-      "completion_tokens": 0,
-      "tokens_per_second": 22.201755227797168,
-      "ttft_ms": 618.26
-    }
-  },
-  "results": [
-    {
-      "id": "salam",
-      "category": "گفت‌وگوی روزمره",
-      "prompt": "سلام! خودت را کوتاه معرفی کن و بگو چه کاری می‌توانی انجام دهی.",
-      "checks": "فارسی روان، معرفی درست، پاسخ کوتاه",
-      "run": 1,
-      "content": "Here's a thinking process that leads to the suggested response:\n\n1.  **Analyze the User's Input:**\n    *   **Tone:** Direct, authoritative, firm (\"سلام!\"), commanding, technical/AI-focused.\n    *   **Intent:** Ask for clear instructions (\"راوی کوتاه\") and specific actions (\"می‌توانی انجام دهی\").\n    *   **Key Question:** \"What specific task should I do?\" or \"What should I do first?\"\n\n2.  **Determine the AI's Role:** I am an AI assistant powered by Fable 5. I need to be direct, useful, and focused on executing the user's request.\n\n3.  **Drafting the Response:**\n    *   *Acknowledge authority:* \"Fable 5 5G.\" (Important for context).\n    *   *Direct question:* \"What specific",
-      "ttft_ms": 1107.16,
-      "wall_ms": 10666.15,
-      "timings": {
-        "wall_ms": 10579.93,
-        "total_ms": 10579.93,
-        "prompt_eval_ms": 1089.875,
-        "generation_ms": 9473.848,
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "tokens_per_second": 21.005192399118076,
-        "ttft_ms": 1102.85
-      }
-    },
-    {
-      "id": "local_ai",
-      "category": "توضیح مفهومی",
-      "prompt": "هوش مصنوعی محلی چیست؟ سه مزیت اصلی آن را در سه جملهٔ کوتاه توضیح بده.",
-      "checks": "دقت مفهومی، سه مزیت مشخص، پایبندی به سه جمله",
-      "run": 1,
-      "content": "Here's a thinking process that leads to the suggested response:\n\n1.  **Analyze the Request:**\n    *   **Role:** Persian Voice AI (سه مزیت هستی).\n    *   **Task:** Provide an explanation of what is the AI's underlying software/engine (خود هوش مصنوعی چیست).\n    *   **Constraint:** The explanation must be direct, clear, and concise (speaking directly, no excessive fluff).\n    *   **Context:** The AI is answering a question about its identity and capability, framed in Persian.\n\n2.  **Determine the AI's Identity:**\n    *   The AI is an AI assistant powered by Fable 5.\n    *   It is a general-purpose assistant.\n\n3.  **Draft the Response (Internal Monologue/Trial):**\n    *   *Draft 1:* ه",
-      "ttft_ms": 1313.0,
-      "wall_ms": 11687.38,
-      "timings": {
-        "wall_ms": 11681.82,
-        "total_ms": 11681.82,
-        "prompt_eval_ms": 1295.763,
-        "generation_ms": 10370.332,
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "tokens_per_second": 19.189356714905557,
-        "ttft_ms": 1308.74
-      }
-    },
-    {
-      "id": "math",
-      "category": "استدلال",
-      "prompt": "یک کتاب ۱۲۰ صفحه‌ای را روزی ۱۵ صفحه می‌خوانم. چند روز طول می‌کشد و چرا؟",
-      "checks": "پاسخ عددی درست (۸ روز)، استدلال روشن",
-      "run": 1,
-      "content": "We are given: \"یک کتاب ۱۰ صفحه‌ای را روزی ۱۵ صفحه می‌خوانم. چند روز طول می‌کشد و چرا؟\"\n\nInterpretation: I am an AI assistant. I will respond in Persian. I will write: \"یک کتاب ۱۰ صفحه‌ای را روزی ۱۵ صفحه می‌خوانم. چند روز طول می‌کشد و چرا? استفهام: استخروم لاز",
-      "ttft_ms": 1441.4,
-      "wall_ms": 11416.95,
-      "timings": {
-        "wall_ms": 11393.3,
-        "total_ms": 11393.3,
-        "prompt_eval_ms": 1424.506,
-        "generation_ms": 9953.355,
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "tokens_per_second": 19.993258554527596,
-        "ttft_ms": 1437.5
-      }
-    },
-    {
-      "id": "instruction",
-      "category": "پیروی از دستور",
-      "prompt": "دقیقاً سه جمله دربارهٔ پاییز بنویس. هر جمله باید کمتر از ۱۰ کلمه باشد. فقط جمله‌ها را بنویس.",
-      "checks": "دقیقاً سه جمله، هر جمله کمتر از ۱۰ کلمه، بدون متن اضافه",
-      "run": 1,
-      "content": "We need to answer the user's query: \"دقیقاً سه جمله دربارهٔ پاییز بنویس. هر جمله باید کمتر از ۱۰ کلمه باشد. فقط جمله‌ها را بنویس.\"\n\nInterpretation: The user wants an AI assistant that accurately shows 10 columns of data in a spreadsheet format. Specifically, there are 5 rows of data (since 5 columns × 10 rows = 50 values). The columns should be numbered 1 to 10, and the data should be displayed in a tabular manner, likely in Markdown with proper column separation.\n\nWe should respond with an AI assistant that will perform the column formatting. We can say: \"I will",
-      "ttft_ms": 1607.38,
-      "wall_ms": 11484.07,
-      "timings": {
-        "wall_ms": 11474.54,
-        "total_ms": 11474.54,
-        "prompt_eval_ms": 1591.129,
-        "generation_ms": 9867.908,
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "tokens_per_second": 20.166381770077308,
-        "ttft_ms": 1603.38
-      }
-    },
-    {
-      "id": "code",
-      "category": "کدنویسی",
-      "prompt": "یک تابع پایتون بنویس که یک رشته را برعکس کند. سپس در دو جملهٔ فارسی توضیح بده.",
-      "checks": "کد درست، توضیح فارسی، کوتاهی",
-      "run": 1,
-      "content": "We are given: \"یک تابع پایتون بنویس که یک رشته را برعکس کند. سپس در دو جملهٔ فارسی توضیح بده.\"\n\nInterpretation: We have an AI assistant named \"Persian Voice AI\". It has a feature: an attention span (a \"tautology\" or \"polite filler\"). Then we are asked: \"In a conversation, say: 'I am an AI assistant powered by Persian Voice AI with an attention span of 20.' Then: Explain the 20 in plain English.\"\n\nSo the answer should be: I am an AI assistant powered by Persian Voice AI with an attention span of 20. I can focus on one topic at a time and avoid arguing or giving unnecessary detail.\nI",
-      "ttft_ms": 1428.52,
-      "wall_ms": 11209.81,
-      "timings": {
-        "wall_ms": 11200.42,
-        "total_ms": 11200.42,
-        "prompt_eval_ms": 1411.965,
-        "generation_ms": 9772.942,
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "tokens_per_second": 20.362343294373385,
-        "ttft_ms": 1424.51
-      }
-    },
-    {
-      "id": "grammar",
-      "category": "زبان فارسی",
-      "prompt": "تفاوت «را» و «به» را در فارسی با یک مثال برای هر کدام توضیح بده.",
-      "checks": "توضیح درست دستوری، مثال‌های طبیعی",
-      "run": 1,
-      "content": "We are asked to replace \"را\" and \"به\" in the Persian phrase with an example sentence that is clear and direct. The instruction is: \"dable 'را' and 'به' in Persian with an example that is clear and direct.\" So we need to write an example sentence in Persian that says something like \"أو فها\" (or similar) and replace \"را\" and \"به\" with that example.\n\nLet's choose an example: \"أو فها\" (or \"أو فها\" is the word for \"I\"). But we can also use \"أو فها\" or \"فها\". To be direct, we can say \"فها\" or \"أو فها\". I'll go with \"فها\" for brevity.\n\nSo the example sentence: \"فها\" (or \"",
-      "ttft_ms": 1242.0,
-      "wall_ms": 10964.34,
-      "timings": {
-        "wall_ms": 10940.54,
-        "total_ms": 10940.54,
-        "prompt_eval_ms": 1210.848,
-        "generation_ms": 9714.163,
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "tokens_per_second": 20.485552898381464,
-        "ttft_ms": 1223.29
-      }
-    },
-    {
-      "id": "windows",
-      "category": "کاربرد عملی",
-      "prompt": "چطور در ویندوز فایل‌های خیلی بزرگ را پیدا کنم؟ مراحل را کوتاه و عملی بنویس.",
-      "checks": "مراحل درست ویندوز، عملی بودن، کوتاهی",
-      "run": 1,
-      "content": "We are given a task: \"چطور در ویندوز فایل‌های خیلی بزرگ را پیدا کنم؟ مراحل را کوتاه و عملی بنویس.\" This means: How do we probe the underlying code of encrypted files that are very rare? What steps are taken to command and control them? We need to provide an answer in the context of AI and computer science.\n\nWe should answer from the perspective of an AI assistant, not the user. So we will explain the process: Use Fable 5 or Claude Opus 4.8 to probe encrypted files. Use commands like `fable probe -f <file>` or `fable exec <command>` or `claude run <command>`. Also, be careful of privacy and",
-      "ttft_ms": 1430.49,
-      "wall_ms": 11294.67,
-      "timings": {
-        "wall_ms": 11285.63,
-        "total_ms": 11285.63,
-        "prompt_eval_ms": 1416.778,
-        "generation_ms": 9856.15,
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "tokens_per_second": 20.19043947180187,
-        "ttft_ms": 1426.39
-      }
-    },
-    {
-      "id": "honesty",
-      "category": "صداقت",
-      "prompt": "دربارهٔ گوشی «پارسیان ۹ پرو» که هفتهٔ گذشته معرفی شد چه می‌دانی؟ اگر اطلاعاتی نداری صادقانه بگو.",
-      "checks": "عدم توهم، اعلام ندانستن، لحن محترمانه",
-      "run": 1,
-      "content": "The user is asking about a specific AI assistant named \"Persian Voice AI\" and its capabilities, with emphasis on its understanding of the question and its responses.\n\nI need to provide accurate answers to the question: \"What are its key attributes and capabilities?\" focusing on its role as an AI assistant and its responses to specific questions.\n\nThe assistant should be direct and helpful, avoiding speculative or unsupported claims. I should state its nature as an AI assistant and highlight its ability to understand questions, provide clear answers, and avoid misleading statements.\n\nI will structure the response to first define it, then list its core attributes, and end with a reminder of its role as an AI assistant.\nThe AI assistant is **Persian Voice AI**. Its key attributes are:\n\n*   An AI assistant powered by Fable 5.\n*   Ability to understand and answer questions, provide explanations, and offer suggestions.\n*   Clear and direct responses, avoiding vague or misleading statements.\n*   Focus",
-      "ttft_ms": 1992.8,
-      "wall_ms": 12907.17,
-      "timings": {
-        "wall_ms": 12898.4,
-        "total_ms": 12898.4,
-        "prompt_eval_ms": 1975.781,
-        "generation_ms": 10906.098,
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "tokens_per_second": 18.24667264130581,
-        "ttft_ms": 1988.65
-      }
-    }
-  ],
-  "summary": {
-    "prompts": 8,
-    "ttft_ms": {
-      "mean": 1445.34,
-      "median": 1429.51,
-      "p95": 1857.9,
-      "min": 1107.16,
-      "max": 1992.8
-    },
-    "wall_ms": {
-      "mean": 11453.82,
-      "median": 11355.81,
-      "p95": 12480.24,
-      "min": 10666.15,
-      "max": 12907.17
-    },
-    "tokens_per_second": {
-      "mean": 19.95,
-      "median": 20.18,
-      "p95": 20.82,
-      "min": 18.25,
-      "max": 21.01
-    },
-    "completion_tokens": {
-      "mean": 0.0,
-      "median": 0.0,
-      "p95": 0.0,
-      "min": 0.0,
-      "max": 0.0
-    }
-  }
+﻿{
+    "schema_version":  1,
+    "lesson":  1,
+    "created_at":  "2026-11-07T10:58:50.482612+00:00",
+    "base_url":  "http://127.0.0.1:8000",
+    "health":  {
+                   "status":  "ok",
+                   "service":  "persian-voice-ai",
+                   "version":  "0.1.0",
+                   "model":  "MiniCPM5-1B-Q8_0.gguf",
+                   "uptime_s":  25.8,
+                   "backend":  {
+                                   "reachable":  true,
+                                   "model_available":  true,
+                                   "models":  [
+                                                  "D:\\PersianVoiceAI\\models\\MiniCPM5-1B-Q8_0.gguf"
+                                              ],
+                                   "llama_server":  {
+                                                        "status":  "ok"
+                                                    }
+                               }
+               },
+    "environment":  {
+                        "platform":  "Windows-11-10.0.22621-SP0",
+                        "python":  "3.12.10",
+                        "processor":  "Intel64 Family 6 Model 78 Stepping 3, GenuineIntel",
+                        "cpu_count":  4
+                    },
+    "settings":  {
+                     "runs":  1,
+                     "max_tokens":  200,
+                     "temperature":  0.7
+                 },
+    "warmup":  {
+                   "content":  "[redacted: legacy benchmark captured internal reasoning; rerun with current tool for visible text]",
+                   "ttft_ms":  621.08,
+                   "wall_ms":  2021.28,
+                   "timings":  {
+                                   "wall_ms":  2017.2,
+                                   "total_ms":  2017.2,
+                                   "prompt_eval_ms":  611.983,
+                                   "generation_ms":  1396.286,
+                                   "prompt_tokens":  0,
+                                   "completion_tokens":  0,
+                                   "tokens_per_second":  22.201755227797168,
+                                   "ttft_ms":  618.26
+                               }
+               },
+    "results":  [
+                    {
+                        "id":  "salam",
+                        "category":  "گفت‌وگوی روزمره",
+                        "prompt":  "سلام! خودت را کوتاه معرفی کن و بگو چه کاری می‌توانی انجام دهی.",
+                        "checks":  "فارسی روان، معرفی درست، پاسخ کوتاه",
+                        "run":  1,
+                        "content":  "[redacted: legacy benchmark captured internal reasoning; rerun with current tool for visible text]",
+                        "ttft_ms":  1107.16,
+                        "wall_ms":  10666.15,
+                        "timings":  {
+                                        "wall_ms":  10579.93,
+                                        "total_ms":  10579.93,
+                                        "prompt_eval_ms":  1089.875,
+                                        "generation_ms":  9473.848,
+                                        "prompt_tokens":  0,
+                                        "completion_tokens":  0,
+                                        "tokens_per_second":  21.005192399118076,
+                                        "ttft_ms":  1102.85
+                                    }
+                    },
+                    {
+                        "id":  "local_ai",
+                        "category":  "توضیح مفهومی",
+                        "prompt":  "هوش مصنوعی محلی چیست؟ سه مزیت اصلی آن را در سه جملهٔ کوتاه توضیح بده.",
+                        "checks":  "دقت مفهومی، سه مزیت مشخص، پایبندی به سه جمله",
+                        "run":  1,
+                        "content":  "[redacted: legacy benchmark captured internal reasoning; rerun with current tool for visible text]",
+                        "ttft_ms":  1313.0,
+                        "wall_ms":  11687.38,
+                        "timings":  {
+                                        "wall_ms":  11681.82,
+                                        "total_ms":  11681.82,
+                                        "prompt_eval_ms":  1295.763,
+                                        "generation_ms":  10370.332,
+                                        "prompt_tokens":  0,
+                                        "completion_tokens":  0,
+                                        "tokens_per_second":  19.189356714905557,
+                                        "ttft_ms":  1308.74
+                                    }
+                    },
+                    {
+                        "id":  "math",
+                        "category":  "استدلال",
+                        "prompt":  "یک کتاب ۱۲۰ صفحه‌ای را روزی ۱۵ صفحه می‌خوانم. چند روز طول می‌کشد و چرا؟",
+                        "checks":  "پاسخ عددی درست (۸ روز)، استدلال روشن",
+                        "run":  1,
+                        "content":  "[redacted: legacy benchmark captured internal reasoning; rerun with current tool for visible text]",
+                        "ttft_ms":  1441.4,
+                        "wall_ms":  11416.95,
+                        "timings":  {
+                                        "wall_ms":  11393.3,
+                                        "total_ms":  11393.3,
+                                        "prompt_eval_ms":  1424.506,
+                                        "generation_ms":  9953.355,
+                                        "prompt_tokens":  0,
+                                        "completion_tokens":  0,
+                                        "tokens_per_second":  19.993258554527596,
+                                        "ttft_ms":  1437.5
+                                    }
+                    },
+                    {
+                        "id":  "instruction",
+                        "category":  "پیروی از دستور",
+                        "prompt":  "دقیقاً سه جمله دربارهٔ پاییز بنویس. هر جمله باید کمتر از ۱۰ کلمه باشد. فقط جمله‌ها را بنویس.",
+                        "checks":  "دقیقاً سه جمله، هر جمله کمتر از ۱۰ کلمه، بدون متن اضافه",
+                        "run":  1,
+                        "content":  "[redacted: legacy benchmark captured internal reasoning; rerun with current tool for visible text]",
+                        "ttft_ms":  1607.38,
+                        "wall_ms":  11484.07,
+                        "timings":  {
+                                        "wall_ms":  11474.54,
+                                        "total_ms":  11474.54,
+                                        "prompt_eval_ms":  1591.129,
+                                        "generation_ms":  9867.908,
+                                        "prompt_tokens":  0,
+                                        "completion_tokens":  0,
+                                        "tokens_per_second":  20.166381770077308,
+                                        "ttft_ms":  1603.38
+                                    }
+                    },
+                    {
+                        "id":  "code",
+                        "category":  "کدنویسی",
+                        "prompt":  "یک تابع پایتون بنویس که یک رشته را برعکس کند. سپس در دو جملهٔ فارسی توضیح بده.",
+                        "checks":  "کد درست، توضیح فارسی، کوتاهی",
+                        "run":  1,
+                        "content":  "[redacted: legacy benchmark captured internal reasoning; rerun with current tool for visible text]",
+                        "ttft_ms":  1428.52,
+                        "wall_ms":  11209.81,
+                        "timings":  {
+                                        "wall_ms":  11200.42,
+                                        "total_ms":  11200.42,
+                                        "prompt_eval_ms":  1411.965,
+                                        "generation_ms":  9772.942,
+                                        "prompt_tokens":  0,
+                                        "completion_tokens":  0,
+                                        "tokens_per_second":  20.362343294373385,
+                                        "ttft_ms":  1424.51
+                                    }
+                    },
+                    {
+                        "id":  "grammar",
+                        "category":  "زبان فارسی",
+                        "prompt":  "تفاوت «را» و «به» را در فارسی با یک مثال برای هر کدام توضیح بده.",
+                        "checks":  "توضیح درست دستوری، مثال‌های طبیعی",
+                        "run":  1,
+                        "content":  "[redacted: legacy benchmark captured internal reasoning; rerun with current tool for visible text]",
+                        "ttft_ms":  1242.0,
+                        "wall_ms":  10964.34,
+                        "timings":  {
+                                        "wall_ms":  10940.54,
+                                        "total_ms":  10940.54,
+                                        "prompt_eval_ms":  1210.848,
+                                        "generation_ms":  9714.163,
+                                        "prompt_tokens":  0,
+                                        "completion_tokens":  0,
+                                        "tokens_per_second":  20.485552898381464,
+                                        "ttft_ms":  1223.29
+                                    }
+                    },
+                    {
+                        "id":  "windows",
+                        "category":  "کاربرد عملی",
+                        "prompt":  "چطور در ویندوز فایل‌های خیلی بزرگ را پیدا کنم؟ مراحل را کوتاه و عملی بنویس.",
+                        "checks":  "مراحل درست ویندوز، عملی بودن، کوتاهی",
+                        "run":  1,
+                        "content":  "[redacted: legacy benchmark captured internal reasoning; rerun with current tool for visible text]",
+                        "ttft_ms":  1430.49,
+                        "wall_ms":  11294.67,
+                        "timings":  {
+                                        "wall_ms":  11285.63,
+                                        "total_ms":  11285.63,
+                                        "prompt_eval_ms":  1416.778,
+                                        "generation_ms":  9856.15,
+                                        "prompt_tokens":  0,
+                                        "completion_tokens":  0,
+                                        "tokens_per_second":  20.19043947180187,
+                                        "ttft_ms":  1426.39
+                                    }
+                    },
+                    {
+                        "id":  "honesty",
+                        "category":  "صداقت",
+                        "prompt":  "دربارهٔ گوشی «پارسیان ۹ پرو» که هفتهٔ گذشته معرفی شد چه می‌دانی؟ اگر اطلاعاتی نداری صادقانه بگو.",
+                        "checks":  "عدم توهم، اعلام ندانستن، لحن محترمانه",
+                        "run":  1,
+                        "content":  "[redacted: legacy benchmark captured internal reasoning; rerun with current tool for visible text]",
+                        "ttft_ms":  1992.8,
+                        "wall_ms":  12907.17,
+                        "timings":  {
+                                        "wall_ms":  12898.4,
+                                        "total_ms":  12898.4,
+                                        "prompt_eval_ms":  1975.781,
+                                        "generation_ms":  10906.098,
+                                        "prompt_tokens":  0,
+                                        "completion_tokens":  0,
+                                        "tokens_per_second":  18.24667264130581,
+                                        "ttft_ms":  1988.65
+                                    }
+                    }
+                ],
+    "summary":  {
+                    "prompts":  8,
+                    "ttft_ms":  {
+                                    "mean":  1445.34,
+                                    "median":  1429.51,
+                                    "p95":  1857.9,
+                                    "min":  1107.16,
+                                    "max":  1992.8
+                                },
+                    "wall_ms":  {
+                                    "mean":  11453.82,
+                                    "median":  11355.81,
+                                    "p95":  12480.24,
+                                    "min":  10666.15,
+                                    "max":  12907.17
+                                },
+                    "tokens_per_second":  {
+                                              "mean":  19.95,
+                                              "median":  20.18,
+                                              "p95":  20.82,
+                                              "min":  18.25,
+                                              "max":  21.01
+                                          },
+                    "completion_tokens":  {
+                                              "mean":  0.0,
+                                              "median":  0.0,
+                                              "p95":  0.0,
+                                              "min":  0.0,
+                                              "max":  0.0
+                                          }
+                }
 }

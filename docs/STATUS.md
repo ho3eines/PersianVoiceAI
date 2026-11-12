@@ -51,7 +51,7 @@ $ python -m pytest
 نتیجهٔ جاری را با اجرای python -m pytest ببینید (تعداد ثابت نیست)
 ```
 
-- تعداد تست‌های مجموعه (pytest --collect-only): **1120** تست — این تنها عدد
+- تعداد تست‌های مجموعه (pytest --collect-only): **1139** تست — این تنها عدد
   مجاز است و `tests/test_docs_consistency.py` آن را با خروجی واقعی
   `pytest --collect-only` مقایسه می‌کند؛ عدد کهنه ⇒ تست قرمز. بقیهٔ اعداد این
   سند **تاریخی** و مربوط به همان مرحله‌اند.
@@ -117,12 +117,17 @@ $ python -m pytest
 | VAD false positive روی سکوت | ۰ | باورپذیر برای آستانهٔ انرژی |
 | سنجه‌های زنده: jitter/صف/CPU/RAM | ثبت می‌شوند | `audio_io.pump` هر ۱ ثانیه (`test_pump_publishes_system_and_queue_metrics`) |
 
-هیچ عدد ASR/LLM/TTS روی این sandbox تولید نشد: مدل‌ها نصب نیستند و llama-server اجرا نبود.
+اعداد LLM روی همین لپ‌تاپ (i7-6500U + 940MX) اندازه‌گیری شد (MEASURED: Qwen3-4B TTFT 4.69s/4.64 tok/s روی CPU؛ جدول کامل در BENCHMARKS.md). یک اجرای تک‌جهتهٔ ASR/TTS هم روی میکروفون همین لپ‌تاپ انجام شد (MEASURED، ۲۰۲۶-۱۱-۱۲)؛ نتیجه‌اش در بخش ۹.۳
+[`HARDWARE_VALIDATION.md`](HARDWARE_VALIDATION.md) است: مدل سالم، سیگنال سالم، ولی رونویسی گفتار
+انسان ضعیف. آن اجرا **به `BENCHMARKS.md` منتقل نشده** چون زمان‌هایش پایدار نبود و دامنه‌اش
+فقط همین ماشین است.
 جدول کامل با برچسب `MEASURED`/`SIMULATED`/`NOT MEASURED` در [BENCHMARKS.md](BENCHMARKS.md).
 
 ## ۴. کارهایی که فقط روی سخت‌افزار هدف معنا دارند (NOT TESTED)
 
 - کیفیت و سرعت Whisper فارسی با وزن واقعی روی i7-6500U؛ RTF و تأخیر final.
+  یک اجرای تک‌جهته انجام شد (بخش ۹.۳ `HARDWARE_VALIDATION.md`) و رونویسی ضعیف بود؛
+  ارزیابی WER/CER روی مجموعهٔ جمله‌ها هنوز **NOT TESTED** است.
 - کیفیت تلفظ Piper فارسی (اعداد، واژهٔ انگلیسی داخل جمله، نیم‌فاصله) با گوش انسان.
 - حذف اکوی اتاق واقعی و کالیبراسیون `PVAI_AEC_DELAY_MS`؛ رفتار double-talk در بلندگو.
 - jitter واقعی callback و dropout در همزمانی ASR+LLM+TTS.
@@ -130,6 +135,8 @@ $ python -m pytest
 - قطع/وصل فیزیکی میکروفون و بلندگو در Windows 11.
 
 چک‌لیست اجرای این موارد: [HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md).
+بخش ۹ همان سند («مرز شواهد») مشخص می‌کند چه چیزی در محیط توسعه بررسی شده (SIMULATED) و
+چه چیزی هنوز NOT TESTED است؛ سبز بودن `pytest` جای آن چک‌لیست را نمی‌گیرد.
 
 ## ۵. گزارش کامل بازبینی
 

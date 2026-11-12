@@ -28,6 +28,7 @@ import pytest
 
 from server.config import Settings
 from server.readiness import check_thinking_template, collect
+from test_tools_scripts import _usable_bash
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -47,6 +48,9 @@ def test_the_generated_launcher_command_includes_jinja() -> None:
 
 def test_the_bash_launcher_prints_a_plan_with_jinja(tmp_path: Path) -> None:
     """The launcher is executed, not just grepped: its real plan is checked."""
+    bash = _usable_bash()
+    if bash is None:
+        pytest.skip("no usable bash interpreter (WSL stub and Git Bash both absent)")
     env = {
         **os.environ,
         "PVAI_PYTHON": sys.executable,
@@ -56,7 +60,7 @@ def test_the_bash_launcher_prints_a_plan_with_jinja(tmp_path: Path) -> None:
     completed = subprocess.run(
         # ``--exe`` skips the PATH lookup for a real llama-server: this test is
         # about the generated plan, not about the binary being installed.
-        ["bash", str(ROOT / "tools" / "start_llama.sh"), "--exe", sys.executable,
+        [bash, str(ROOT / "tools" / "start_llama.sh"), "--exe", sys.executable,
          "--dry-run"],
         cwd=ROOT,
         capture_output=True,

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -242,7 +243,9 @@ def test_lease_close_releases_the_file_lock_when_unlock_itself_fails(
     def failing_unlock(*args: Any, **kwargs: Any) -> None:
         raise OSError("unlock refused")
 
-    monkeypatch.setattr("fcntl.flock", failing_unlock)
+    monkeypatch.setattr(
+        "msvcrt.locking" if os.name == "nt" else "fcntl.flock", failing_unlock
+    )
     lease.close()
     monkeypatch.undo()
 

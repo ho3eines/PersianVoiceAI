@@ -16,16 +16,17 @@
 - [بخش 6: docs/AEC.md](#section-6)
 - [بخش 7: docs/PROTOCOL.md](#section-7)
 - [بخش 8: docs/WSS_TLS.md](#section-8)
-- [بخش 9: docs/DATASETS.md](#section-9)
-- [بخش 10: docs/PLATFORMS.md](#section-10)
-- [بخش 11: docs/TROUBLESHOOTING.md](#section-11)
-- [بخش 12: docs/BENCHMARKS.md](#section-12)
-- [بخش 13: docs/HARDWARE_VALIDATION.md](#section-13)
-- [بخش 14: THIRD_PARTY.md](#section-14)
-- [بخش 15: AGENTS.md](#section-15)
-- [بخش 16: docs/SPEC.md](#section-16)
-- [بخش 17: docs/ISSUE_REGISTER.md](#section-17)
-- [بخش 18: docs/AUDIT_REPORT.md](#section-18)
+- [بخش 9: docs/RAG.md](#section-9)
+- [بخش 10: docs/DATASETS.md](#section-10)
+- [بخش 11: docs/PLATFORMS.md](#section-11)
+- [بخش 12: docs/TROUBLESHOOTING.md](#section-12)
+- [بخش 13: docs/BENCHMARKS.md](#section-13)
+- [بخش 14: docs/HARDWARE_VALIDATION.md](#section-14)
+- [بخش 15: THIRD_PARTY.md](#section-15)
+- [بخش 16: AGENTS.md](#section-16)
+- [بخش 17: docs/SPEC.md](#section-17)
+- [بخش 18: docs/ISSUE_REGISTER.md](#section-18)
+- [بخش 19: docs/AUDIT_REPORT.md](#section-19)
 
 ---
 
@@ -741,7 +742,7 @@ $ python -m pytest
 نتیجهٔ جاری را با اجرای python -m pytest ببینید (تعداد ثابت نیست)
 ```
 
-- تعداد تست‌های مجموعه (pytest --collect-only): **1120** تست — این تنها عدد
+- تعداد تست‌های مجموعه (pytest --collect-only): **1139** تست — این تنها عدد
   مجاز است و `tests/test_docs_consistency.py` آن را با خروجی واقعی
   `pytest --collect-only` مقایسه می‌کند؛ عدد کهنه ⇒ تست قرمز. بقیهٔ اعداد این
   سند **تاریخی** و مربوط به همان مرحله‌اند.
@@ -807,12 +808,17 @@ $ python -m pytest
 | VAD false positive روی سکوت | ۰ | باورپذیر برای آستانهٔ انرژی |
 | سنجه‌های زنده: jitter/صف/CPU/RAM | ثبت می‌شوند | `audio_io.pump` هر ۱ ثانیه (`test_pump_publishes_system_and_queue_metrics`) |
 
-هیچ عدد ASR/LLM/TTS روی این sandbox تولید نشد: مدل‌ها نصب نیستند و llama-server اجرا نبود.
+اعداد LLM روی همین لپ‌تاپ (i7-6500U + 940MX) اندازه‌گیری شد (MEASURED: Qwen3-4B TTFT 4.69s/4.64 tok/s روی CPU؛ جدول کامل در BENCHMARKS.md). یک اجرای تک‌جهتهٔ ASR/TTS هم روی میکروفون همین لپ‌تاپ انجام شد (MEASURED، ۲۰۲۶-۱۱-۱۲)؛ نتیجه‌اش در بخش ۹.۳
+[`HARDWARE_VALIDATION.md`](HARDWARE_VALIDATION.md) است: مدل سالم، سیگنال سالم، ولی رونویسی گفتار
+انسان ضعیف. آن اجرا **به `BENCHMARKS.md` منتقل نشده** چون زمان‌هایش پایدار نبود و دامنه‌اش
+فقط همین ماشین است.
 جدول کامل با برچسب `MEASURED`/`SIMULATED`/`NOT MEASURED` در [BENCHMARKS.md](BENCHMARKS.md).
 
 ## ۴. کارهایی که فقط روی سخت‌افزار هدف معنا دارند (NOT TESTED)
 
 - کیفیت و سرعت Whisper فارسی با وزن واقعی روی i7-6500U؛ RTF و تأخیر final.
+  یک اجرای تک‌جهته انجام شد (بخش ۹.۳ `HARDWARE_VALIDATION.md`) و رونویسی ضعیف بود؛
+  ارزیابی WER/CER روی مجموعهٔ جمله‌ها هنوز **NOT TESTED** است.
 - کیفیت تلفظ Piper فارسی (اعداد، واژهٔ انگلیسی داخل جمله، نیم‌فاصله) با گوش انسان.
 - حذف اکوی اتاق واقعی و کالیبراسیون `PVAI_AEC_DELAY_MS`؛ رفتار double-talk در بلندگو.
 - jitter واقعی callback و dropout در همزمانی ASR+LLM+TTS.
@@ -820,6 +826,8 @@ $ python -m pytest
 - قطع/وصل فیزیکی میکروفون و بلندگو در Windows 11.
 
 چک‌لیست اجرای این موارد: [HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md).
+بخش ۹ همان سند («مرز شواهد») مشخص می‌کند چه چیزی در محیط توسعه بررسی شده (SIMULATED) و
+چه چیزی هنوز NOT TESTED است؛ سبز بودن `pytest` جای آن چک‌لیست را نمی‌گیرد.
 
 ## ۵. گزارش کامل بازبینی
 
@@ -1161,6 +1169,36 @@ Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama
 کالیبراسیون را با همین اعداد انجام دهید. این تنظیم جای مدل VAD عصبی یا کالیبراسیون AEC نیست.
 اگر هیچ راه‌حلی جواب نداد: [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
+### وقتی متن رونویسی نامفهوم است (ویندوز)
+
+اندازه‌گیری روی یک لپ‌تاپ توسعه (بخش ۹.۳ `HARDWARE_VALIDATION.md`) نشان داد سیگنال
+میکروفون می‌تواند از نظر `rms`، SNR و pitch سالم باشد و Whisper باز هم متن
+نامفهوم بدهد. قبل از تغییر مدل، این‌ها را به‌ترتیب بررسی کنید:
+
+1. **`PVAI_ASR_INITIAL_PROMPT` را خالی بگذارید.** پرامپت غیرخالی باعث می‌شود
+   Whisper خودِ پرامپت را بازتولید کند؛ خروجی «خوانا» در این حالت اعتبار ندارد.
+2. **فاصله و جهت میکروفون:** ۱۵–۲۵ سانتی‌متر، رو به دهان. میکروفون لپ‌تاپ
+   معمولاً به سمت صفحه است و گفتار از فاصلهٔ بیشتر را با بازتاب اتاق مخلوط می‌کند.
+3. **پردازش صوتی ویندوز:** در Properties میکروفون، «Noise Suppression»،
+   «Acoustic Echo Cancellation» و «Automatic Gain Control» را برای تست خاموش کنید.
+   این‌ها برای تماس انسانی تنظیم شده‌اند، نه برای ASR.
+4. **درایور:** ورودی پیش‌فرض را از MME به WASAPI تغییر دهید
+   (`PVAI_AUDIO_INPUT_DEVICE` = نام یا index دستگاه WASAPI). در اندازه‌گیری بالا
+   تفاوت روشنی نداشت، ولی WASAPI نرخ بومی را بدون تبدیل اضافی می‌دهد.
+5. **مدل:** `whisper-small` روی گفتار میکروفون ضعیف بود. مدل بزرگ‌تر فارسی
+   (`large-v3` یا مدل fine-tune‌شدهٔ فارسی) را در `PVAI_ASR_MODEL_PATH` امتحان کنید —
+   با آگاهی از هزینهٔ RAM و زمان decode روی CPU دو هسته‌ای.
+
+برای دیدن اعداد و متن خام بدون دست‌زدن به سرور:
+
+```
+$env:PYTHONIOENCODING = "utf-8"
+.\\.venv\\Scripts\\python.exe tools\\mic_probe.py --seconds 12 --device 9 --device-rate 48000
+```
+
+هیچ صدایی روی دیسک نوشته نمی‌شود مگر `--keep-wav` بدهید. اعداد خروجی فقط برای همین
+اجرا هستند و ادعای کیفیت کلی فارسی نیستند.
+
 ## امنیت و داده
 
 - متن فقط به API محلی/خصوصی می‌رود؛ proxy محیط و redirect کلاینت غیرفعال است.
@@ -1249,7 +1287,7 @@ Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama
 
 | متغیر | پیش‌فرض | معنا |
 |---|---|---|
-| `PVAI_MODEL_PATH` | `models/Qwen3-4B-Q4_K_M.gguf` | مسیر GGUF برای llama-server (خود سرویس آن را لود می‌کند؛ فایل باید محلی باشد) |
+| `PVAI_MODEL_PATH` | `models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf` | مدل منتخب پس از ارزیابی محلی لپ‌تاپ؛ مسیر GGUF باید محلی باشد |
 | `PVAI_LLAMA_SERVER_URL` | `http://127.0.0.1:8080` | آدرس محلی llama-server؛ باید private/loopback باشد |
 | `PVAI_N_CTX` | `4096` | پنجرهٔ context (۵۱۲–۳۲۷۶۸)؛ به `llama-server -c` داده می‌شود |
 | `PVAI_N_THREADS` | `0` | thread سمت llama-server؛ `0` = خودکار (پرچم `-t` ارسال نمی‌شود). مستقل از threadهای Whisper است؛ `.env.example` مقدار پیشنهادی `4` را تنظیم می‌کند، نه پیش‌فرض `0` |
@@ -1756,8 +1794,15 @@ SpeexDSP یک فیلتر تطبیقی محلی است؛ mute حین پاسخ ی�
 
 ### Windows x64
 
-کتابخانهٔ shared از SpeexDSP را از منبع معتبر تهیه/با ابزار build خودتان بسازید؛
-درخت upstream دارای راهنمای Windows است. DLL باید نمادهای زیر را export کند:
+بستهٔ Windows x64 نسخهٔ SpeexDSP 1.2.1 از conda-forge با SHA256 بررسی می‌شود و بیرون از Git
+در `models/speexdsp/` استخراج می‌شود. 7-Zip باید در PATH باشد:
+
+```powershell
+.\tools\install_speexdsp.ps1
+```
+
+اسکریپت hash را با مقدار `064be2a5ea3e168a20d1a8319d853310f3cc3e90bd99f5a0bc2b5e15e2d91b1c` تطبیق می‌دهد.
+DLL باید نمادهای زیر را export کند:
 
 - `speex_echo_state_init`, `speex_echo_state_destroy`, `speex_echo_state_reset`
 - `speex_echo_ctl`, `speex_echo_cancellation`
@@ -1766,13 +1811,14 @@ SpeexDSP یک فیلتر تطبیقی محلی است؛ mute حین پاسخ ی�
 
 ```dotenv
 PVAI_AEC_ENABLED=true
-PVAI_AEC_LIBRARY=C:/AudioLibs/speexdsp/libspeexdsp.dll
+PVAI_AEC_LIBRARY=models/speexdsp/Library/bin/speexdsp.dll
 PVAI_AEC_FILTER_MS=250
 PVAI_AEC_DELAY_MS=40
 ```
 
-DLL و وابستگی‌های runtime آن باید با معماری Python (معمولاً x64) سازگار باشند.
-ما DLL ویندوز را در مخزن قرار نداده‌ایم و آن را روی Windows هدف آزمایش نکرده‌ایم.
+DLL و وابستگی‌های runtime آن باید با معماری Python (معمولاً x64) سازگار باشند. فایل native در Git
+نیست. همین DLL روی Windows x64 با هر دو تست native synthetic (حذف اکو و double-talk) بررسی شده؛
+این جایگزین تست میکروفون/بلندگو در اتاق واقعی نیست.
 
 ### Linux
 
@@ -1812,6 +1858,9 @@ AEC برای مسیر پیش‌فرض زنده است؛ حالت قدیمی `--t
 $env:PVAI_TEST_AEC_LIBRARY = "C:/AudioLibs/speexdsp/libspeexdsp.dll"
 .\.venv\Scripts\python.exe -m pytest -q -s tests/test_aec.py
 ```
+
+روی این رایانه مقدار محیط تست برابر مسیر `models/speexdsp/Library/bin/speexdsp.dll` بود؛ دو تست
+native گذشتند (کاهش echo برابر ۵۷٫۸۲ dB، correlation دوصدایی ۰٫۹۱۸ و RMS retention برابر ۰٫۹۹۳).
 
 در sandbox لینوکسی، بخش AEC کتابخانه از upstream commit
 `7a158783df74efe7c2d1c6ee8363c1e695c71226` با GCC و floating-point/smallft، بیرون مخزن ساخته شد.
@@ -2214,7 +2263,47 @@ server {
 
 <a id="section-9"></a>
 
-## بخش 9 — docs/DATASETS.md
+## بخش 9 — docs/RAG.md
+
+# بازیابی دانش محلی (RAG)
+
+RAG متن اسناد انتخابی را هنگام پرسش به زمینهٔ مدل اضافه می‌کند؛ وزن‌های GGUF تغییر نمی‌کنند. این
+پیاده‌سازی کاملاً محلی است و از رتبه‌بندی BM25 واژه‌ای با نرمال‌سازی حروف فارسی استفاده می‌کند؛ مدل
+embedding، سرویس ابری یا بستهٔ جدید لازم ندارد.
+
+## استفاده
+
+سند را با API محلی اضافه کنید:
+
+```powershell
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/knowledge `
+  -ContentType 'application/json; charset=utf-8' `
+  -Body '{"title":"راهنمای دستگاه","text":"متن فارسی سند..."}'
+```
+
+`POST /api/chat` به‌صورت پیش‌فرض retrieval را فعال می‌کند. در `/v1/chat/completions` باید
+`"use_rag": true` ارسال شود؛ این گزینه برای سازگاری در حالت پیش‌فرض خاموش است. مسیرهای دیگر:
+
+- `GET /api/knowledge` فهرست عنوان‌ها و شناسه‌ها را می‌دهد.
+- `GET /api/knowledge/search?q=...` قطعه‌های مرتبط را با امتیاز بازیابی نشان می‌دهد.
+- `DELETE /api/knowledge/{id}` سند را حذف می‌کند.
+
+`q` در جستجو حداکثر ۵۰۰ کاراکتر است و بیشتر از آن با 422 رد می‌شود.
+
+روی ویندوز، اسکریپت‌های فارسی که متن را از stdin یا به خروجی کنسول می‌فرستند باید با
+`PYTHONIOENCODING=utf-8` اجرا شوند؛ وگرنه کدپیج cp1256 یا خروجی خالی باعث خطا یا نتیجهٔ اشتباه
+می‌شود. این مشکل خود کد RAG نیست.
+
+اگر سند مرتبطی پیدا شود، پاسخ `/api/chat`، `sources` شامل شناسه و عنوان منابع را برمی‌گرداند.
+فایل‌های داده در `PVAI_DATA_DIR/knowledge/` به شکل JSON محلی ذخیره می‌شوند و نباید commit شوند.
+اسناد مرجع‌اند، نه دستور؛ متن بازیابی‌شده با این مرزبندی به مدل فرستاده می‌شود. پیش از اعتماد به
+پاسخ، منبع را در `sources` بررسی کنید. رتبه‌بندی واژه‌ای برای واژه‌های هم‌معنی تضمین بازیابی ندارد.
+
+---
+
+<a id="section-10"></a>
+
+## بخش 10 — docs/DATASETS.md
 
 # آماده‌سازی دادهٔ سفارشی و قرارداد آموزش (آفلاین)
 
@@ -2448,9 +2537,9 @@ markdown/ایموجی/لینک)، نه تولید واج. بنابراین:
 
 ---
 
-<a id="section-10"></a>
+<a id="section-11"></a>
 
-## بخش 10 — docs/PLATFORMS.md
+## بخش 11 — docs/PLATFORMS.md
 
 # Platform support
 
@@ -2509,9 +2598,9 @@ that a Persian conversation has been held on a Linux desktop.
 
 ---
 
-<a id="section-11"></a>
+<a id="section-12"></a>
 
-## بخش 11 — docs/TROUBLESHOOTING.md
+## بخش 12 — docs/TROUBLESHOOTING.md
 
 # عیب‌یابی — پیام‌ها، علت و راه‌حل
 
@@ -2652,9 +2741,9 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 
 ---
 
-<a id="section-12"></a>
+<a id="section-13"></a>
 
-## بخش 12 — docs/BENCHMARKS.md
+## بخش 13 — docs/BENCHMARKS.md
 
 # روش‌شناسی بنچمارک و نتایج
 
@@ -2727,7 +2816,7 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 | idle | `vad_false_positives` | ۰ | count | MEASURED |
 | asr | `asr_ms`, `asr_rtf` | — | — | NOT MEASURED (مدل Whisper موجود نیست) |
 | llm | `llm_ttft_ms`, `llm_tokens_per_second` | — | — | NOT MEASURED (llama-server در دسترس نبود) |
-| tts | `tts_first_chunk_ms` | — | — | NOT MEASURED (مدل Piper موجود نیست) |
+| tts | `tts_first_chunk_ms` | — | — | NOT MEASURED (Piper محلی WAV ساخت؛ زمان first-chunk هنوز ثبت نشده) |
 | asr_llm | `asr_ms` + `llm_ttft_ms` + `turn_total_ms` | ~۲۰۵ | ms | SIMULATED (ASR/LLM ساختگی) |
 | asr_llm | `turn_completed` | ۱ | flag | MEASURED |
 | asr_llm_tts | `first_audible_ms` / `turn_total_ms` | ~۲۵۳ / ~۶۶۴ | ms | SIMULATED |
@@ -2748,8 +2837,8 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 |---|---|
 | `asr_ms` / `asr_rtf` (whisper-small int8, 6s window) | NOT MEASURED |
 | `asr_final_latency_ms` (utterance 3s) | NOT MEASURED |
-| `llm_ttft_ms` (Qwen3-4B-Q4_K_M) | NOT MEASURED |
-| `llm_tokens_per_second` | NOT MEASURED |
+| `llm_ttft_ms` (Qwen3-4B-Q4_K_M) | 4.69 s CPU / 5.76 s GPU-auto (MEASURED) |
+| `llm_tokens_per_second` (Qwen3-4B-Q4_K_M) | 4.64 CPU / 3.90 GPU-auto tok/s (MEASURED) |
 | `tts_first_chunk_ms` (Piper fa) | NOT MEASURED |
 | `first_audible_ms` | NOT MEASURED |
 | `barge_in_latency_ms` (real device) | NOT MEASURED |
@@ -2763,6 +2852,36 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 `benchmarks/bench_chat.py` و `tools/benchmark.ps1` فقط مسیر متنی را می‌سنجند. نتیجهٔ تاریخی
 درس ۱ روی MiniCPM5-1B-Q8_0 (i7-6500U): TTFT ≈ ۱٫۴۵s، کل ≈ ۱۱٫۴۵s، ≈ ۱۹٫۹ tok/s.
 این اعداد **به Qwen3-4B و به مسیر صوتی تعمیم داده نمی‌شوند** و Qwen با وزن واقعی هنوز سنجیده نشده است.
+
+## ۵.۵. مقایسهٔ واقعی مدل‌های فارسی GGUF روی همین لپ‌تاپ (MEASURED)
+
+ابزار `benchmarks/compare_models.py` روی i7-6500U با 16GB RAM، GPU 940MX (2GB VRAM)،
+همان ۸ پرامپت فارسی، `temperature=0`، `max_tokens=160`، `ctx=4096`, `threads=4`.
+دو حالت: CPU خالص (`-ngl 0`) و GPU auto-fit روی Vulkan (`--device Vulkan0 --fit on`).
+گزارش‌های خام: `benchmarks/results/pc1-model-compare-20261110.json` (CPU) و
+`benchmarks/results/pc1-model-compare-gpu-20261110.json` (GPU).
+
+| مدل | حالت | TTFT میانگین | tok/s میانگین | RAM اوج | VRAM دلتا |
+|---|---|---|---|---|---|
+| MiniCPM5-1B-Q8_0 | CPU | ۲٫۰۵s | ۱۴٫۰۶ | 1119 MiB | 0 |
+| MiniCPM5-1B-Q8_0 | GPU | ۱٫۶۰s | ۱۲٫۴۱ | 1302 MiB | 880 MiB |
+| Qwen3-4B-Q4_K_M | CPU | ۴٫۶۹s | ۴٫۶۴ | 4806 MiB | 0 |
+| Qwen3-4B-Q4_K_M | GPU | ۵٫۷۶s | ۳٫۹۰ | 3319 MiB | 860 MiB |
+| Qwen3.5-4B-Q4_K_M | CPU | ۳٫۸۴s | ۳٫۸۴ | 4380 MiB | 0 |
+| Qwen3.5-4B-Q4_K_M | GPU | ۴٫۶۳s | ۳٫۸۷ | 3577 MiB | 820 MiB |
+| gemma-3-4b-persian-v0.Q4_K_M | CPU | ۱۴٫۲۲s | ۵٫۳۶ | 4264 MiB | 0 |
+| gemma-3-4b-persian-v0.Q4_K_M | GPU | ۱۷٫۱۲s | ۵٫۱۰ | 3349 MiB | 890 MiB |
+
+**نتیجهٔ کلیدی:** روی 940MX با ۲GB VRAM، بارگذاری لایه‌ها روی GPU برای مدل‌های ۴B
+**سرعت تولید را بهتر نمی‌کند** (بررسی محلی: CPU ≥ GPU). دلیل: فقط بخشی از وزن در VRAM جا می‌شود
+(Vulkan در لاگ `Flash Attention ... not supported` و تخصیص جزئی لایه‌ها گزارش می‌کند)، جابه‌جایی
+مداوم CPU↔GPU سرباری می‌سازد که از سود GPU بیشتر است. پس `PVAI_N_GPU_LAYERS=0` است و
+اجرای CPU گزینهٔ درست این لپ‌تاپ است. GPU مزیتش را فقط در صرفه‌جویی RAM نشان می‌دهد.
+
+از نظر کیفیت (بازبینی دستی همان ۸ خروجی): Qwen3.5-4B و gemma-3-4b-persian فارسی روان و
+مرتبط تولید کردند؛ MiniCPM5-1B خروجی نامفهوم و پراکنده داد. انتخاب مدل نهایی هستهٔ متنی:
+**Qwen3.5-4B-Q4_K_M**. اعتبارسنجی آماری این مقایسه انجام نشده و مقایسهٔ کیفیت تک‌بازبین است.
+
 
 ## ۶. ارزیابی فارسی (WER/CER)
 
@@ -2830,9 +2949,9 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 
 ---
 
-<a id="section-13"></a>
+<a id="section-14"></a>
 
-## بخش 13 — docs/HARDWARE_VALIDATION.md
+## بخش 14 — docs/HARDWARE_VALIDATION.md
 
 # چک‌لیست اعتبارسنجی روی سخت‌افزار واقعی
 
@@ -2940,11 +3059,95 @@ WER/CER فارسی: …
 
 بدون این بلوک، وضعیت پروژه همچنان «تست خودکار سبز، سخت‌افزار NOT TESTED» است.
 
+## ۹. مرز شواهد: چه چیزی در این محیط بررسی شد و چه چیزی نه
+
+این بخش عمداً **جای بخش‌های ۰ تا ۷ را نمی‌گیرد**. هدفش این است که هیچ‌کس از سبز بودن
+`pytest` نتیجه نگیرد که مسیر صوتی روی دستگاه واقعی کار می‌کند.
+
+### ۹.۱. بررسی‌شده (SIMULATED — بدون سخت‌افزار)
+
+موارد زیر با `pytest` و `TestClient` و fake LLM اجرا شدند؛ هیچ‌کدام عدد عملکردی تولید
+نکرده‌اند و هیچ‌کدام `MEASURED` نیستند:
+
+| بررسی | ابزار | نتیجه |
+|---|---|---|
+| کل مجموعهٔ تست | `python -m pytest` | سبز؛ فقط تست‌های skip‌shده (bash/غیرویندوز/سخت‌افزار) |
+| `/health` عمومی، بقیهٔ REST با توکن | `TestClient` + `PVAI_API_TOKEN` | بدون توکن 401، توکن اشتباه 401 |
+| جستجوی RAG فارسی و افزودن/حذف سند | `TestClient` + `KnowledgeBase` | بازیابی درست، حذف درست |
+| محدودیت `q` و اعتبارسنجی payload | `TestClient` | 422 برای query خالی/بلند و متن بزرگ |
+| traversal در `session_id` و `document_id` | `TestClient` | رد می‌شود (400/404) |
+| هم‌خوانی مستندات | `tools/build_docs.py --check` | سبز |
+
+### ۹.۲. تست‌نشده (NOT TESTED — نیازمند دستگاه واقعی)
+
+هر ردیف بخش‌های ۰ تا ۷ همچنان خالی است. به‌طور مشخص این‌ها در این محیط **اجرا نشدند**:
+
+- ESP32-S3 واقعی، I2S، RMS، Wi-Fi و `wss://` از دستگاه.
+- میکروفون، بلندگو و کارت صدای واقعی **در مسیر duplex با AEC**؛ (ضبط تک‌جهته روی
+  لپ‌تاپ توسعه انجام شد — بخش ۹.۳ — ولی duplex و خطای `AudioStalled` با قطع فیزیکی نه).
+- AEC با duplex واقعی و کالیبراسیون `PVAI_AEC_DELAY_MS` و double-talk.
+- اعداد WER/CER فارسی روی گفتار انسان (نه TTS). بخش ۹.۳ یک اجرای تک‌نفره است، نه ارزیابی.
+- LLM زنده: در این محیط `llama-server` اجرا نبود، پس TTFT/tok/s اندازه‌گیری نشد.
+- Caddy/nginx زیر بار و handshake واقعی TLS.
+
+### ۹.۳. اجرای واقعی روی لپ‌تاپ توسعه (MEASURED، ۲۰۲۶-۱۱-۱۲)
+
+این تنها بخشی از سند است که عدد `MEASURED` دارد. **دامنهٔ اعتبارش فقط همین ماشین
+و همین اجراهاست**؛ نه ESP32-S3، نه کیفیت کلی فارسی، نه بار همزمان چند دستگاه.
+
+سخت‌افزار: `Intel Core i7-6500U` (۲ هسته / ۴ رشته)، ۱۵٫۹GB RAM،
+`Realtek High Definition Audio`، ویندوز، ورودی پیش‌فرض MME و WASAPI دستگاه ۹.
+
+| سنجه | مقدار | وضعیت | توضیح |
+|---|---|---|---|
+| بلوک ضبط‌شده | ۶۹۸ از ۷۰۰ | MEASURED | افت ناچیز |
+| `callback_gap_p95` | ۲۷٫۰ms روی بلوک ۲۰ms | MEASURED | **بالا**؛ برای duplex باید کم شود |
+| peak / clipped | ۰٫۴۰۵ FS / صفر | MEASURED | بدون اشباع |
+| DC offset | ۰٫۰۰ | MEASURED | سالم |
+| `noise_floor` | ۰٫۰۰۰۹۹–۰٫۰۰۵۵ rms | MEASURED | به اتاق بستگی دارد |
+| crude SNR | ۲۸٫۸dB | MEASURED | قابل قبول |
+| pitch تخمینی | ۱۴۱٫۶Hz | MEASURED | محدودهٔ گفتار بزرگسال |
+| syllabic modulation ۲–۸Hz | ۰٫۵۰ | MEASURED | گفتار واقعی، نه نویز |
+| spectral centroid | ۱۰۲۹Hz | MEASURED | محدودهٔ گفتار |
+| `ch0` vs `ch1` | ۰٫۹۹۹۳ | MEASURED | باگ انتخاب کانال وجود ندارد |
+| `asr_model_load_ms` | ۴۵٫۹–۶۳٫۷s | MEASURED | **کند**؛ باید در startup باشد نه نوبت اول |
+| `asr_ms_per_call` | ۵٫۷s | MEASURED | Whisper هر ورودی را به پنجرهٔ ثابت pad می‌کند |
+| Piper→Whisper (بدون میکروفون) | WER ۰٫۲۱، متن خوانا | MEASURED | مدل سالم است |
+| میکروفون→Whisper | **نامفهوم/ناقص** | MEASURED | «سالو»، «من هسته این اصلا این تسته کامکیوتره» |
+
+**نتیجهٔ صریح:** سیگنال ورودی سالم است (SNR ۲۹dB، بدون clipping، pitch و
+modulation درست) و مدل روی همان صدا از TTS بی‌نقص کار می‌کند، ولی گفتار انسان
+از میکروفون این لپ‌تاپ برای `whisper-small` فارسی کافی نیست. سه فرضیه رد شد
+(خرابی مدل، کانال اشتباه، نرخ نمونه‌برداری MME در برابر WASAPI) و فرضیهٔ باقی‌مانده
+کیفیت آکوستیک/فاصله است که با این امکانات اثبات نشد.
+
+**اعداد زمانی قابل استناد نیستند:** برای همان صدا، زمان یک decode بین ۸ و ۵۳
+ثانیه نوسان کرد. این ماشین زیر بار، عدد پایدار نمی‌دهد. پس هیچ‌کدام از این زمان‌ها
+به `docs/BENCHMARKS.md` منتقل نمی‌شود.
+
+**تلهٔ ثبت‌شده:** `PVAI_ASR_INITIAL_PROMPT` غیرخالی باعث می‌شود Whisper خودِ
+پرامپت را بازتولید کند (با پرامپت «سلام، امروز هوا خوب است.» خروجی همان جمله
+سه بار تکرار شد). هر نتیجهٔ «خوانا» با پرامپت باید مشکوک تلقی شود. پیش‌فرض
+خالی درست است.
+
+### ۹.۴. قاعدهٔ ثبت
+
+تا وقتی بلوک بخش ۸ با تاریخ و اعداد پر نشود:
+
+- وضعیت سخت‌افزار در `docs/STATUS.md` همان **NOT TESTED** می‌ماند. بخش ۹.۳
+  این را تغییر نمی‌دهد: آن یک ضبط تک‌جهته روی لپ‌تاپ توسعه است، نه ESP32-S3
+  و نه duplex با AEC.
+- هیچ عددی از بخش ۹ به `docs/BENCHMARKS.md` منتقل نمی‌شود؛ اعداد ۹.۳
+  مخصوص همین ماشین و همین اجرا هستند و زمان‌هایش پایدار نیستند.
+- سبز بودن تست‌های خودکار فقط یعنی «قرارداد نرم‌افزاری نقض نشده»، نه «مسیر صوت کار می‌کند».
+- برای پر کردن ردیف ASR بخش ۳، ارزیابی روی `benchmarks/persian_eval_set.json`
+  لازم است، نه یک جملهٔ پراکنده.
+
 ---
 
-<a id="section-14"></a>
+<a id="section-15"></a>
 
-## بخش 14 — THIRD_PARTY.md
+## بخش 15 — THIRD_PARTY.md
 
 # Third-party components and model licences
 
@@ -3078,9 +3281,9 @@ loopback-only test sources. Do not claim a model's licence from its extension.
 
 ---
 
-<a id="section-15"></a>
+<a id="section-16"></a>
 
-## بخش 15 — AGENTS.md
+## بخش 16 — AGENTS.md
 
 # AGENTS.md — نقطهٔ ورود هر مدل/عامل به پروژهٔ Persian Voice AI
 
@@ -3111,6 +3314,7 @@ loopback-only test sources. Do not claim a model's licence from its extension.
 | حافظهٔ مکالمه | محلی/JSONL، برش توکنی، پنجرهٔ RAM محدود، وضعیت interrupted |
 | readiness / سنجه‌ها | `/ready` کامل + `server/metrics.py` با تست |
 | بنچمارک و ارزیابی فارسی | `tools/benchmark_voice.py` و `benchmarks/persian_eval.py`؛ اعداد واقعی هدف NOT MEASURED |
+| ضبط واقعی میکروفون | `tools/mic_probe.py` (VAD+Whisper واقعی، MEASURED)؛ یک اجرای تک‌جهته در بخش ۹.۳ `docs/HARDWARE_VALIDATION.md` |
 | Wi-Fi/WebSocket صوتی ESP32 | transport سرور پیاده‌شده (`server/ws_voice.py`)؛ firmware پیاده‌نشده |
 | IoT Command Broker، احراز هویت دستگاه، OTA | پیاده‌نشده |
 
@@ -3158,6 +3362,7 @@ PersianVoiceAI/
 │  ├─ AEC.md              ← SpeexDSP، تأخیر، چک‌لیست
 │  ├─ PROTOCOL.md         ← قرارداد WebSocket ESP32-S3 + transport سرور
 │  ├─ WSS_TLS.md          ← wss/TLS: مستقیم روی uvicorn، Caddy، nginx، سمت دستگاه
+│  ├─ RAG.md              ← بازیابی دانش محلی (BM25) و endpointهای /api/knowledge
 │  ├─ BENCHMARKS.md       ← روش‌شناسی و نتایج برچسب‌دار
 │  ├─ TROUBLESHOOTING.md  ← پیام‌های خطا و راه‌حل
 │  ├─ PC_VOICE.md         ← نصب و اجرای صوت PC
@@ -3183,6 +3388,7 @@ PersianVoiceAI/
 │  ├─ protocol.py         ← قرارداد فریم/پیام ESP32
 │  ├─ ws_voice.py         ← transport WebSocket سرور برای دستگاه LAN
 │  ├─ security.py         ← توکن REST/WS، rate limit، سقف اتصال
+│  ├─ rag.py              ← RAG محلی (BM25، KnowledgeBase) برای پاسخ دانش‌محور
 │  ├─ cli.py              ← کلاینت چت فارسی ترمینال
 │  ├─ __main__.py         ← اجرای `python -m server`
 │  └─ __init__.py         ← نسخهٔ سرویس
@@ -3190,6 +3396,7 @@ PersianVoiceAI/
 ├─ benchmarks/            ← پرامپت‌های متنی + persian_eval.py + persian_eval_set.json
 ├─ tools/                 ← اسکریپت‌های .ps1 و .sh + benchmark_voice.py + download_parallel.py
 │                             + prepare_dataset.py / train_plan.py / training_config.py
+│                             + mic_probe.py (ضبط میکروفون واقعی → VAD → Whisper)
 ├─ models/                ← مدل‌های محلی GGUF (خارج از git)
 ├─ data/                  ← مکالمه/بازخورد/دانش محلی (خارج از git)
 └─ firmware/              ← (ساخته نشده) هدف: پروژهٔ ESP-IDF esp32s3_terminal
@@ -3340,9 +3547,9 @@ hyper-parameter جدید (يا مسیر) باید در `configs/*.example.*` و 
 
 ---
 
-<a id="section-16"></a>
+<a id="section-17"></a>
 
-## بخش 16 — docs/SPEC.md
+## بخش 17 — docs/SPEC.md
 
 # مستند جامع پروژه Persian Voice AI
 
@@ -3758,9 +3965,9 @@ ASR → LLM Intent → Structured Command → Command Broker
 
 ---
 
-<a id="section-17"></a>
+<a id="section-18"></a>
 
-## بخش 17 — docs/ISSUE_REGISTER.md
+## بخش 18 — docs/ISSUE_REGISTER.md
 
 # دفترچهٔ ایرادها — PersianVoiceAI Conversation Engine
 
@@ -4494,9 +4701,9 @@ ASR → LLM Intent → Structured Command → Command Broker
 
 ---
 
-<a id="section-18"></a>
+<a id="section-19"></a>
 
-## بخش 18 — docs/AUDIT_REPORT.md
+## بخش 19 — docs/AUDIT_REPORT.md
 
 # گزارش نهایی بازبینی موتور مکالمهٔ PersianVoiceAI
 
@@ -4558,13 +4765,13 @@ ASR → LLM Intent → Structured Command → Command Broker
 ## C. گزارش تست
 
 ```text
-$ python -m pytest
-235 passed, 2 skipped
+$ .venv-audio/Scripts/python.exe -m pytest --tb=no -rA
+258 passed, 3 skipped in 12.77s
 ```
 
-- ۲ skip فقط تست‌های native SpeexDSP (کتابخانه در sandbox ساخته نشده).
+- ۲ skip برای تست‌های native SpeexDSP (DLL در دسترس نیست) و ۱ skip برای sampler حافظهٔ پلتفرم Windows.
 - تست پایه پیش از این کار: ۵۳ passed.
-- همهٔ تست‌ها fake/ساختگی: بدون مدل، بدون میکروفون، بدون شبکهٔ واقعی.
+- تست‌های خودکار از fake استفاده می‌کنند؛ جداگانه Piper فارسی با مدل محلی WAV تولید کرد. تست دستگاه و مکالمهٔ end-to-end انجام نشده است.
 - **تست سخت‌افزاری انجام نشده**؛ چک‌لیست آن در `docs/HARDWARE_VALIDATION.md` است.
 
 نگاشت ۲۰ الزام به تست در `docs/STATUS.md` §۲ آمده است (به‌روزرسانی‌شده با تست‌های تازه).
