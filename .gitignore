@@ -9,6 +9,8 @@ __pycache__/
 !.env.example
 models/
 .venv-audio/
+# Live microphone runs contain the user's own transcribed speech; keep them local.
+benchmarks/results/mic-*.json
 data/conversations/
 data/feedback/
 data/knowledge/

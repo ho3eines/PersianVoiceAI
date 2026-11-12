@@ -27,6 +27,7 @@
 | حافظهٔ مکالمه | محلی/JSONL، برش توکنی، پنجرهٔ RAM محدود، وضعیت interrupted |
 | readiness / سنجه‌ها | `/ready` کامل + `server/metrics.py` با تست |
 | بنچمارک و ارزیابی فارسی | `tools/benchmark_voice.py` و `benchmarks/persian_eval.py`؛ اعداد واقعی هدف NOT MEASURED |
+| ضبط واقعی میکروفون | `tools/mic_probe.py` (VAD+Whisper واقعی، MEASURED)؛ یک اجرای تک‌جهته در بخش ۹.۳ `docs/HARDWARE_VALIDATION.md` |
 | Wi-Fi/WebSocket صوتی ESP32 | transport سرور پیاده‌شده (`server/ws_voice.py`)؛ firmware پیاده‌نشده |
 | IoT Command Broker، احراز هویت دستگاه، OTA | پیاده‌نشده |
 
@@ -108,6 +109,7 @@ PersianVoiceAI/
 ├─ benchmarks/            ← پرامپت‌های متنی + persian_eval.py + persian_eval_set.json
 ├─ tools/                 ← اسکریپت‌های .ps1 و .sh + benchmark_voice.py + download_parallel.py
 │                             + prepare_dataset.py / train_plan.py / training_config.py
+│                             + mic_probe.py (ضبط میکروفون واقعی → VAD → Whisper)
 ├─ models/                ← مدل‌های محلی GGUF (خارج از git)
 ├─ data/                  ← مکالمه/بازخورد/دانش محلی (خارج از git)
 └─ firmware/              ← (ساخته نشده) هدف: پروژهٔ ESP-IDF esp32s3_terminal

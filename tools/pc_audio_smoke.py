@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import time
 import unicodedata
@@ -108,8 +109,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     asr_load_ms = round((time.perf_counter() - load_started) * 1000, 2)
 
     asr_started = time.perf_counter()
+    # Decode locally instead of handing the path to faster-whisper: its internal
+    # ``decode_audio`` calls ``av.open(..., metadata_errors=...)``, which newer
+    # PyAV releases (19.x) reject with TypeError.  The server path already
+    # decodes with librosa (``server.voice.load_asr_audio``); this tool must
+    # follow it, otherwise the smoke test fails on an otherwise healthy install.
+    import numpy as np  # audio environment only; not a runtime dependency
+
+    with wave.open(str(wav_path), "rb") as wav_file:
+        if wav_file.getsampwidth() != 2:
+            raise SystemExit("Expected 16-bit PCM WAV from Piper")
+        channels = wav_file.getnchannels()
+        rate = wav_file.getframerate()
+        raw = wav_file.readframes(wav_file.getnframes())
+    samples = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+    if channels > 1:
+        samples = samples.reshape(-1, channels).mean(axis=1, dtype=np.float32)
+    if rate != 16000:
+        from scipy.signal import resample_poly
+
+        divisor = math.gcd(rate, 16000)
+        samples = resample_poly(samples, 16000 // divisor, rate // divisor).astype(np.float32)
+
     segments, info = model.transcribe(
-        str(wav_path),
+        samples,
         language="fa",
         beam_size=1,
         vad_filter=False,
