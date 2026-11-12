@@ -26,7 +26,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -388,7 +388,7 @@ def create_app(
         messages = [message.model_dump() for message in payload.messages]
         if payload.use_rag:
             query = next((message.content for message in reversed(payload.messages) if message.role == "user"), "")
-            _apply_rag(messages, request.app.state.knowledge, query)
+            await asyncio.to_thread(_apply_rag, messages, request.app.state.knowledge, query)
         model_name = payload.model or resolved.model_path.split("\\")[-1].split("/")[-1]
         completion_id = _completion_id()
         created = int(time.time())
@@ -567,21 +567,27 @@ def create_app(
     @app.post("/api/knowledge", tags=["knowledge"])
     async def add_knowledge(payload: KnowledgeRequest, request: Request) -> dict[str, Any]:
         try:
-            return request.app.state.knowledge.add(payload.title, payload.text)
+            return await asyncio.to_thread(
+                request.app.state.knowledge.add, payload.title, payload.text
+            )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/knowledge", tags=["knowledge"])
     async def list_knowledge(request: Request) -> dict[str, Any]:
-        return {"documents": request.app.state.knowledge.list()}
+        return {"documents": await asyncio.to_thread(request.app.state.knowledge.list)}
 
     @app.get("/api/knowledge/search", tags=["knowledge"])
-    async def search_knowledge(q: str, request: Request) -> dict[str, Any]:
-        return {"results": request.app.state.knowledge.search(q)}
+    async def search_knowledge(
+        request: Request,
+        q: str = Query(min_length=1, max_length=500),
+    ) -> dict[str, Any]:
+        results = await asyncio.to_thread(request.app.state.knowledge.search, q)
+        return {"results": results}
 
     @app.delete("/api/knowledge/{document_id}", tags=["knowledge"])
     async def delete_knowledge(document_id: str, request: Request) -> dict[str, Any]:
-        if not request.app.state.knowledge.delete(document_id):
+        if not await asyncio.to_thread(request.app.state.knowledge.delete, document_id):
             raise HTTPException(status_code=404, detail="سند پیدا نشد.")
         return {"deleted": True, "id": document_id}
 
@@ -593,7 +599,11 @@ def create_app(
             turn_id = conversation.new_turn_id()
             conversation.add_user(payload.message, turn_id=turn_id)
             messages = conversation.context_with_system(payload.system or resolved.system_prompt)
-            sources = _apply_rag(messages, request.app.state.knowledge, payload.message) if payload.use_rag else []
+            sources = (
+                await asyncio.to_thread(_apply_rag, messages, request.app.state.knowledge, payload.message)
+                if payload.use_rag
+                else []
+            )
 
             result = await request.app.state.llm.chat(
                 messages,

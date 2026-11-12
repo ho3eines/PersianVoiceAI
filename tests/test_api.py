@@ -156,6 +156,11 @@ def test_local_knowledge_api_and_rag_augmented_chat(tmp_path: Any) -> None:
         assert test_client.get("/api/knowledge").json()["documents"] == []
 
 
+def test_knowledge_search_rejects_oversized_or_empty_query(client: TestClient) -> None:
+    assert client.get("/api/knowledge/search", params={"q": "ا " * 400}).status_code == 422
+    assert client.get("/api/knowledge/search", params={"q": ""}).status_code == 422
+
+
 def test_health_ok(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
