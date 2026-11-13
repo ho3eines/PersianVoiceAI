@@ -1,0 +1,136 @@
+{
+    "schema":  "persianvoiceai.hardware/1",
+    "script_version":  "1.0",
+    "collected_at_utc":  "2026-11-12T18:50:44.0553593Z",
+    "collected_at_local":  "2026-11-12 22:20:44",
+    "os":  {
+               "caption":  "Microsoft Windows 11 Enterprise",
+               "version":  "10.0.22621",
+               "build":  "22621",
+               "arch":  "64-bit"
+           },
+    "cpu":  {
+                "name":  "Intel(R) Core(TM) i7-6500U CPU @ 2.50GHz",
+                "cores":  2,
+                "threads":  4,
+                "max_clock_mhz":  2592,
+                "l3_cache_kb":  4096
+            },
+    "memory":  {
+                   "total_gb":  15.87,
+                   "free_gb":  6.93,
+                   "modules":  [
+                                   {
+                                       "capacity_gb":  8,
+                                       "speed_mhz":  2133
+                                   },
+                                   {
+                                       "capacity_gb":  8,
+                                       "speed_mhz":  2133
+                                   }
+                               ]
+               },
+    "gpus":  [
+                 {
+                     "name":  "Intel(R) HD Graphics 520",
+                     "driver_version":  "31.0.101.2125",
+                     "driver_date":  "2023-05-24",
+                     "adapter_ram_bytes":  1073741824,
+                     "adapter_ram_gb":  1,
+                     "vram_source":  "WMI Win32_VideoController.AdapterRAM",
+                     "video_processor":  "Intel(R) HD Graphics Family",
+                     "status":  "OK"
+                 },
+                 {
+                     "name":  "NVIDIA GeForce 940MX",
+                     "driver_version":  "581.29",
+                     "driver_date":  "2025-09-05",
+                     "adapter_ram_bytes":  2147483648,
+                     "adapter_ram_gb":  2,
+                     "vram_source":  "nvidia-smi memory.total (MiB)",
+                     "video_processor":  "NVIDIA GeForce 940MX",
+                     "status":  "OK"
+                 }
+             ],
+    "nvidia_smi":  {
+                       "status":  "ok",
+                       "path":  "C:\\Windows\\system32\\nvidia-smi.exe",
+                       "gpus":  [
+                                    {
+                                        "name":  "NVIDIA GeForce 940MX",
+                                        "vram_mb":  2048,
+                                        "vram_gb":  2,
+                                        "driver_version":  "581.29"
+                                    }
+                                ]
+                   },
+    "physical_disks":  [
+                           {
+                               "model":  "ADATA SU630",
+                               "media_type":  "SSD",
+                               "bus_type":  "SATA",
+                               "size_gb":  223.57,
+                               "health":  "Healthy"
+                           },
+                           {
+                               "model":  "HGST HTS721010A9E630",
+                               "media_type":  "HDD",
+                               "bus_type":  "SATA",
+                               "size_gb":  931.51,
+                               "health":  "Healthy"
+                           }
+                       ],
+    "physical_disk_source":  "Get-PhysicalDisk",
+    "volumes":  [
+                    {
+                        "drive_letter":  "E",
+                        "label":  "PDD",
+                        "file_system":  "NTFS",
+                        "size_gb":  292.97,
+                        "free_gb":  34.18,
+                        "free_percent":  11.7
+                    },
+                    {
+                        "drive_letter":  "D",
+                        "label":  "Project",
+                        "file_system":  "NTFS",
+                        "size_gb":  292.37,
+                        "free_gb":  111.7,
+                        "free_percent":  38.2
+                    },
+                    {
+                        "drive_letter":  "C",
+                        "label":  "Win",
+                        "file_system":  "NTFS",
+                        "size_gb":  223.55,
+                        "free_gb":  28.77,
+                        "free_percent":  12.9
+                    },
+                    {
+                        "drive_letter":  "F",
+                        "label":  "Other",
+                        "file_system":  "NTFS",
+                        "size_gb":  345.57,
+                        "free_gb":  186.67,
+                        "free_percent":  54
+                    }
+                ],
+    "volume_source":  "Get-Volume",
+    "selected_drive":  {
+                           "drive_letter":  "D",
+                           "label":  "Project",
+                           "file_system":  "NTFS",
+                           "size_gb":  292.37,
+                           "free_gb":  111.7,
+                           "free_percent":  38.2
+                       },
+    "warnings":  [
+                     "Intel(R) HD Graphics 520 uses shared system memory; its reported AdapterRAM is not dedicated VRAM."
+                 ],
+    "privacy":  {
+                    "collects_serial_numbers":  false,
+                    "collects_username":  false,
+                    "collects_ip_or_mac":  false,
+                    "calls_external_services":  false
+                }
+}

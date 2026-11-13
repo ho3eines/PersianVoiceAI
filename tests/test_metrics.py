@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 
 from server.metrics import METRIC_NAMES, Metrics, Summary
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_counter_and_gauge() -> None:
@@ -69,6 +72,49 @@ def test_documented_metric_names_cover_the_pipeline() -> None:
         "llm_tokens_per_second",
     }
     assert required <= set(METRIC_NAMES)
+
+
+def test_every_declared_metric_is_actually_emitted_somewhere() -> None:
+    """A declared name nothing records is a lie in the docs and the benchmark.
+
+    ``METRIC_NAMES`` is what the docs promise the pipeline measures.  ``vad_onset_events``
+    lived in that tuple while no module ever recorded it: a reader (or the
+    benchmark's ``missing()`` call) was told a number existed that could never
+    appear.  Mirroring the declaration list against the source keeps that from
+    coming back.
+    """
+    source = "".join(
+        path.read_text(encoding="utf-8-sig")
+        for path in (ROOT / "server").glob("*.py")
+        if path.name != "metrics.py"
+    )
+    unemitted = [name for name in METRIC_NAMES if f'"{name}"' not in source]
+    assert not unemitted, f"declared but never recorded: {unemitted}"
+
+
+def test_every_recorded_metric_is_declared() -> None:
+    """The other direction: the registry must not under-report what it measures.
+
+    ``/api/protocol`` and the benchmark derive the metric set from
+    ``METRIC_NAMES``; a name recorded by the pipeline but absent from that tuple
+    is measured and then invisible to every consumer of the registry.  Twenty
+    such names existed (``ws_capture_out_of_order``, ``asr_model_load_ms``,
+    ``api_rate_limited`` …) while the module docstring claimed completeness.
+    """
+    import re
+
+    pattern = re.compile(
+        r'\.(?:increment|set|observe|counter|gauge|summary)\(\s*"([a-z0-9_]+)"'
+    )
+    declared = set(METRIC_NAMES)
+    undeclared: dict[str, str] = {}
+    for path in (ROOT / "server").glob("*.py"):
+        if path.name == "metrics.py":
+            continue
+        for match in pattern.finditer(path.read_text(encoding="utf-8-sig")):
+            if match.group(1) not in declared:
+                undeclared.setdefault(match.group(1), path.name)
+    assert not undeclared, f"recorded but never declared: {sorted(undeclared.items())}"
 
 
 def test_concurrent_updates_are_thread_safe() -> None:

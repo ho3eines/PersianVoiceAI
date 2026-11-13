@@ -129,6 +129,43 @@ def test_endpoint_delay_reporting() -> None:
     assert vad.endpoint_delay_ms() == pytest.approx(600.0)
 
 
+def test_delay_reporting_tracks_the_configured_block_length() -> None:
+    """``PVAI_AUDIO_BLOCK_MS`` may be 10/20/40; the delay must follow it.
+
+    The detector counts *frames*, so converting with a hardcoded 20 ms made
+    ``vad_start_ms`` double at 10 ms and halve at 40 ms -- a wrong number in the
+    benchmark report and in ``/ready`` diagnostics, not just a cosmetic label.
+    """
+    settings = Settings(
+        audio_block_ms=40,
+        voice_vad_onset_ms=80,  # 2 frames at 40 ms
+        voice_vad_silence_ms=800,  # 20 frames at 40 ms
+    )
+    vad = build_vad(settings)
+    assert vad.onset_frames == 2
+    assert vad.silence_frames == 20
+    assert vad.onset_delay_ms() == pytest.approx(80.0)
+    assert vad.endpoint_delay_ms() == pytest.approx(800.0)
+    assert vad.describe()["block_ms"] == 40.0
+    assert vad.describe()["onset_delay_ms"] == pytest.approx(80.0)
+
+    fast = build_vad(
+        Settings(
+            audio_block_ms=10,
+            voice_vad_onset_ms=80,
+            voice_vad_silence_ms=800,
+        )
+    )
+    assert fast.onset_frames == 8
+    assert fast.onset_delay_ms() == pytest.approx(80.0)
+    assert fast.endpoint_delay_ms() == pytest.approx(800.0)
+
+
+def test_a_zero_block_length_is_refused() -> None:
+    with pytest.raises(ValueError, match="block length"):
+        EnergyVAD(0.02, block_ms=0)
+
+
 def test_build_vad_maps_settings() -> None:
     settings = Settings(
         voice_vad_threshold=0.02,

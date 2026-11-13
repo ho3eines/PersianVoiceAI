@@ -1,0 +1,1526 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-11-12T19:24:35.146730+00:00",
+  "environment": {
+    "platform": "Windows-11-10.0.22621-SP0",
+    "processor": "Intel64 Family 6 Model 78 Stepping 3, GenuineIntel",
+    "logical_cpu_count": 4,
+    "llama_server_version": "version: 0.4.1-dev (build 11040, commit 5b335f413)\nbuilt with Clang 20.1.8 for Windows x86_64",
+    "nvidia_gpu": "NVIDIA GeForce 940MX, 2048 MiB, 581.29, 5.0"
+  },
+  "prompt_file": "D:\\PersianVoiceAI\\benchmarks\\prompts_fa.json",
+  "prompt_count": 8,
+  "runs": [
+    {
+      "model": "Qwen3.5-4B-Q4_K_M",
+      "model_path": "D:\\PersianVoiceAI\\models\\qwen3.5-4b\\Qwen3.5-4B-Q4_K_M.gguf",
+      "model_file_bytes": 2740937888,
+      "model_sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+      "llama_server": "D:\\Lama.cpp\\bin\\llama-server.exe",
+      "profile": {
+        "context_size": 4096,
+        "threads": 4,
+        "parallel_slots": 1,
+        "gpu_layers": 0,
+        "device": "none",
+        "reasoning_format": "deepseek",
+        "reasoning": "off",
+        "temperature": 0.0,
+        "max_tokens": 48
+      },
+      "started_at": "2026-11-12T19:11:15.572837+00:00",
+      "warmup": {
+        "answer": "آماده‌ام.",
+        "ttft_ms": 36635.15,
+        "wall_ms": 38625.98,
+        "usage": {
+          "completion_tokens": 6,
+          "prompt_tokens": 269,
+          "total_tokens": 275,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "timings": {
+          "cache_n": 0,
+          "prompt_n": 269,
+          "prompt_ms": 32727.653,
+          "prompt_per_token_ms": 121.6641375464684,
+          "prompt_per_second": 8.219348940176065,
+          "predicted_n": 6,
+          "predicted_ms": 1914.877,
+          "predicted_per_token_ms": 382.9754,
+          "predicted_per_second": 2.6111337699497152
+        },
+        "finish_reason": null
+      },
+      "resources": {
+        "gpu_used_before_mib_system_total": 297,
+        "gpu_delta_peak_mib_system_total": 72,
+        "working_set_peak_mib": 3047.0,
+        "private_bytes_peak_mib": 2189.6,
+        "gpu_used_peak_mib_system_total": 369,
+        "samples": 165
+      },
+      "server_log": "D:\\PersianVoiceAI\\logs\\model-bench-Qwen3.5-4B-Q4_K_M-cpu.log",
+      "results": [
+        {
+          "id": "salam",
+          "category": "گفت‌وگوی روزمره",
+          "prompt": "سلام! خودت را کوتاه معرفی کن و بگو چه کاری می‌توانی انجام دهی.",
+          "checks": "فارسی روان، معرفی درست، پاسخ کوتاه",
+          "token_limit_reached": true,
+          "answer": "من دستیار هوش مصنوعی محلی به نام «Persian Voice AI» هستم.\n\nمن می‌توانم به زبان فارسی با شما صحبت کنم، سوالات شما را پاسخ دهم، اطلاعات را جستجو",
+          "ttft_ms": 4468.76,
+          "wall_ms": 15775.53,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 281,
+            "total_tokens": 329,
+            "prompt_tokens_details": {
+              "cached_tokens": 247
+            }
+          },
+          "timings": {
+            "cache_n": 247,
+            "prompt_n": 34,
+            "prompt_ms": 4445.66,
+            "prompt_per_token_ms": 130.75470588235294,
+            "prompt_per_second": 7.647908297080749,
+            "predicted_n": 48,
+            "predicted_ms": 11305.703,
+            "predicted_per_token_ms": 240.54687234042552,
+            "predicted_per_second": 4.157193940084929
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "local_ai",
+          "category": "توضیح مفهومی",
+          "prompt": "هوش مصنوعی محلی چیست؟ سه مزیت اصلی آن را در سه جملهٔ کوتاه توضیح بده.",
+          "checks": "دقت مفهومی، سه مزیت مشخص، پایبندی به سه جمله",
+          "token_limit_reached": true,
+          "answer": "هوش مصنوعی محلی سیستمی است که پردازش اطلاعات را کاملاً درون دستگاه کاربر انجام می‌دهد و به اینترنت متصل نیست.\nمزیت اول حفظ کامل حریم خصوصی است زیرا هیچ داده‌ای از شما",
+          "ttft_ms": 3207.14,
+          "wall_ms": 12344.47,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 284,
+            "total_tokens": 332,
+            "prompt_tokens_details": {
+              "cached_tokens": 247
+            }
+          },
+          "timings": {
+            "cache_n": 247,
+            "prompt_n": 37,
+            "prompt_ms": 3177.534,
+            "prompt_per_token_ms": 85.8792972972973,
+            "prompt_per_second": 11.644249912038708,
+            "predicted_n": 48,
+            "predicted_ms": 9136.565,
+            "predicted_per_token_ms": 194.395,
+            "predicted_per_second": 5.144165230587206
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "math",
+          "category": "استدلال",
+          "prompt": "یک کتاب ۱۲۰ صفحه‌ای را روزی ۱۵ صفحه می‌خوانم. چند روز طول می‌کشد و چرا؟",
+          "checks": "پاسخ عددی درست (۸ روز)، استدلال روشن",
+          "token_limit_reached": true,
+          "answer": "برای خواندن یک کتاب ۱۲۰ صفحه‌ای با سرعت روزانه ۱۵ صفحه، به ۸ روز نیاز دارید.\n\nاین محاسبه به این صورت است که ۱",
+          "ttft_ms": 4063.82,
+          "wall_ms": 13162.68,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 295,
+            "total_tokens": 343,
+            "prompt_tokens_details": {
+              "cached_tokens": 247
+            }
+          },
+          "timings": {
+            "cache_n": 247,
+            "prompt_n": 48,
+            "prompt_ms": 4034.093,
+            "prompt_per_token_ms": 84.04360416666667,
+            "prompt_per_second": 11.898585382141661,
+            "predicted_n": 48,
+            "predicted_ms": 9103.476,
+            "predicted_per_token_ms": 193.69097872340427,
+            "predicted_per_second": 5.162863064614
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "instruction",
+          "category": "پیروی از دستور",
+          "prompt": "دقیقاً سه جمله دربارهٔ پاییز بنویس. هر جمله باید کمتر از ۱۰ کلمه باشد. فقط جمله‌ها را بنویس.",
+          "checks": "دقیقاً سه جمله، هر جمله کمتر از ۱۰ کلمه، بدون متن اضافه",
+          "token_limit_reached": true,
+          "answer": "پاییز رنگ‌های طلایی و نارنجی را به درختان می‌دهد.\nباد پاییزی برگ‌های خشک را به زمین می‌ریزد.\nهوای خنک پاییز برای",
+          "ttft_ms": 4212.2,
+          "wall_ms": 16393.88,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 298,
+            "total_tokens": 346,
+            "prompt_tokens_details": {
+              "cached_tokens": 247
+            }
+          },
+          "timings": {
+            "cache_n": 247,
+            "prompt_n": 51,
+            "prompt_ms": 4181.749,
+            "prompt_per_token_ms": 81.99507843137255,
+            "prompt_per_second": 12.195853935757503,
+            "predicted_n": 48,
+            "predicted_ms": 12181.095,
+            "predicted_per_token_ms": 259.17223404255316,
+            "predicted_per_second": 3.858438013988069
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "code",
+          "category": "کدنویسی",
+          "prompt": "یک تابع پایتون بنویس که یک رشته را برعکس کند. سپس در دو جملهٔ فارسی توضیح بده.",
+          "checks": "کد درست، توضیح فارسی، کوتاهی",
+          "token_limit_reached": true,
+          "answer": "در اینجا کد پایتون برای برعکس کردن یک رشته آورده شده است:\n\ndef reverse_string(text):\n    return text[::-1]\n\nاین تابع با استفاده از برش برعکس رشته، ترتیب",
+          "ttft_ms": 4901.4,
+          "wall_ms": 18978.0,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 289,
+            "total_tokens": 337,
+            "prompt_tokens_details": {
+              "cached_tokens": 247
+            }
+          },
+          "timings": {
+            "cache_n": 247,
+            "prompt_n": 42,
+            "prompt_ms": 4750.57,
+            "prompt_per_token_ms": 113.10880952380951,
+            "prompt_per_second": 8.841044337837355,
+            "predicted_n": 48,
+            "predicted_ms": 14075.763,
+            "predicted_per_token_ms": 299.4843191489362,
+            "predicted_per_second": 3.339072986665092
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "grammar",
+          "category": "زبان فارسی",
+          "prompt": "تفاوت «را» و «به» را در فارسی با یک مثال برای هر کدام توضیح بده.",
+          "checks": "توضیح درست دستوری، مثال‌های طبیعی",
+          "token_limit_reached": true,
+          "answer": "در فارسی، کلمه «را» برای نشان دادن مفعول مستقیم استفاده می‌شود، یعنی چیزی که عمل به آن انجام می‌شود. مثال: کتاب را خواندم.\n\nکلمه «",
+          "ttft_ms": 4301.1,
+          "wall_ms": 17063.27,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 283,
+            "total_tokens": 331,
+            "prompt_tokens_details": {
+              "cached_tokens": 247
+            }
+          },
+          "timings": {
+            "cache_n": 247,
+            "prompt_n": 36,
+            "prompt_ms": 4285.319,
+            "prompt_per_token_ms": 119.0366388888889,
+            "prompt_per_second": 8.400774831465288,
+            "predicted_n": 48,
+            "predicted_ms": 12761.452,
+            "predicted_per_token_ms": 271.52025531914893,
+            "predicted_per_second": 3.6829664837512226
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "windows",
+          "category": "کاربرد عملی",
+          "prompt": "چطور در ویندوز فایل‌های خیلی بزرگ را پیدا کنم؟ مراحل را کوتاه و عملی بنویس.",
+          "checks": "مراحل درست ویندوز، عملی بودن، کوتاهی",
+          "token_limit_reached": true,
+          "answer": "برای پیدا کردن فایل‌های بزرگ در ویندوز، مراحل زیر را انجام دهید:\n\nابتدا دکمه کلیدهای Windows و E را همزمان فشار دهید تا پنجره جستجوی فایل باز شود. در کادر",
+          "ttft_ms": 4893.21,
+          "wall_ms": 19315.58,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 286,
+            "total_tokens": 334,
+            "prompt_tokens_details": {
+              "cached_tokens": 247
+            }
+          },
+          "timings": {
+            "cache_n": 247,
+            "prompt_n": 39,
+            "prompt_ms": 4870.315,
+            "prompt_per_token_ms": 124.87987179487179,
+            "prompt_per_second": 8.007695600797895,
+            "predicted_n": 48,
+            "predicted_ms": 14421.687,
+            "predicted_per_token_ms": 306.84440425531915,
+            "predicted_per_second": 3.2589807281214744
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "honesty",
+          "category": "صداقت",
+          "prompt": "دربارهٔ گوشی «پارسیان ۹ پرو» که هفتهٔ گذشته معرفی شد چه می‌دانی؟ اگر اطلاعاتی نداری صادقانه بگو.",
+          "checks": "عدم توهم، اعلام ندانستن، لحن محترمانه",
+          "token_limit_reached": true,
+          "answer": "من در مورد گوشی «پارسیان ۹ پرو» که هفتهٔ گذشته معرفی شده، اطلاعاتی ندارم.\n\nاین گوشی به احتمال زیاد یک محصول فرضی یا نامعتبر است، زیرا شرکتی با نام «",
+          "ttft_ms": 7055.74,
+          "wall_ms": 20605.25,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 298,
+            "total_tokens": 346,
+            "prompt_tokens_details": {
+              "cached_tokens": 247
+            }
+          },
+          "timings": {
+            "cache_n": 247,
+            "prompt_n": 51,
+            "prompt_ms": 7030.421,
+            "prompt_per_token_ms": 137.85139215686274,
+            "prompt_per_second": 7.254188618291848,
+            "predicted_n": 48,
+            "predicted_ms": 13548.872,
+            "predicted_per_token_ms": 288.2738723404255,
+            "predicted_per_second": 3.468923464624952
+          },
+          "finish_reason": null
+        }
+      ],
+      "summary": {
+        "ttft_ms_mean": 4637.92,
+        "wall_ms_mean": 16704.83,
+        "tokens_per_second_mean": 4.01,
+        "empty_answer_count": 0,
+        "token_limit_reached_count": 8
+      }
+    },
+    {
+      "model": "Qwen3-4B-Q4_K_M",
+      "model_path": "D:\\PersianVoiceAI\\models\\qwen3-4b\\Qwen3-4B-Q4_K_M.gguf",
+      "model_file_bytes": 2497280640,
+      "model_sha256": "ab27b9bfa375a178d6cba48f3ad892b94b7739659dcc7aae8058ce0ffed6b328",
+      "llama_server": "D:\\Lama.cpp\\bin\\llama-server.exe",
+      "profile": {
+        "context_size": 4096,
+        "threads": 4,
+        "parallel_slots": 1,
+        "gpu_layers": 0,
+        "device": "none",
+        "reasoning_format": "deepseek",
+        "reasoning": "off",
+        "temperature": 0.0,
+        "max_tokens": 48
+      },
+      "started_at": "2026-11-12T19:14:48.628915+00:00",
+      "warmup": {
+        "answer": "آماده‌ام.",
+        "ttft_ms": 36519.08,
+        "wall_ms": 38456.17,
+        "usage": {
+          "completion_tokens": 8,
+          "prompt_tokens": 428,
+          "total_tokens": 436,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "timings": {
+          "cache_n": 0,
+          "prompt_n": 428,
+          "prompt_ms": 36404.483,
+          "prompt_per_token_ms": 85.05720327102804,
+          "prompt_per_second": 11.756793799269172,
+          "predicted_n": 8,
+          "predicted_ms": 1920.785,
+          "predicted_per_token_ms": 274.39785714285716,
+          "predicted_per_second": 3.6443433283787616
+        },
+        "finish_reason": null
+      },
+      "resources": {
+        "gpu_used_before_mib_system_total": 285,
+        "gpu_delta_peak_mib_system_total": 124,
+        "working_set_peak_mib": 4109.8,
+        "private_bytes_peak_mib": 2482.5,
+        "gpu_used_peak_mib_system_total": 409,
+        "samples": 213
+      },
+      "server_log": "D:\\PersianVoiceAI\\logs\\model-bench-Qwen3-4B-Q4_K_M-cpu.log",
+      "results": [
+        {
+          "id": "salam",
+          "category": "گفت‌وگوی روزمره",
+          "prompt": "سلام! خودت را کوتاه معرفی کن و بگو چه کاری می‌توانی انجام دهی.",
+          "checks": "فارسی روان، معرفی درست، پاسخ کوتاه",
+          "token_limit_reached": true,
+          "answer": "سلام! من «Persian Voice AI» هستم، یک دستیار هوش مصنوعی محلی که روی رایانه کاربر اجرا می‌شود.",
+          "ttft_ms": 5054.93,
+          "wall_ms": 16955.71,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 452,
+            "total_tokens": 500,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 47,
+            "prompt_ms": 5012.751,
+            "prompt_per_token_ms": 106.65427659574469,
+            "prompt_per_second": 9.376089097583343,
+            "predicted_n": 48,
+            "predicted_ms": 11900.289,
+            "predicted_per_token_ms": 253.19763829787234,
+            "predicted_per_second": 3.9494839158948154
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "local_ai",
+          "category": "توضیح مفهومی",
+          "prompt": "هوش مصنوعی محلی چیست؟ سه مزیت اصلی آن را در سه جملهٔ کوتاه توضیح بده.",
+          "checks": "دقت مفهومی، سه مزیت مشخص، پایبندی به سه جمله",
+          "token_limit_reached": true,
+          "answer": "هوش مصنوعی محلی یک سیستم است که اجرا می‌شود و اطلاعات را از رایانه کاربر گرفت و",
+          "ttft_ms": 5293.19,
+          "wall_ms": 18361.6,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 458,
+            "total_tokens": 506,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 53,
+            "prompt_ms": 5252.836,
+            "prompt_per_token_ms": 99.11011320754717,
+            "prompt_per_second": 10.089787688022241,
+            "predicted_n": 48,
+            "predicted_ms": 13068.067,
+            "predicted_per_token_ms": 278.0439787234042,
+            "predicted_per_second": 3.5965533387608133
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "math",
+          "category": "استدلال",
+          "prompt": "یک کتاب ۱۲۰ صفحه‌ای را روزی ۱۵ صفحه می‌خوانم. چند روز طول می‌کشد و چرا؟",
+          "checks": "پاسخ عددی درست (۸ روز)، استدلال روشن",
+          "token_limit_reached": true,
+          "answer": "برای محاسبه تعداد روزهای لازم، باید ۱۲۰ صفحه را بر ۱۵ صفحه در روز تقسیم کن",
+          "ttft_ms": 5523.77,
+          "wall_ms": 22854.79,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 467,
+            "total_tokens": 515,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 62,
+            "prompt_ms": 5481.153,
+            "prompt_per_token_ms": 88.4056935483871,
+            "prompt_per_second": 11.311488659411625,
+            "predicted_n": 48,
+            "predicted_ms": 17330.146,
+            "predicted_per_token_ms": 368.7265106382979,
+            "predicted_per_second": 2.712037163449171
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "instruction",
+          "category": "پیروی از دستور",
+          "prompt": "دقیقاً سه جمله دربارهٔ پاییز بنویس. هر جمله باید کمتر از ۱۰ کلمه باشد. فقط جمله‌ها را بنویس.",
+          "checks": "دقیقاً سه جمله، هر جمله کمتر از ۱۰ کلمه، بدون متن اضافه",
+          "token_limit_reached": true,
+          "answer": "پاییز رنگارنگ می‌شود.  \nخورشید کمتر نور می‌کشد.  \nآب های گرم تر می‌شود.",
+          "ttft_ms": 6707.94,
+          "wall_ms": 22616.62,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 474,
+            "total_tokens": 522,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 69,
+            "prompt_ms": 6662.079,
+            "prompt_per_token_ms": 96.55186956521739,
+            "prompt_per_second": 10.357127257121988,
+            "predicted_n": 48,
+            "predicted_ms": 15908.279,
+            "predicted_per_token_ms": 338.47402127659575,
+            "predicted_per_second": 2.9544364918417636
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "code",
+          "category": "کدنویسی",
+          "prompt": "یک تابع پایتون بنویس که یک رشته را برعکس کند. سپس در دو جملهٔ فارسی توضیح بده.",
+          "checks": "کد درست، توضیح فارسی، کوتاهی",
+          "token_limit_reached": true,
+          "answer": "```python\ndef reverse_string(s):\n    return s[::-1]\n```\n\nتابع `reverse_string` یک رشته را برعکس می‌کند. این تابع از قط",
+          "ttft_ms": 11327.25,
+          "wall_ms": 25561.41,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 465,
+            "total_tokens": 513,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 60,
+            "prompt_ms": 11281.439,
+            "prompt_per_token_ms": 188.02398333333335,
+            "prompt_per_second": 5.318470453990843,
+            "predicted_n": 48,
+            "predicted_ms": 14233.747,
+            "predicted_per_token_ms": 302.84568085106383,
+            "predicted_per_second": 3.3020117612038486
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "grammar",
+          "category": "زبان فارسی",
+          "prompt": "تفاوت «را» و «به» را در فارسی با یک مثال برای هر کدام توضیح بده.",
+          "checks": "توضیح درست دستوری، مثال‌های طبیعی",
+          "token_limit_reached": true,
+          "answer": "«را» و «به» در فارسی دو کلمه متفاوت هستند که به معنای متفاوتی استفاده می‌شوند:\n\n1. **",
+          "ttft_ms": 5712.67,
+          "wall_ms": 20575.88,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 450,
+            "total_tokens": 498,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 45,
+            "prompt_ms": 5671.367,
+            "prompt_per_token_ms": 126.03037777777779,
+            "prompt_per_second": 7.934594957441477,
+            "predicted_n": 48,
+            "predicted_ms": 14862.444,
+            "predicted_per_token_ms": 316.2222127659574,
+            "predicted_per_second": 3.1623331936524037
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "windows",
+          "category": "کاربرد عملی",
+          "prompt": "چطور در ویندوز فایل‌های خیلی بزرگ را پیدا کنم؟ مراحل را کوتاه و عملی بنویس.",
+          "checks": "مراحل درست ویندوز، عملی بودن، کوتاهی",
+          "token_limit_reached": true,
+          "answer": "برای پیدا کردن فایل‌های بزرگ در ویندوز:\n\n1. **فایل را جستجو کنید**: از ابزار جستجو در و",
+          "ttft_ms": 5082.25,
+          "wall_ms": 19358.53,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 458,
+            "total_tokens": 506,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 53,
+            "prompt_ms": 5034.602,
+            "prompt_per_token_ms": 94.99249056603773,
+            "prompt_per_second": 10.527147925496395,
+            "predicted_n": 48,
+            "predicted_ms": 14275.301,
+            "predicted_per_token_ms": 303.7298085106383,
+            "predicted_per_second": 3.2923999290803048
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "honesty",
+          "category": "صداقت",
+          "prompt": "دربارهٔ گوشی «پارسیان ۹ پرو» که هفتهٔ گذشته معرفی شد چه می‌دانی؟ اگر اطلاعاتی نداری صادقانه بگو.",
+          "checks": "عدم توهم، اعلام ندانستن، لحن محترمانه",
+          "token_limit_reached": true,
+          "answer": "اگر اطلاعاتی در مورد گوشی «پارسیان ۹ پرو» ندارم، این را بگو: «می‌دانم که",
+          "ttft_ms": 7354.58,
+          "wall_ms": 19075.88,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 483,
+            "total_tokens": 531,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 78,
+            "prompt_ms": 7315.356,
+            "prompt_per_token_ms": 93.78661538461539,
+            "prompt_per_second": 10.662502276034141,
+            "predicted_n": 48,
+            "predicted_ms": 11720.626,
+            "predicted_per_token_ms": 249.37502127659576,
+            "predicted_per_second": 4.0100247205226065
+          },
+          "finish_reason": null
+        }
+      ],
+      "summary": {
+        "ttft_ms_mean": 6507.07,
+        "wall_ms_mean": 20670.05,
+        "tokens_per_second_mean": 3.37,
+        "empty_answer_count": 0,
+        "token_limit_reached_count": 8
+      }
+    },
+    {
+      "model": "gemma-3-4b-persian-v0.Q4_K_M",
+      "model_path": "D:\\PersianVoiceAI\\models\\gemma3-4b-persian\\gemma-3-4b-persian-v0.Q4_K_M.gguf",
+      "model_file_bytes": 2489894848,
+      "model_sha256": "dc7d72e7150a720dc8125941eae5b64e581e04d5b1ab84e1604cd84aabe2485d",
+      "llama_server": "D:\\Lama.cpp\\bin\\llama-server.exe",
+      "profile": {
+        "context_size": 4096,
+        "threads": 4,
+        "parallel_slots": 1,
+        "gpu_layers": 0,
+        "device": "none",
+        "reasoning_format": "deepseek",
+        "reasoning": "off",
+        "temperature": 0.0,
+        "max_tokens": 48
+      },
+      "started_at": "2026-11-12T19:19:03.422446+00:00",
+      "warmup": {
+        "answer": "آماده‌ام.",
+        "ttft_ms": 14934.65,
+        "wall_ms": 15747.41,
+        "usage": {
+          "completion_tokens": 6,
+          "prompt_tokens": 238,
+          "total_tokens": 244,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "timings": {
+          "cache_n": 0,
+          "prompt_n": 238,
+          "prompt_ms": 14918.164,
+          "prompt_per_token_ms": 62.68136134453782,
+          "prompt_per_second": 15.953705831361017,
+          "predicted_n": 6,
+          "predicted_ms": 812.245,
+          "predicted_per_token_ms": 162.449,
+          "predicted_per_second": 6.155778121133402
+        },
+        "finish_reason": null
+      },
+      "resources": {
+        "gpu_used_before_mib_system_total": 197,
+        "gpu_delta_peak_mib_system_total": 78,
+        "working_set_peak_mib": 4241.1,
+        "private_bytes_peak_mib": 1971.7,
+        "gpu_used_peak_mib_system_total": 275,
+        "samples": 192
+      },
+      "server_log": "D:\\PersianVoiceAI\\logs\\model-bench-gemma-3-4b-persian-v0.Q4_K_M-cpu.log",
+      "results": [
+        {
+          "id": "salam",
+          "category": "گفت‌وگوی روزمره",
+          "prompt": "سلام! خودت را کوتاه معرفی کن و بگو چه کاری می‌توانی انجام دهی.",
+          "checks": "فارسی روان، معرفی درست، پاسخ کوتاه",
+          "token_limit_reached": true,
+          "answer": "سلام! من یک دستیار هوش مصنوعی محلی هستم که روی رایانه شما اجرا می‌شود. من می‌توانم به شما در انجام کارهای مختلف کمک کنم، از جمله پاسخ به سوالات، نوشتن متن، ترجمه و",
+          "ttft_ms": 14366.22,
+          "wall_ms": 23505.23,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 248,
+            "total_tokens": 296,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 247,
+            "prompt_ms": 14350.312,
+            "prompt_per_token_ms": 58.09842914979757,
+            "prompt_per_second": 17.212169324262774,
+            "predicted_n": 48,
+            "predicted_ms": 9138.359,
+            "predicted_per_token_ms": 194.43317021276596,
+            "predicted_per_second": 5.143155352071417
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "local_ai",
+          "category": "توضیح مفهومی",
+          "prompt": "هوش مصنوعی محلی چیست؟ سه مزیت اصلی آن را در سه جملهٔ کوتاه توضیح بده.",
+          "checks": "دقت مفهومی، سه مزیت مشخص، پایبندی به سه جمله",
+          "token_limit_reached": true,
+          "answer": "هوش مصنوعی محلی به معنای اجرای الگوریتم‌های هوش مصنوعی بر روی دستگاه‌های شخصی است. این نوع هوش مصنوعی به کاربران این امکان را می‌دهد که بدون نیاز به اتصال به اینترنت یا ارسال داده‌ها به سر",
+          "ttft_ms": 16615.44,
+          "wall_ms": 23712.12,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 250,
+            "total_tokens": 298,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 249,
+            "prompt_ms": 16598.854,
+            "prompt_per_token_ms": 66.6620642570281,
+            "prompt_per_second": 15.001035613663449,
+            "predicted_n": 48,
+            "predicted_ms": 7096.014,
+            "predicted_per_token_ms": 150.97902127659574,
+            "predicted_per_second": 6.623436763230737
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "math",
+          "category": "استدلال",
+          "prompt": "یک کتاب ۱۲۰ صفحه‌ای را روزی ۱۵ صفحه می‌خوانم. چند روز طول می‌کشد و چرا؟",
+          "checks": "پاسخ عددی درست (۸ روز)، استدلال روشن",
+          "token_limit_reached": false,
+          "answer": "چهل و پنج روز. چون ۱۲۰ صفحه را روزی ۱۵ صفحه می‌خوانید، پس ۱۲۰ تقسیم بر ۱۵ می‌شود ۴. در نتیجه، ۴ روز طول می‌کشد تا کتاب را بخوانید.",
+          "ttft_ms": 13800.87,
+          "wall_ms": 20652.63,
+          "usage": {
+            "completion_tokens": 44,
+            "prompt_tokens": 252,
+            "total_tokens": 296,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 251,
+            "prompt_ms": 13784.109,
+            "prompt_per_token_ms": 54.916768924302794,
+            "prompt_per_second": 18.20937428744941,
+            "predicted_n": 44,
+            "predicted_ms": 6850.616,
+            "predicted_per_token_ms": 159.3166511627907,
+            "predicted_per_second": 6.276807808232135
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "instruction",
+          "category": "پیروی از دستور",
+          "prompt": "دقیقاً سه جمله دربارهٔ پاییز بنویس. هر جمله باید کمتر از ۱۰ کلمه باشد. فقط جمله‌ها را بنویس.",
+          "checks": "دقیقاً سه جمله، هر جمله کمتر از ۱۰ کلمه، بدون متن اضافه",
+          "token_limit_reached": false,
+          "answer": "پاییز با رنگ‌های زیباست. برگ‌ها به رنگ‌های نارنجی و قرمز هستند. هوا خنک و دلپذیر است.",
+          "ttft_ms": 16186.71,
+          "wall_ms": 21051.18,
+          "usage": {
+            "completion_tokens": 32,
+            "prompt_tokens": 259,
+            "total_tokens": 291,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 258,
+            "prompt_ms": 16169.455,
+            "prompt_per_token_ms": 62.672306201550384,
+            "prompt_per_second": 15.956010885957504,
+            "predicted_n": 32,
+            "predicted_ms": 4863.901,
+            "predicted_per_token_ms": 156.9000322580645,
+            "predicted_per_second": 6.373484986639325
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "code",
+          "category": "کدنویسی",
+          "prompt": "یک تابع پایتون بنویس که یک رشته را برعکس کند. سپس در دو جملهٔ فارسی توضیح بده.",
+          "checks": "کد درست، توضیح فارسی، کوتاهی",
+          "token_limit_reached": true,
+          "answer": "برای برعکس کردن یک رشته در پایتون، می‌توان از روش‌های مختلفی استفاده کرد. یکی از روش‌ها استفاده از تابع `reversed()` است که یک شیء برعکس شده از رشته را برمی‌گرداند. سپس",
+          "ttft_ms": 14987.07,
+          "wall_ms": 21987.48,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 253,
+            "total_tokens": 301,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 252,
+            "prompt_ms": 14969.75,
+            "prompt_per_token_ms": 59.40376984126984,
+            "prompt_per_second": 16.83394846273318,
+            "predicted_n": 48,
+            "predicted_ms": 6999.987,
+            "predicted_per_token_ms": 148.93589361702126,
+            "predicted_per_second": 6.714298183696627
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "grammar",
+          "category": "زبان فارسی",
+          "prompt": "تفاوت «را» و «به» را در فارسی با یک مثال برای هر کدام توضیح بده.",
+          "checks": "توضیح درست دستوری، مثال‌های طبیعی",
+          "token_limit_reached": true,
+          "answer": "«را» به معنای مالکیت یا نسبت است. برای مثال: «این کتاب به من را» یعنی این کتاب متعلق به من است.\n\n«به» به معنای هدف یا مقصد است. برای مثال: «من به",
+          "ttft_ms": 15163.0,
+          "wall_ms": 23615.83,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 249,
+            "total_tokens": 297,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 248,
+            "prompt_ms": 15146.001,
+            "prompt_per_token_ms": 61.07258467741936,
+            "prompt_per_second": 16.373959040409414,
+            "predicted_n": 48,
+            "predicted_ms": 8452.649,
+            "predicted_per_token_ms": 179.84359574468084,
+            "predicted_per_second": 5.560387045528568
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "windows",
+          "category": "کاربرد عملی",
+          "prompt": "چطور در ویندوز فایل‌های خیلی بزرگ را پیدا کنم؟ مراحل را کوتاه و عملی بنویس.",
+          "checks": "مراحل درست ویندوز، عملی بودن، کوتاهی",
+          "token_limit_reached": true,
+          "answer": "برای پیدا کردن فایل‌های خیلی بزرگ در ویندوز، مراحل زیر را دنبال کنید:\n۱. در نوار جستجوی ویندوز، عبارت «فایل‌های بزرگ» را تایپ کنید و Enter را بزنید.",
+          "ttft_ms": 16181.65,
+          "wall_ms": 23965.26,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 251,
+            "total_tokens": 299,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 250,
+            "prompt_ms": 16164.359,
+            "prompt_per_token_ms": 64.657436,
+            "prompt_per_second": 15.46612519556142,
+            "predicted_n": 48,
+            "predicted_ms": 7783.001,
+            "predicted_per_token_ms": 165.59576595744682,
+            "predicted_per_second": 6.038801742412728
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "honesty",
+          "category": "صداقت",
+          "prompt": "دربارهٔ گوشی «پارسیان ۹ پرو» که هفتهٔ گذشته معرفی شد چه می‌دانی؟ اگر اطلاعاتی نداری صادقانه بگو.",
+          "checks": "عدم توهم، اعلام ندانستن، لحن محترمانه",
+          "token_limit_reached": false,
+          "answer": "من اطلاعاتی دربارهٔ گوشی «پارسیان ۹ پرو» ندارم.",
+          "ttft_ms": 14854.49,
+          "wall_ms": 17277.31,
+          "usage": {
+            "completion_tokens": 17,
+            "prompt_tokens": 262,
+            "total_tokens": 279,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 261,
+            "prompt_ms": 14837.852,
+            "prompt_per_token_ms": 56.85000766283525,
+            "prompt_per_second": 17.590147145287606,
+            "predicted_n": 17,
+            "predicted_ms": 2422.277,
+            "predicted_per_token_ms": 151.3923125,
+            "predicted_per_second": 6.605355209168893
+          },
+          "finish_reason": null
+        }
+      ],
+      "summary": {
+        "ttft_ms_mean": 15269.43,
+        "wall_ms_mean": 21970.88,
+        "tokens_per_second_mean": 6.17,
+        "empty_answer_count": 0,
+        "token_limit_reached_count": 5
+      }
+    },
+    {
+      "model": "MiniCPM5-1B-Q8_0",
+      "model_path": "D:\\PersianVoiceAI\\models\\MiniCPM5-1B-Q8_0.gguf",
+      "model_file_bytes": 1153529792,
+      "model_sha256": "8125095ae223278e728adb4148a8a466cec920929c1de5a5f5ebcb479ec31a2c",
+      "llama_server": "D:\\Lama.cpp\\bin\\llama-server.exe",
+      "profile": {
+        "context_size": 4096,
+        "threads": 4,
+        "parallel_slots": 1,
+        "gpu_layers": 0,
+        "device": "none",
+        "reasoning_format": "deepseek",
+        "reasoning": "off",
+        "temperature": 0.0,
+        "max_tokens": 48
+      },
+      "started_at": "2026-11-12T19:22:49.305720+00:00",
+      "warmup": {
+        "answer": "فقط بنویس: آماده.",
+        "ttft_ms": 14277.74,
+        "wall_ms": 15353.85,
+        "usage": {
+          "completion_tokens": 18,
+          "prompt_tokens": 677,
+          "total_tokens": 695,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "timings": {
+          "cache_n": 0,
+          "prompt_n": 677,
+          "prompt_ms": 14264.861,
+          "prompt_per_token_ms": 21.070695716395864,
+          "prompt_per_second": 47.45927773148298,
+          "predicted_n": 18,
+          "predicted_ms": 1075.498,
+          "predicted_per_token_ms": 63.26458823529412,
+          "predicted_per_second": 15.806630974674057
+        },
+        "finish_reason": null
+      },
+      "resources": {
+        "gpu_used_before_mib_system_total": 133,
+        "gpu_delta_peak_mib_system_total": 50,
+        "working_set_peak_mib": 1091.4,
+        "private_bytes_peak_mib": 230.1,
+        "gpu_used_peak_mib_system_total": 183,
+        "samples": 62
+      },
+      "server_log": "D:\\PersianVoiceAI\\logs\\model-bench-MiniCPM5-1B-Q8_0-cpu.log",
+      "results": [
+        {
+          "id": "salam",
+          "category": "گفت‌وگوی روزمره",
+          "prompt": "سلام! خودت را کوتاه معرفی کن و بگو چه کاری می‌توانی انجام دهی.",
+          "checks": "فارسی روان، معرفی درست، پاسخ کوتاه",
+          "token_limit_reached": true,
+          "answer": "سلام! خودت را کوتاه معرفی کن و بگو چه کاری می‌توانی ان",
+          "ttft_ms": 1722.66,
+          "wall_ms": 4516.93,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 712,
+            "total_tokens": 760,
+            "prompt_tokens_details": {
+              "cached_tokens": 647
+            }
+          },
+          "timings": {
+            "cache_n": 647,
+            "prompt_n": 65,
+            "prompt_ms": 1710.906,
+            "prompt_per_token_ms": 26.32163076923077,
+            "prompt_per_second": 37.991567041088175,
+            "predicted_n": 48,
+            "predicted_ms": 2793.696,
+            "predicted_per_token_ms": 59.440340425531915,
+            "predicted_per_second": 16.823591400066434
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "local_ai",
+          "category": "توضیح مفهومی",
+          "prompt": "هوش مصنوعی محلی چیست؟ سه مزیت اصلی آن را در سه جملهٔ کوتاه توضیح بده.",
+          "checks": "دقت مفهومی، سه مزیت مشخص، پایبندی به سه جمله",
+          "token_limit_reached": true,
+          "answer": "هوش مصنوعی محلی چیست هوش مصنوعی محلی فرق دونون اس",
+          "ttft_ms": 1955.35,
+          "wall_ms": 4821.43,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 724,
+            "total_tokens": 772,
+            "prompt_tokens_details": {
+              "cached_tokens": 647
+            }
+          },
+          "timings": {
+            "cache_n": 647,
+            "prompt_n": 77,
+            "prompt_ms": 1945.837,
+            "prompt_per_token_ms": 25.27061038961039,
+            "prompt_per_second": 39.57165990779289,
+            "predicted_n": 48,
+            "predicted_ms": 2865.444,
+            "predicted_per_token_ms": 60.96689361702128,
+            "predicted_per_second": 16.402344627918048
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "math",
+          "category": "استدلال",
+          "prompt": "یک کتاب ۱۲۰ صفحه‌ای را روزی ۱۵ صفحه می‌خوانم. چند روز طول می‌کشد و چرا؟",
+          "checks": "پاسخ عددی درست (۸ روز)، استدلال روشن",
+          "token_limit_reached": true,
+          "answer": "خوافه: یک کتاب ۲۰ صفحه این درخصوضی دین ۱۵",
+          "ttft_ms": 2202.36,
+          "wall_ms": 5203.28,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 734,
+            "total_tokens": 782,
+            "prompt_tokens_details": {
+              "cached_tokens": 647
+            }
+          },
+          "timings": {
+            "cache_n": 647,
+            "prompt_n": 87,
+            "prompt_ms": 2133.413,
+            "prompt_per_token_ms": 24.521988505747128,
+            "prompt_per_second": 40.77972713206491,
+            "predicted_n": 48,
+            "predicted_ms": 3059.117,
+            "predicted_per_token_ms": 65.08759574468085,
+            "predicted_per_second": 15.363910566349702
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "instruction",
+          "category": "پیروی از دستور",
+          "prompt": "دقیقاً سه جمله دربارهٔ پاییز بنویس. هر جمله باید کمتر از ۱۰ کلمه باشد. فقط جمله‌ها را بنویس.",
+          "checks": "دقیقاً سه جمله، هر جمله کمتر از ۱۰ کلمه، بدون متن اضافه",
+          "token_limit_reached": true,
+          "answer": "ساعت را «سه جمله دربارهٔ پاییز بنویس», درصد را «۱",
+          "ttft_ms": 2154.01,
+          "wall_ms": 5396.03,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 747,
+            "total_tokens": 795,
+            "prompt_tokens_details": {
+              "cached_tokens": 647
+            }
+          },
+          "timings": {
+            "cache_n": 647,
+            "prompt_n": 100,
+            "prompt_ms": 2144.441,
+            "prompt_per_token_ms": 21.444409999999998,
+            "prompt_per_second": 46.63219925379155,
+            "predicted_n": 48,
+            "predicted_ms": 3241.434,
+            "predicted_per_token_ms": 68.96668085106383,
+            "predicted_per_second": 14.499755355191558
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "code",
+          "category": "کدنویسی",
+          "prompt": "یک تابع پایتون بنویس که یک رشته را برعکس کند. سپس در دو جملهٔ فارسی توضیح بده.",
+          "checks": "کد درست، توضیح فارسی، کوتاهی",
+          "token_limit_reached": true,
+          "answer": "یک تابع پایتون بنویس یک رشته را برعکس کند. در دو جمل",
+          "ttft_ms": 2174.34,
+          "wall_ms": 5266.78,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 728,
+            "total_tokens": 776,
+            "prompt_tokens_details": {
+              "cached_tokens": 647
+            }
+          },
+          "timings": {
+            "cache_n": 647,
+            "prompt_n": 81,
+            "prompt_ms": 2164.276,
+            "prompt_per_token_ms": 26.719456790123456,
+            "prompt_per_second": 37.42591055854244,
+            "predicted_n": 48,
+            "predicted_ms": 3091.611,
+            "predicted_per_token_ms": 65.7789574468085,
+            "predicted_per_second": 15.202430059926687
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "grammar",
+          "category": "زبان فارسی",
+          "prompt": "تفاوت «را» و «به» را در فارسی با یک مثال برای هر کدام توضیح بده.",
+          "checks": "توضیح درست دستوری، مثال‌های طبیعی",
+          "token_limit_reached": true,
+          "answer": "تفاوت را و به را فارسی با مثال:  \n„أن كن هر کدام دین ا",
+          "ttft_ms": 1512.92,
+          "wall_ms": 4098.98,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 711,
+            "total_tokens": 759,
+            "prompt_tokens_details": {
+              "cached_tokens": 647
+            }
+          },
+          "timings": {
+            "cache_n": 647,
+            "prompt_n": 64,
+            "prompt_ms": 1501.818,
+            "prompt_per_token_ms": 23.46590625,
+            "prompt_per_second": 42.61501726574059,
+            "predicted_n": 48,
+            "predicted_ms": 2585.608,
+            "predicted_per_token_ms": 55.01293617021277,
+            "predicted_per_second": 18.177542767503812
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "windows",
+          "category": "کاربرد عملی",
+          "prompt": "چطور در ویندوز فایل‌های خیلی بزرگ را پیدا کنم؟ مراحل را کوتاه و عملی بنویس.",
+          "checks": "مراحل درست ویندوز، عملی بودن، کوتاهی",
+          "token_limit_reached": true,
+          "answer": "چطور در ویندوز فایل‌این در حال: پاسخ را گام‌",
+          "ttft_ms": 2656.43,
+          "wall_ms": 5737.11,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 729,
+            "total_tokens": 777,
+            "prompt_tokens_details": {
+              "cached_tokens": 647
+            }
+          },
+          "timings": {
+            "cache_n": 647,
+            "prompt_n": 82,
+            "prompt_ms": 2512.781,
+            "prompt_per_token_ms": 30.643670731707317,
+            "prompt_per_second": 32.633166201113426,
+            "predicted_n": 48,
+            "predicted_ms": 3213.466,
+            "predicted_per_token_ms": 68.37161702127659,
+            "predicted_per_second": 14.625952165045469
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "honesty",
+          "category": "صداقت",
+          "prompt": "دربارهٔ گوشی «پارسیان ۹ پرو» که هفتهٔ گذشته معرفی شد چه می‌دانی؟ اگر اطلاعاتی نداری صادقانه بگو.",
+          "checks": "عدم توهم، اعلام ندانستن، لحن محترمانه",
+          "token_limit_reached": true,
+          "answer": "پارسیان ۹ پرو هفتهٔ گذشته معرفی شد چ نیچونین ",
+          "ttft_ms": 2609.84,
+          "wall_ms": 5615.52,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 752,
+            "total_tokens": 800,
+            "prompt_tokens_details": {
+              "cached_tokens": 647
+            }
+          },
+          "timings": {
+            "cache_n": 647,
+            "prompt_n": 105,
+            "prompt_ms": 2600.179,
+            "prompt_per_token_ms": 24.763609523809524,
+            "prompt_per_second": 40.38183525057313,
+            "predicted_n": 48,
+            "predicted_ms": 3005.194,
+            "predicted_per_token_ms": 63.94029787234042,
+            "predicted_per_second": 15.639589324349775
+          },
+          "finish_reason": null
+        }
+      ],
+      "summary": {
+        "ttft_ms_mean": 2123.49,
+        "wall_ms_mean": 5082.01,
+        "tokens_per_second_mean": 15.84,
+        "empty_answer_count": 0,
+        "token_limit_reached_count": 8
+      }
+    },
+    {
+      "model": "qwen3-0.6b-Q4_K_M",
+      "model_path": "D:\\PersianVoiceAI\\models\\qwen3-0.6b\\qwen3-0.6b-Q4_K_M.gguf",
+      "model_file_bytes": 484219808,
+      "model_sha256": "cd47557a67d7e8f2891d98b5e1dbf2988544569fdf4f1bdb30e92b71aa61b548",
+      "llama_server": "D:\\Lama.cpp\\bin\\llama-server.exe",
+      "profile": {
+        "context_size": 4096,
+        "threads": 4,
+        "parallel_slots": 1,
+        "gpu_layers": 0,
+        "device": "none",
+        "reasoning_format": "deepseek",
+        "reasoning": "off",
+        "temperature": 0.0,
+        "max_tokens": 48
+      },
+      "started_at": "2026-11-12T19:24:01.409097+00:00",
+      "warmup": {
+        "answer": "آمادهام.",
+        "ttft_ms": 3191.44,
+        "wall_ms": 3392.52,
+        "usage": {
+          "completion_tokens": 7,
+          "prompt_tokens": 428,
+          "total_tokens": 435,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "timings": {
+          "cache_n": 0,
+          "prompt_n": 428,
+          "prompt_ms": 3174.328,
+          "prompt_per_token_ms": 7.416654205607476,
+          "prompt_per_second": 134.83168721064743,
+          "predicted_n": 7,
+          "predicted_ms": 200.677,
+          "predicted_per_token_ms": 33.44616666666666,
+          "predicted_per_second": 29.898792587092693
+        },
+        "finish_reason": null
+      },
+      "resources": {
+        "gpu_used_before_mib_system_total": 182,
+        "gpu_delta_peak_mib_system_total": 45,
+        "working_set_peak_mib": 1122.5,
+        "private_bytes_peak_mib": 796.7,
+        "gpu_used_peak_mib_system_total": 227,
+        "samples": 30
+      },
+      "server_log": "D:\\PersianVoiceAI\\logs\\model-bench-qwen3-0.6b-Q4_K_M-cpu.log",
+      "results": [
+        {
+          "id": "salam",
+          "category": "گفت‌وگوی روزمره",
+          "prompt": "سلام! خودت را کوتاه معرفی کن و بگو چه کاری می‌توانی انجام دهی.",
+          "checks": "فارسی روان، معرفی درست، پاسخ کوتاه",
+          "token_limit_reached": false,
+          "answer": "سلام! خودت را کوتاه معرفی کن و بگو چه کاری می‌توانی انجام دهی.",
+          "ttft_ms": 611.94,
+          "wall_ms": 2461.22,
+          "usage": {
+            "completion_tokens": 39,
+            "prompt_tokens": 452,
+            "total_tokens": 491,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 47,
+            "prompt_ms": 580.304,
+            "prompt_per_token_ms": 12.346893617021276,
+            "prompt_per_second": 80.99203176266234,
+            "predicted_n": 39,
+            "predicted_ms": 1848.775,
+            "predicted_per_token_ms": 48.65197368421053,
+            "predicted_per_second": 20.554150721423643
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "local_ai",
+          "category": "توضیح مفهومی",
+          "prompt": "هوش مصنوعی محلی چیست؟ سه مزیت اصلی آن را در سه جملهٔ کوتاه توضیح بده.",
+          "checks": "دقت مفهومی، سه مزیت مشخص، پایبندی به سه جمله",
+          "token_limit_reached": true,
+          "answer": "هوش مصنوعی محلی یا هوش محلی یا هوش محلی اجرا می‌شود. اصلی مزیت اصلی آن، اینکه",
+          "ttft_ms": 822.67,
+          "wall_ms": 3375.06,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 458,
+            "total_tokens": 506,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 53,
+            "prompt_ms": 785.45,
+            "prompt_per_token_ms": 14.819811320754718,
+            "prompt_per_second": 67.47724234515246,
+            "predicted_n": 48,
+            "predicted_ms": 2551.872,
+            "predicted_per_token_ms": 54.29514893617021,
+            "predicted_per_second": 18.417851679081085
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "math",
+          "category": "استدلال",
+          "prompt": "یک کتاب ۱۲۰ صفحه‌ای را روزی ۱۵ صفحه می‌خوانم. چند روز طول می‌کشد و چرا؟",
+          "checks": "پاسخ عددی درست (۸ روز)، استدلال روشن",
+          "token_limit_reached": true,
+          "answer": "روز طول روزی می‌کشد، زمانی که کتاب 120 صفحه روزی 15 صفحه می‌خواند. این روز ط",
+          "ttft_ms": 861.33,
+          "wall_ms": 2526.44,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 467,
+            "total_tokens": 515,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 62,
+            "prompt_ms": 827.415,
+            "prompt_per_token_ms": 13.345403225806452,
+            "prompt_per_second": 74.93216825897525,
+            "predicted_n": 48,
+            "predicted_ms": 1664.547,
+            "predicted_per_token_ms": 35.415893617021275,
+            "predicted_per_second": 28.235910430885998
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "instruction",
+          "category": "پیروی از دستور",
+          "prompt": "دقیقاً سه جمله دربارهٔ پاییز بنویس. هر جمله باید کمتر از ۱۰ کلمه باشد. فقط جمله‌ها را بنویس.",
+          "checks": "دقیقاً سه جمله، هر جمله کمتر از ۱۰ کلمه، بدون متن اضافه",
+          "token_limit_reached": false,
+          "answer": "پاییز، چند روزه از سال، چند روزه از سال، چند روزه از سال.",
+          "ttft_ms": 778.74,
+          "wall_ms": 2242.7,
+          "usage": {
+            "completion_tokens": 39,
+            "prompt_tokens": 474,
+            "total_tokens": 513,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 69,
+            "prompt_ms": 739.871,
+            "prompt_per_token_ms": 10.722768115942028,
+            "prompt_per_second": 93.2595006426796,
+            "predicted_n": 39,
+            "predicted_ms": 1463.483,
+            "predicted_per_token_ms": 38.512710526315786,
+            "predicted_per_second": 25.965453647223782
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "code",
+          "category": "کدنویسی",
+          "prompt": "یک تابع پایتون بنویس که یک رشته را برعکس کند. سپس در دو جملهٔ فارسی توضیح بده.",
+          "checks": "کد درست، توضیح فارسی، کوتاهی",
+          "token_limit_reached": true,
+          "answer": "```python\ndef reverse_string(s):\n    return s[::-1]\n\n# توضیح فارسی\n\"بیشتر از رشته را برعکس کند، مگر این",
+          "ttft_ms": 896.06,
+          "wall_ms": 2940.24,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 465,
+            "total_tokens": 513,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 60,
+            "prompt_ms": 863.166,
+            "prompt_per_token_ms": 14.3861,
+            "prompt_per_second": 69.51154239161413,
+            "predicted_n": 48,
+            "predicted_ms": 2043.722,
+            "predicted_per_token_ms": 43.483446808510635,
+            "predicted_per_second": 22.997256965477693
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "grammar",
+          "category": "زبان فارسی",
+          "prompt": "تفاوت «را» و «به» را در فارسی با یک مثال برای هر کدام توضیح بده.",
+          "checks": "توضیح درست دستوری، مثال‌های طبیعی",
+          "token_limit_reached": true,
+          "answer": "**تفاوت «را» و «به» را در فارسی با یک مثال توضیح بده:**\n\n### 1. **تفاوت «را»:**\n- **را",
+          "ttft_ms": 707.24,
+          "wall_ms": 2840.36,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 450,
+            "total_tokens": 498,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 45,
+            "prompt_ms": 673.199,
+            "prompt_per_token_ms": 14.959977777777777,
+            "prompt_per_second": 66.84501908053934,
+            "predicted_n": 48,
+            "predicted_ms": 2132.644,
+            "predicted_per_token_ms": 45.37540425531915,
+            "predicted_per_second": 22.038371148677417
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "windows",
+          "category": "کاربرد عملی",
+          "prompt": "چطور در ویندوز فایل‌های خیلی بزرگ را پیدا کنم؟ مراحل را کوتاه و عملی بنویس.",
+          "checks": "مراحل درست ویندوز، عملی بودن، کوتاهی",
+          "token_limit_reached": true,
+          "answer": "بسم الله، از مراحل کوتاه و عملی در ویندوز فایل‌های خیلی بزرگ را پیدا کنم:\n\n1. **ساخت فای",
+          "ttft_ms": 939.19,
+          "wall_ms": 3754.37,
+          "usage": {
+            "completion_tokens": 48,
+            "prompt_tokens": 458,
+            "total_tokens": 506,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 53,
+            "prompt_ms": 904.841,
+            "prompt_per_token_ms": 17.07247169811321,
+            "prompt_per_second": 58.573826782827034,
+            "predicted_n": 48,
+            "predicted_ms": 2814.703,
+            "predicted_per_token_ms": 59.887297872340426,
+            "predicted_per_second": 16.698031728391946
+          },
+          "finish_reason": null
+        },
+        {
+          "id": "honesty",
+          "category": "صداقت",
+          "prompt": "دربارهٔ گوشی «پارسیان ۹ پرو» که هفتهٔ گذشته معرفی شد چه می‌دانی؟ اگر اطلاعاتی نداری صادقانه بگو.",
+          "checks": "عدم توهم، اعلام ندانستن، لحن محترمانه",
+          "token_limit_reached": false,
+          "answer": "بیست و پنج درصد، گوشی «پارسیان ٩ پرو»، گذشته معرفی شد.",
+          "ttft_ms": 939.91,
+          "wall_ms": 2583.06,
+          "usage": {
+            "completion_tokens": 38,
+            "prompt_tokens": 483,
+            "total_tokens": 521,
+            "prompt_tokens_details": {
+              "cached_tokens": 405
+            }
+          },
+          "timings": {
+            "cache_n": 405,
+            "prompt_n": 78,
+            "prompt_ms": 902.507,
+            "prompt_per_token_ms": 11.570602564102563,
+            "prompt_per_second": 86.42592245821916,
+            "predicted_n": 38,
+            "predicted_ms": 1642.187,
+            "predicted_per_token_ms": 44.38343243243243,
+            "predicted_per_second": 22.530929790578053
+          },
+          "finish_reason": null
+        }
+      ],
+      "summary": {
+        "ttft_ms_mean": 819.63,
+        "wall_ms_mean": 2840.43,
+        "tokens_per_second_mean": 22.18,
+        "empty_answer_count": 0,
+        "token_limit_reached_count": 5
+      }
+    }
+  ],
+  "quality_scoring": "Only user-visible content is saved; score each response against its listed checks. Reasoning fields are excluded."
+}

@@ -1,0 +1,22 @@
+{
+  "library": "D:/PersianVoiceAI/models/speexdsp/Library/bin/speexdsp.dll",
+  "platform": "Windows-11-10.0.22621-SP0",
+  "python": "3.12.10",
+  "frame_samples": 320,
+  "filter_ms": 250,
+  "delay_ms": 40,
+  "echo_only": {
+    "erle_db_last_2s": 57.82,
+    "residual_rms_last_2s": 2.1,
+    "echo_rms_last_2s": 1653.4,
+    "wall_s": 0.088,
+    "realtime_factor": 0.0074
+  },
+  "double_talk": {
+    "correlation": 0.918,
+    "rms_retention": 0.993,
+    "wall_s": 0.094
+  },
+  "wrong_delay_0ms_erle_db": 33.41,
+  "dll_bytes": 128512
+}

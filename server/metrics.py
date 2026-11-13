@@ -12,8 +12,9 @@ This module keeps that cheap and bounded:
 * observations summarised as ``count / last / min / max / mean`` — the raw
   samples are **not** retained, so a long-running conversation cannot leak.
 
-Every metric name used by the pipeline is declared in ``METRIC_NAMES`` so tests
-and the benchmark report can check that the documented set is actually emitted.
+Every metric name the pipeline records is declared in ``METRIC_NAMES`` so tests
+can prove the two directions agree: nothing is declared that no module emits,
+and nothing is emitted that the registry omits.
 """
 
 from __future__ import annotations
@@ -25,9 +26,12 @@ from typing import Any
 
 METRIC_NAMES: tuple[str, ...] = (
     # VAD / endpointing
+    # ``vad_onset_events`` used to be declared here and was never recorded;
+    # ``utterances`` is incremented on the same onset, so it was a second name
+    # for one event.  ``tests/test_metrics.py`` now refuses a declared name that
+    # no module emits, which is how the dead entry was found.
     "vad_start_ms",
     "vad_end_ms",
-    "vad_onset_events",
     "vad_noise_floor",
     # ASR
     "asr_ms",
@@ -43,6 +47,11 @@ METRIC_NAMES: tuple[str, ...] = (
     "asr_dropped_partial_count",
     "asr_final_job_count",
     "asr_errors",
+    "asr_model_load_ms",
+    "asr_segments_rejected",
+    "asr_partial_jobs_submitted",
+    "asr_partial_late",
+    "asr_duplicate_final",
     # LLM
     "llm_ttft_ms",
     "llm_tokens_per_second",
@@ -56,6 +65,7 @@ METRIC_NAMES: tuple[str, ...] = (
     # interaction
     "barge_in_latency_ms",
     "barge_in_count",
+    "barge_in_playback_ms",
     "utterances",
     "utterances_empty",
     "responses_skipped",
@@ -65,6 +75,8 @@ METRIC_NAMES: tuple[str, ...] = (
     "asr_partial_preempted",
     "asr_partial_cancelled",
     "asr_final_waited_behind_partial",
+    "last_playback_ms",
+    "last_response_chars",
     # audio transport / system
     "audio_callback_jitter_ms",
     "audio_callback_count",
@@ -82,6 +94,19 @@ METRIC_NAMES: tuple[str, ...] = (
     "ws_frames_in",
     "ws_frames_out",
     "ws_auth_failures",
+    "ws_capture_bad_size",
+    "ws_capture_duplicate_or_reordered",
+    "ws_capture_gap_frames",
+    "ws_capture_out_of_order",
+    "ws_capture_rate_limited",
+    "ws_control_dropped",
+    "ws_heartbeats",
+    "ws_idle_timeouts",
+    "ws_session_errors",
+    "ws_voice_rejected",
+    # HTTP API (loopback client)
+    "api_auth_failures",
+    "api_rate_limited",
 )
 
 

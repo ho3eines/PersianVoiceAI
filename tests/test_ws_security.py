@@ -212,7 +212,7 @@ def test_session_transcripts_are_not_readable_without_the_token(tmp_path: Path) 
     """The specific leak: GET /api/sessions/{id} returned the whole transcript."""
     from server.conversation import create_conversation
 
-    configured = settings(tmp_path, history_persist=True, api_token="s3cret")
+    configured = settings(tmp_path, history_persist=True, api_token="s3cret", asr_warmup=False)
     conversation = create_conversation(configured, session_id="private")
     conversation.add_user("متن خصوصی", utterance_id=1)
     conversation.finish_assistant("پاسخ خصوصی", turn_id=1)
@@ -310,6 +310,73 @@ def test_model_loading_does_not_run_in_the_event_loop(tmp_path: Path) -> None:
 
     gap = asyncio.run(scenario())
     assert gap < 0.15, f"event loop blocked for {gap * 1000:.0f} ms during model load"
+
+
+def test_a_dead_ready_probe_does_not_kill_a_device_connection(tmp_path: Path) -> None:
+    """The internal ``/ready`` probe must never refuse a device on its own.
+
+    ``_open_pipeline`` caught ``httpx.HTTPError`` but ``httpx`` was imported
+    *inside* ``default_bundle`` only, so the module-level name did not exist.
+    Because the failing expression sits behind ``await``, the ``NameError`` was
+    raised inside the outer ``except Exception`` arm and became
+    ``voice_unavailable``: every device was refused whenever the internal
+    ``/ready`` probe could not be read, which is the normal state for an
+    unreachable API (and for a 401).
+    """
+    session = VoiceWebSocket(
+        websocket=None,
+        settings=settings(tmp_path),
+        bundle_factory=bundle_factory(),
+    )
+
+    def unreachable(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no local API", request=request)
+
+    session.bundle = VoiceBundle(
+        audio=FakeAsr(),
+        client=httpx.AsyncClient(
+            base_url="http://127.0.0.1", transport=httpx.MockTransport(unreachable)
+        ),
+        speaker_for=lambda voice: FakeSpeaker(),
+    )
+
+    async def scenario() -> None:
+        await session._probe_local_api()  # must not raise
+        await session.bundle.aclose()
+
+    asyncio.run(scenario())
+    # The module-level name the probe needs really does exist.
+    import server.ws_voice as ws_module
+
+    assert ws_module.httpx is httpx
+
+
+def test_a_401_from_the_local_api_is_reported_as_api_auth_failed(tmp_path: Path) -> None:
+    """A missing internal ``PVAI_API_TOKEN`` is a configuration error, not silence."""
+    from server.voice import VoiceError
+
+    session = VoiceWebSocket(
+        websocket=None,
+        settings=settings(tmp_path),
+        bundle_factory=bundle_factory(),
+    )
+    session.bundle = VoiceBundle(
+        audio=FakeAsr(),
+        client=httpx.AsyncClient(
+            base_url="http://127.0.0.1",
+            transport=httpx.MockTransport(lambda request: httpx.Response(401)),
+        ),
+        speaker_for=lambda voice: FakeSpeaker(),
+    )
+
+    async def scenario() -> None:
+        try:
+            await session._probe_local_api()
+        finally:
+            await session.bundle.aclose()
+
+    with pytest.raises(VoiceError):
+        asyncio.run(scenario())
 
 
 def test_whisper_model_is_shared_across_connections(tmp_path: Path) -> None:

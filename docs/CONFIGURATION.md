@@ -267,8 +267,10 @@ AEC فقط با ۱۶kHz و بلوک ۲۰ms معنا دارد؛ `GET /ready` ای
 |---|---|---|
 | `PVAI_METRICS_ENABLED` | `true` | فعال‌سازی سنجه‌ها (`server/metrics.py`)؛ خاموش = ثبت سنجه‌ها غیرفعال؛ هزینهٔ فراخوانی‌های کد لزوماً صفر نیست |
 
-فهرست نام سنجه‌ها در `server/metrics.py::METRIC_NAMES` است و تست
-`tests/test_metrics.py::test_documented_metric_names_cover_the_pipeline` هم‌خوانی آن با کد را بررسی می‌کند.
+فهرست نام سنجه‌ها در `server/metrics.py::METRIC_NAMES` است. سه تست هم‌خوانی را در دو جهت
+بررسی می‌کنند: `tests/test_metrics.py::test_documented_metric_names_cover_the_pipeline` (نام‌های
+لازم موجود باشند)، `::test_every_declared_metric_is_actually_emitted_somewhere` (نام اعلام‌شدهٔ
+بدون محل ثبت ممنوع) و `::test_every_recorded_metric_is_declared` (نام ثبت‌شدهٔ اعلام‌نشده ممنوع).
 
 ---
 

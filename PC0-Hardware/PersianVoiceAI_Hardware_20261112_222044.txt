@@ -1,0 +1,32 @@
+Persian Voice AI - PC-0 hardware inventory
+Collected: 2026-11-12 22:20:44  (UTC 2026-11-12T18:50:44.0553593Z)
+Schema: persianvoiceai.hardware/1 | script 1.0
+
+[OS]    Microsoft Windows 11 Enterprise | version 10.0.22621 | build 22621 | 64-bit
+[CPU]   Intel(R) Core(TM) i7-6500U CPU @ 2.50GHz | cores=2 threads=4 | max 2592 MHz | L3 4096 KB
+[RAM]   total 15.87 GB | free 6.93 GB
+        module 8 GB @ 2133 MHz
+        module 8 GB @ 2133 MHz
+
+[GPU]   count=2
+        - Intel(R) HD Graphics 520 | driver 31.0.101.2125 (2023-05-24) | VRAM 1 GB | source: WMI Win32_VideoController.AdapterRAM
+        - NVIDIA GeForce 940MX | driver 581.29 (2025-09-05) | VRAM 2 GB | source: nvidia-smi memory.total (MiB)
+        nvidia-smi: ok
+        nvidia-smi path: C:\Windows\system32\nvidia-smi.exe
+
+[DISKS] source=Get-PhysicalDisk
+        - ADATA SU630 | SSD | SATA | 223.57 GB | Healthy
+        - HGST HTS721010A9E630 | HDD | SATA | 931.51 GB | Healthy
+
+[VOLUMES] source=Get-Volume
+        E PDD | NTFS | total 292.97 GB | free 34.18 GB (11.7%)
+        D Project | NTFS | total 292.37 GB | free 111.7 GB (38.2%)
+        C Win | NTFS | total 223.55 GB | free 28.77 GB (12.9%)
+        F Other | NTFS | total 345.57 GB | free 186.67 GB (54%)
+
+[TARGET] D has 111.7 GB free - check this before downloading any model.
+
+[WARNINGS]
+        - Intel(R) HD Graphics 520 uses shared system memory; its reported AdapterRAM is not dedicated VRAM.
+
+Privacy: no serial numbers, user name, IP or MAC addresses are collected; no external service is called.

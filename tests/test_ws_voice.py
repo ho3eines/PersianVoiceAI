@@ -236,6 +236,23 @@ def test_first_message_must_be_hello(tmp_path: Path) -> None:
             assert message["type"] == "error" and message["code"] == "handshake_required"
 
 
+def test_the_hello_deadline_matches_the_documented_ten_seconds() -> None:
+    """A TLS-capable ESP32 needs more than 3 s to send its first frame.
+
+    ``docs/PROTOCOL.md`` §۶ promises ``handshake_timeout`` after ten seconds; the
+    constant had drifted to 3.0, which closed correctly working devices. Half-open
+    sockets are bounded by ``WsCounters.handshake_enter`` instead, so the deadline
+    itself can stay generous. Whatever the value, the two must not drift again.
+    """
+    import server.ws_voice as ws_module
+
+    documented = (Path(__file__).resolve().parents[1] / "docs" / "PROTOCOL.md").read_text(
+        encoding="utf-8"
+    )
+    assert "ده ثانیه" in documented
+    assert ws_module.HANDSHAKE_TIMEOUT_S == 10.0
+
+
 def test_hello_ok_declares_session_and_audio_format(tmp_path: Path) -> None:
     with app_client(tmp_path) as client:
         with device_session(client) as ws:

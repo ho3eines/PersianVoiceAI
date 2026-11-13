@@ -106,7 +106,12 @@ def test_partial_transcript_while_microphone_still_active() -> None:
             assert pipeline.state.value == "listening"
             for _ in range(20):
                 pipeline.feed(frame())
-            await until(lambda: len(pipeline.audio.calls) >= 2)
+            # Wait for the *second partial event*, not merely the second ASR call:
+            # agreed_prefix is only non-empty once two partials have been compared,
+            # and under load the event can land after the call counter increments.
+            await until(
+                lambda: len([e for e in events if e["type"] == "transcript_partial"]) >= 2
+            )
             partials = [e for e in events if e["type"] == "transcript_partial"]
             assert partials[-1]["agreed_prefix"] == "سلام دوست من"
             assert partials[-1]["windowed"] is False

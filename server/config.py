@@ -163,24 +163,6 @@ def load_dotenv(path: Path | None = None) -> None:
         return
 
 
-def _env_str(name: str, default: str) -> str:
-    value = os.getenv(name)
-    return value.strip() if value and value.strip() else default
-
-
-def _env_choice(name: str, default: str, allowed: set[str]) -> str:
-    """One of ``allowed`` (lower-cased); an unknown value keeps the default.
-
-    A typo must not silently change a privacy-relevant behaviour, so the
-    fallback is the documented default rather than the raw value.
-    """
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    value = raw.strip().lower()
-    return value if value in allowed else default
-
-
 ENV_ISSUES: list[tuple[str, str]] = []
 """``(variable, reason)`` for every rejected or clamped environment value.
 

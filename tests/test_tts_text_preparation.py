@@ -581,8 +581,11 @@ def test_the_benchmark_reports_false_accepts() -> None:
     assert report["examples"] == ["زیرنویس‌ها توسط تیم ما تهیه شده است."]
 
 
-def test_a_no_speech_entry_must_not_carry_a_reference() -> None:
+def test_a_no_speech_entry_must_not_carry_a_reference(tmp_path: Path) -> None:
     """A negative clip with text would silently re-enter the WER corpus."""
+    # A hard-coded POSIX /tmp path made this test fail on Windows (``\tmp\...``
+    # is a drive-relative path) and let two concurrent runs overwrite each other.
+
     import importlib.util
     import sys
 
@@ -604,9 +607,9 @@ def test_a_no_speech_entry_must_not_carry_a_reference() -> None:
     assert module.references(data) == {"fa-1": "سلام"}
     # And a speech entry with no text is still an error.
     with pytest.raises(ValueError):
-        module.load_set(_write(tmp := Path("/tmp/_pvai_set.json"), {
+        module.load_set(_write(tmp_path / "_pvai_set.json", {
             "sentences": [{"id": "fa-1", "text": "", "category": "x"}]
-        }) or tmp)
+        }))
 
 
 def _write(path: Path, payload: dict) -> Path:

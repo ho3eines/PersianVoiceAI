@@ -1,0 +1,118 @@
+{
+  "generated_at": "2026-11-12T19:44:43+00:00",
+  "environment": {
+    "python": "3.12.10",
+    "platform": "Windows-11-10.0.22621-SP0",
+    "processor": "Intel64 Family 6 Model 78 Stepping 3, GenuineIntel",
+    "cpu_count": 4,
+    "ram_total_mb": null,
+    "process_ram_mb": null,
+    "note": "single-run numbers; repeat and compare medians before quoting"
+  },
+  "rows": [
+    {
+      "scenario": "asr",
+      "metric": "asr_ms@1s",
+      "value": 4894.899799954146,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": "synthetic tone; timing only, not transcription quality"
+    },
+    {
+      "scenario": "asr",
+      "metric": "asr_rtf@1s",
+      "value": 4.894899799954146,
+      "unit": "x",
+      "status": "MEASURED",
+      "note": "compute time / audio duration; <1 is faster than real time"
+    },
+    {
+      "scenario": "asr",
+      "metric": "asr_ms@3s",
+      "value": 50946.399699896574,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": "synthetic tone; timing only, not transcription quality"
+    },
+    {
+      "scenario": "asr",
+      "metric": "asr_rtf@3s",
+      "value": 16.982133233298857,
+      "unit": "x",
+      "status": "MEASURED",
+      "note": "compute time / audio duration; <1 is faster than real time"
+    },
+    {
+      "scenario": "asr",
+      "metric": "asr_ms@6s",
+      "value": 46222.9287000373,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": "synthetic tone; timing only, not transcription quality"
+    },
+    {
+      "scenario": "asr",
+      "metric": "asr_rtf@6s",
+      "value": 7.703821450006217,
+      "unit": "x",
+      "status": "MEASURED",
+      "note": "compute time / audio duration; <1 is faster than real time"
+    },
+    {
+      "scenario": "llm",
+      "metric": "llm_ttft_ms",
+      "value": 3211.280700052157,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "scenario": "llm",
+      "metric": "llm_tokens_per_second",
+      "value": 4.013377892876979,
+      "unit": "tok/s",
+      "status": "MEASURED",
+      "note": "inter-token rate after the first token"
+    },
+    {
+      "scenario": "llm",
+      "metric": "llm_stream_total_ms",
+      "value": 19157.946299994364,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "scenario": "tts",
+      "metric": "tts_first_chunk_ms",
+      "value": 3039.6217999514192,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "scenario": "tts",
+      "metric": "tts_first_frame_ms",
+      "value": 5958.166199969128,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": "device hand-off proxy; DAC latency is not measurable here"
+    },
+    {
+      "scenario": "tts",
+      "metric": "tts_played_ms",
+      "value": 1263180.0,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "scenario": "tts",
+      "metric": "tts_total_ms",
+      "value": 6005.2743998821825,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": ""
+    }
+  ]
+}

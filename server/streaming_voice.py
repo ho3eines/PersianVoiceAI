@@ -33,7 +33,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
-import re
+import logging
 import threading
 import time
 from collections import deque
@@ -43,6 +43,7 @@ from typing import Any, Callable
 
 import httpx
 
+from .broker import CommandBroker
 from .config import Settings
 from .conversation import (
     ROLE_ASSISTANT,
@@ -62,6 +63,16 @@ from .voice import LocalAudio, VoiceError, dependency, local_api_url, local_clie
 BLOCK_SECONDS = 0.02
 TRAILING_SILENCE_KEEP_FRAMES = 5
 """Trailing silence kept in the final ASR audio (100 ms at 20 ms blocks)."""
+
+logger = logging.getLogger(__name__)
+"""Module logger.
+
+``_dispatch_command``'s except-branch called ``logger.exception`` long before
+this name existed, so a failing intent source raised ``NameError`` inside the
+handler and the real error vanished.  Nothing caught it either: the call sits in
+a plain function, not a task, so it surfaced as an unhandled exception in
+``_on_final``.
+"""
 
 
 # --------------------------------------------------------------------------- state
@@ -390,6 +401,8 @@ class Pipeline:
         conversation: Conversation | None = None,
         metrics: Metrics | None = None,
         clock: Callable[[], float] = time.perf_counter,
+        broker: CommandBroker | None = None,
+        intent: Callable[[str], dict[str, Any] | None] | None = None,
     ) -> None:
         self.settings = settings
         self.audio = audio
@@ -397,6 +410,11 @@ class Pipeline:
         self.client = client
         self.emit = emit
         self.clock = clock
+        # Device commands are opt-in: without both a broker and an intent source
+        # a final transcript never reaches any device (AGENTS.md §2.3).
+        self.broker = broker
+        self.intent = intent
+        self._command_tasks: set[asyncio.Task[None]] = set()
         self.metrics = metrics or Metrics(enabled=settings.metrics_enabled)
         self.conversation = conversation or Conversation(
             max_messages=settings.history_max_messages,
@@ -959,6 +977,36 @@ class Pipeline:
         )
         self._settle_after_utterance(reason="asr_failed")
 
+    def _dispatch_command(self, utterance_id: int, text: str) -> None:
+        """Run the intent source and hand its command to the broker in the background.
+
+        The reply path never waits for the device: a slow or silent device must
+        not delay speech, and a broker refusal is reported as an event only.
+        """
+        if self.broker is None or self.intent is None:
+            return
+        try:
+            raw = self.intent(text)
+        except Exception:
+            logger.exception("intent extraction failed")
+            return
+        if raw is None:
+            return
+        task = asyncio.create_task(self._run_command(utterance_id, raw))
+        self._command_tasks.add(task)
+        task.add_done_callback(self._command_tasks.discard)
+
+    async def _run_command(self, utterance_id: int, raw: dict[str, Any]) -> None:
+        assert self.broker is not None
+        result = await self.broker.submit(raw)
+        self.event(
+            "device_command",
+            utterance_id=utterance_id,
+            status=result.status,
+            message=result.message,
+            code=result.detail.get("code"),
+        )
+
     async def _on_final(self, job: AsrJob, text: str) -> None:
         self.metrics.observe(
             "asr_final_latency_ms", (self.clock() - job.submitted_at) * 1000
@@ -1001,6 +1049,7 @@ class Pipeline:
             message_id=message.id,
             text=clean,
         )
+        self._dispatch_command(job.utterance_id, clean)
         newer_answered = self._newest_answered()
         if newer_answered > job.utterance_id:
             # A *newer* user turn already got its reply, so this one is
@@ -1515,6 +1564,7 @@ class Pipeline:
         tasks = list(self.actors)
         if self.reply is not None:
             tasks.append(self.reply)
+        tasks.extend(self._command_tasks)
         for task in tasks:
             task.cancel()
         try:

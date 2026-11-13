@@ -50,7 +50,6 @@ from .llm import (
     LlamaServerUnavailable,
     ModelNotLoaded,
     StreamDelta,
-    StreamDone,
 )
 
 logger = logging.getLogger("persian_voice_ai")
@@ -382,6 +381,31 @@ def create_app(
                 "uptime_s": round(time.time() - request.app.state.started_at, 1),
                 **report,
             },
+        )
+
+    @app.get("/metrics", tags=["meta"])
+    async def metrics(request: Request) -> JSONResponse:
+        """Exposes the in-process metrics (read-only)."""
+        settings = request.app.state.settings
+        snapshot = request.app.state.metrics.snapshot()
+        uptime_s = round(time.time() - request.app.state.started_at, 1)
+        format_arg = request.query_params.get("format", "")
+        if format_arg == "flat":
+            return JSONResponse(
+                content={
+                    "status": "ok",
+                    "uptime_s": uptime_s,
+                    "enabled": settings.metrics_enabled,
+                    "metrics": request.app.state.metrics.flat(),
+                }
+            )
+        return JSONResponse(
+            content={
+                "status": "ok",
+                "uptime_s": uptime_s,
+                "enabled": settings.metrics_enabled,
+                **snapshot,
+            }
         )
 
     @app.get("/api/protocol", tags=["meta"])

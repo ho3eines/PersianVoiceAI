@@ -143,19 +143,25 @@ idf.py -p COM5 flash monitor
 | مورد | مقدار |
 |---|---|
 | ورودی اولیه | PCM، تک‌کاناله، 16 kHz، 16-bit |
-| خروجی اولیهٔ پیشنهادی | PCM، تک‌کاناله، 24 kHz، 16-bit (وابسته به TTS منتخب و تست سخت‌افزار) |
-| فریم صوتی | ۲۰ تا ۴۰ میلی‌ثانیه |
+| خروجی (پیاده‌شده) | PCM، تک‌کاناله، 16 kHz، 16-bit — Piper روی PC نرمال می‌شود |
+| خروجی پیشنهادی آینده | PCM، تک‌کاناله، 24 kHz، 16-bit (وابسته به TTS منتخب و تست سخت‌افزار) — پیاده نشده |
+| فریم صوتی | ۲۰ تا ۴۰ میلی‌ثانیه (transport فقط ۲۰ms را می‌پذیرد) |
 | حجم خام | حدود **32 KB/s** (16 kHz mono 16-bit) |
 | اندازهٔ فریم | 20ms = **640 بایت**، 40ms = **1280 بایت** |
 | انتقال | **WebSocket** با فریم‌های باینری |
 | BLE برای استریم صوت | انتخاب نشده؛ ESP32-S3 از Bluetooth Classic پشتیبانی نمی‌کند |
 
-### پیام‌های کنترلی پیشنهادی
+### پیام‌های کنترلی (پیاده‌شده — مرجع `server/protocol.py::MessageType`)
 
-`HELLO`، `DEVICE_INFO`، `SESSION_START`، `INPUT_END`، `PLAY_START`، `PLAY_END`،
-`PLAY_STOP`، `SET_VOLUME`، `SET_VOICE`، `PING/PONG`، `ERROR`.
+`HELLO`، `HELLO_OK`، `SESSION_START`، `SESSION_ACK`، `SPEECH_START`، `SPEECH_END`، `INTERRUPT`،
+`PLAY_START`، `PLAY_END`، `PLAY_STOP`، `SET_VOICE`، `ASR_PARTIAL`، `ASR_FINAL`، `PING/PONG`، `ERROR`.
 
-هر دستگاه `device_id`، هر مکالمه `session_id` و هر جریان `stream_id` مستقل خواهد داشت.
+جدول کامل فیلدهای الزامی و قواعد در [`PROTOCOL.md`](PROTOCOL.md). پیام‌هایی که در این نسخه **وجود ندارند**
+(و نباید توسط firmware فرض شوند): `DEVICE_INFO`، `INPUT_END`، `SET_VOLUME` — به‌جای آن‌ها
+`SPEECH_START`/`SPEECH_END` و `SET_VOICE` پیاده شده‌اند. کنترل بلندی صدا در این نسخه سمت دستگاه است.
+
+هر دستگاه `device_id`، هر مکالمه `session_id`، هر پاسخ دستیار `turn_id` و هر گفتار کاربر
+`utterance_id` مستقل خواهد داشت.
 
 ## ۷. پردازش گفتار و ASR
 
