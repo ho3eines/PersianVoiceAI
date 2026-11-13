@@ -379,6 +379,25 @@ def test_ready_reports_the_ws_transport_and_refuses_it_without_a_token(monkeypat
     assert check["path"] == "/ws/voice" and check["firmware"] is False
 
 
+def test_ready_accepts_a_per_device_token_list_without_a_shared_token(monkeypatch, tmp_path) -> None:
+    """``PVAI_WS_TOKENS`` alone is the documented, preferred configuration.
+
+    ``_handshake`` authenticates per-device tokens first and treats "any device
+    token configured" as sufficient, so a readiness check that only looked at
+    ``ws_token`` reported a correctly configured LAN deployment as broken.
+    """
+    from server.readiness import check_ws
+
+    only_device_tokens = Settings(ws_enabled=True, ws_tokens="esp32-a:token-a")
+    check = check_ws(only_device_tokens)
+    assert check["ok"] is True, check
+    assert check["enabled"] is True
+
+    # An empty or malformed list still has no credentials at all.
+    assert check_ws(Settings(ws_enabled=True))["ok"] is False
+    assert check_ws(Settings(ws_enabled=True, ws_tokens=" , "))["ok"] is False
+
+
 def test_ws_enabled_without_a_token_is_a_configuration_error() -> None:
     assert any("PVAI_WS_TOKEN" in error for error in Settings(ws_enabled=True).config_errors())
     # A per-device token list satisfies the same rule.

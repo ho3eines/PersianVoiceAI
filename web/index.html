@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>دستیار صوتی فارسی — محیط تست</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --panel-2: #273449; --text: #e2e8f0;
+    --muted: #94a3b8; --accent: #38bdf8; --ok: #22c55e; --warn: #f59e0b;
+    --err: #ef4444; --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: "Vazirmatn", "Segoe UI", Tahoma, sans-serif; display: flex;
+    flex-direction: column; align-items: center; padding: 24px 16px 48px;
+  }
+  header { text-align: center; margin-bottom: 18px; }
+  h1 { font-size: 1.35rem; margin: 0 0 6px; }
+  .sub { color: var(--muted); font-size: .85rem; }
+  .chips { display: flex; gap: 8px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
+  .chip {
+    font-size: .78rem; padding: 3px 10px; border-radius: 999px;
+    background: var(--panel); color: var(--muted); border: 1px solid #334155;
+  }
+  .chip.ok { color: #bbf7d0; border-color: #14532d; background: #052e16; }
+  .chip.bad { color: #fecaca; border-color: #7f1d1d; background: #450a0a; }
+  .chip.loading { color: #fde68a; border-color: #78350f; background: #451a03; }
+  main { width: min(760px, 100%); display: flex; flex-direction: column; gap: 14px; }
+  .panel {
+    background: var(--panel); border: 1px solid #334155; border-radius: var(--radius);
+    padding: 14px;
+  }
+  .panel h2 { margin: 0 0 10px; font-size: .95rem; color: var(--muted); font-weight: 600; }
+  .mic-row { display: flex; align-items: center; gap: 14px; }
+  #mic {
+    width: 92px; height: 92px; border-radius: 50%; border: 2px solid #0ea5e9;
+    background: radial-gradient(circle at 30% 30%, #0ea5e9, #0369a1);
+    color: #fff; font-size: 2rem; cursor: pointer; flex: 0 0 auto;
+    box-shadow: 0 0 0 0 rgba(56,189,248,.45); transition: box-shadow .2s, transform .1s;
+    user-select: none; -webkit-user-select: none; touch-action: none;
+  }
+  #mic:active, #mic.recording {
+    transform: scale(.97); box-shadow: 0 0 0 14px rgba(239,68,68,.18);
+    border-color: #ef4444; background: radial-gradient(circle at 30% 30%, #ef4444, #991b1b);
+  }
+  #mic:disabled { opacity: .45; cursor: not-allowed; }
+  .mic-hint { color: var(--muted); font-size: .85rem; line-height: 1.9; }
+  .mic-hint b { color: var(--text); }
+  #recTimer { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 700; }
+  textarea, input[type="text"] {
+    width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid #334155;
+    border-radius: 10px; padding: 10px 12px; font: inherit; font-size: .95rem;
+    resize: vertical; outline: none;
+  }
+  textarea:focus, input:focus { border-color: var(--accent); }
+  textarea { min-height: 64px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 220px; }
+  button.act {
+    background: var(--accent); color: #06283d; border: 0; border-radius: 10px;
+    padding: 10px 16px; font: inherit; font-weight: 700; cursor: pointer;
+  }
+  button.act.secondary { background: #334155; color: var(--text); }
+  button.act:disabled { opacity: .5; cursor: not-allowed; }
+  .reply { white-space: pre-wrap; line-height: 2; min-height: 60px; }
+  .meta { color: var(--muted); font-size: .78rem; margin-top: 8px; direction: ltr; text-align: right; }
+  #error { color: #fecaca; background: #450a0a; border: 1px solid #7f1d1d; border-radius: 10px; padding: 10px 12px; display: none; }
+  .spinner {
+    display: inline-block; width: 14px; height: 14px; border: 2px solid #64748b;
+    border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite;
+    vertical-align: -2px; margin-inline-end: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #busy { color: var(--muted); font-size: .85rem; display: none; }
+  dialog {
+    background: var(--panel); color: var(--text); border: 1px solid #334155;
+    border-radius: var(--radius); padding: 16px; width: min(360px, 92vw);
+  }
+  dialog::backdrop { background: rgba(2,6,23,.7); }
+  dialog input { width: 100%; margin: 10px 0 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>دستیار صوتی فارسی — محیط تست</h1>
+  <div class="sub">یک نوبت: صحبت کن → رونویسی → پاسخ → بشنو. همه‌چیز محلی است.</div>
+  <div class="chips">
+    <span class="chip" id="chipAsr">ASR: …</span>
+    <span class="chip" id="chipTts">TTS: …</span>
+    <span class="chip" id="chipMsgs">پیام‌ها: 0</span>
+  </div>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>۱) صحبت کن (Push-to-Talk)</h2>
+    <div class="mic-row">
+      <button id="mic" disabled title="نگه دار و صحبت کن">🎤</button>
+      <div class="mic-hint">
+        دکمه را <b>نگه دار</b>، جمله را بگو و رها کن.<br />
+        وضعیت: <span id="recState">آماده نیست</span> — مدت: <span id="recTimer">۰٫۰s</span><br />
+        <span class="sub">پس از رهاکردن، رونویسی ممکن است تا حدود یک دقیقه طول بکشد.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>۲) رونویسی (قابل ویرایش)</h2>
+    <textarea id="transcript" placeholder="متن شنیده‌شده اینجا می‌آید؛ اگر غلط بود اصلاحش کن و دوباره بفرست."></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="act" id="sendTranscript">ارسال رونویسی</button>
+      <button class="act secondary" id="resetBtn">شروع تازه</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>۳) یا مستقیم تایپ کن (بدون میکروفون)</h2>
+    <input type="text" id="typed" placeholder="مثلاً: سلام! خودت را معرفی کن." />
+    <div class="row" style="margin-top:10px">
+      <button class="act" id="sendTyped">ارسال متن</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>پاسخ دستیار</h2>
+    <div class="reply" id="reply">هنوز پاسخی نیست.</div>
+    <div class="row" style="margin-top:10px">
+      <button class="act secondary" id="replay" disabled>🔊 پخش دوباره</button>
+    </div>
+    <div class="meta" id="meta"></div>
+    <div id="busy"></div>
+  </section>
+
+  <div id="error"></div>
+</main>
+
+<script>
+"use strict";
+const state = {
+  asrReady: false,
+  busy: false,
+  audioCtx: null,
+  stream: null,
+  processor: null,
+  chunks: [],
+  lastWav: "",
+};
+
+const $ = (id) => document.getElementById(id);
+const mic = $("mic");
+const recState = $("recState");
+const recTimer = $("recTimer");
+const transcript = $("transcript");
+const replyBox = $("reply");
+const meta = $("meta");
+const busy = $("busy");
+const errorBox = $("error");
+const replay = $("replay");
+
+function setBusy(text) {
+  state.busy = !!text;
+  busy.style.display = text ? "block" : "none";
+  busy.innerHTML = text ? `<span class="spinner"></span>${text}` : "";
+  for (const id of ["sendTranscript", "sendTyped", "replay"]) $(id).disabled = state.busy;
+  mic.disabled = state.busy || !state.asrReady;
+}
+
+function showError(message) {
+  errorBox.textContent = message;
+  errorBox.style.display = message ? "block" : "none";
+}
+
+function fmtMs(value) {
+  if (value === undefined || value === null) return "—";
+  return value < 1000 ? `${value.toFixed(0)}ms` : `${(value / 1000).toFixed(1)}s`;
+}
+
+async function pollStatus() {
+  try {
+    const response = await fetch("/api/status");
+    const data = await response.json();
+    const chip = (el, name) => {
+      el.textContent = `${name}: ${data[name] === "ready" ? "آماده" : data[name] === "failed" ? "خطا" : "در حال بارگذاری…"}`;
+      el.className = "chip " + (data[name] === "ready" ? "ok" : data[name] === "failed" ? "bad" : "loading");
+    };
+    chip($("chipAsr"), "asr");
+    chip($("chipTts"), "tts");
+    $("chipMsgs").textContent = `پیام‌ها: ${data.messages}`;
+    state.asrReady = data.asr === "ready";
+    if (!state.busy) mic.disabled = !state.asrReady;
+    if (!state.asrReady) recState.textContent = data.asr === "failed" ? "خطای ASR" : "در حال بارگذاری مدل…";
+    else if (!state.busy) recState.textContent = "آماده";
+    if (data.error) showError(data.error);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------- recording
+function downsampleTo16k(float32, sourceRate) {
+  if (sourceRate === 16000) return float32;
+  const ratio = sourceRate / 16000;
+  const length = Math.floor(float32.length / ratio);
+  const output = new Float32Array(length);
+  for (let i = 0; i < length; i++) {
+    const start = Math.floor(i * ratio);
+    const end = Math.min(Math.floor((i + 1) * ratio), float32.length);
+    let sum = 0;
+    for (let j = start; j < end; j++) sum += float32[j];
+    output[i] = sum / Math.max(1, end - start);
+  }
+  return output;
+}
+
+function toBase64Pcm16(float32, sourceRate) {
+  const pcm = downsampleTo16k(float32, sourceRate);
+  const bytes = new Uint8Array(pcm.length * 2);
+  const view = new DataView(bytes.buffer);
+  for (let i = 0; i < pcm.length; i++) {
+    const sample = Math.max(-1, Math.min(1, pcm[i]));
+    view.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+  }
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function startRecording() {
+  if (state.busy || !state.asrReady || state.stream) return;
+  try {
+    state.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+    });
+  } catch (err) {
+    showError("دسترسی به میکروفون رد شد: " + err.message);
+    return;
+  }
+  showError("");
+  state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  state.rate = state.audioCtx.sampleRate;
+  const source = state.audioCtx.createMediaStreamSource(state.stream);
+  state.processor = state.audioCtx.createScriptProcessor(4096, 1, 1);
+  state.chunks = [];
+  state.processor.onaudioprocess = (event) => {
+    state.chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+  };
+  source.connect(state.processor);
+  state.processor.connect(state.audioCtx.destination);
+  mic.classList.add("recording");
+  recState.textContent = "در حال ضبط…";
+  const started = performance.now();
+  state.timer = setInterval(() => {
+    recTimer.textContent = ((performance.now() - started) / 1000).toFixed(1) + "s";
+  }, 100);
+}
+
+async function stopRecording() {
+  if (!state.stream) return;
+  clearInterval(state.timer);
+  state.processor?.disconnect();
+  state.stream.getTracks().forEach((track) => track.stop());
+  await state.audioCtx?.close();
+  state.stream = null;
+  mic.classList.remove("recording");
+  recTimer.textContent = "۰٫۰s";
+  const total = state.chunks.reduce((sum, part) => sum + part.length, 0);
+  if (total < 1600) {  // < 0.1 s at 16 kHz: a click, not speech
+    recState.textContent = "خیلی کوتاه بود؛ دوباره";
+    return;
+  }
+  const joined = new Float32Array(total);
+  let offset = 0;
+  for (const part of state.chunks) { joined.set(part, offset); offset += part.length; }
+  const pcmB64 = toBase64Pcm16(joined, state.rate || 48000);
+  state.chunks = [];
+  recState.textContent = "ارسال برای رونویسی…";
+  await sendTurn({ pcm_b64: pcmB64 });
+}
+
+// -------------------------------------------------------------------- turn
+async function sendTurn(body) {
+  if (state.busy) return;
+  setBusy("در حال پردازش… (تأخیر Whisper روی این CPU طبیعی است)");
+  showError("");
+  try {
+    const response = await fetch("/api/turn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "", sample_rate: 16000, ...body }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+    transcript.value = data.transcript || "";
+    replyBox.textContent = data.reply || (data.notice || "پاسخی دریافت نشد.");
+    state.lastWav = data.tts_wav_b64 || "";
+    replay.disabled = !state.lastWav;
+    const t = data.timings || {};
+    meta.textContent =
+      `asr ${fmtMs(t.asr_ms)} · llm ${fmtMs(t.llm_ms)} · tts ${fmtMs(t.tts_ms)}` +
+      ` · prompt ${t.prompt_tokens ?? "—"} · out ${t.completion_tokens ?? "—"}`;
+    if (state.lastWav) playWav(state.lastWav);
+    if (data.notice) showError(data.notice);
+    recState.textContent = "آماده";
+    pollStatus();
+  } catch (err) {
+    showError(String(err.message || err));
+    recState.textContent = "آماده";
+  } finally {
+    setBusy("");
+  }
+}
+
+function playWav(base64) {
+  const audio = new Audio("data:audio/wav;base64," + base64);
+  audio.play().catch(() => {});
+}
+
+// ------------------------------------------------------------------- events
+mic.addEventListener("pointerdown", (event) => { event.preventDefault(); startRecording(); });
+mic.addEventListener("pointerup", (event) => { event.preventDefault(); stopRecording(); });
+mic.addEventListener("pointerleave", () => { if (state.stream) stopRecording(); });
+mic.addEventListener("contextmenu", (event) => event.preventDefault());
+
+$("sendTranscript").addEventListener("click", () => {
+  const text = transcript.value.trim();
+  if (text) sendTurn({ text });
+});
+$("sendTyped").addEventListener("click", () => {
+  const input = $("typed");
+  const text = input.value.trim();
+  if (text) { input.value = ""; sendTurn({ text }); }
+});
+$("typed").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") $("sendTyped").click();
+});
+$("replay").addEventListener("click", () => { if (state.lastWav) playWav(state.lastWav); });
+$("resetBtn").addEventListener("click", async () => {
+  await fetch("/api/reset", { method: "POST" });
+  transcript.value = "";
+  replyBox.textContent = "هنوز پاسخی نیست.";
+  meta.textContent = "";
+  state.lastWav = "";
+  replay.disabled = true;
+  showError("");
+  pollStatus();
+});
+
+pollStatus();
+setInterval(pollStatus, 2500);
+</script>
+</body>
+</html>

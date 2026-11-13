@@ -312,6 +312,31 @@ class Speaker:
             if on_complete is not None:
                 on_complete(time.perf_counter(), played_blocks * OUTPUT_BLOCK_SECONDS * 1000)
 
+    def synthesize_pcm(self, text: str) -> tuple[bytes, int]:
+        """Synthesize ``text`` to mono PCM16 without opening a speaker device.
+
+        The browser UI plays the reply itself, so the server must return audio
+        bytes instead of writing to a local sound device.  The returned rate is
+        the same one ``speak`` uses (``audio_sample_rate``, 16 kHz by contract).
+        """
+        if not (text or "").strip():
+            return b"", self._output_rate()
+        pieces: list[bytes] = []
+        chunks = self._synthesize(text)
+        try:
+            for chunk in chunks:
+                pcm, _rate, _channels = self._chunk_pcm(chunk)
+                if pcm:
+                    pieces.append(pcm)
+        finally:
+            closer = getattr(chunks, "close", None)
+            if callable(closer):
+                try:
+                    closer()
+                except Exception:  # noqa: BLE001 - closing a lazy generator
+                    pass
+        return b"".join(pieces), self._output_rate()
+
     def _synthesize(self, text: str) -> Any:
         """Yield chunks from the model, serialising each model step.
 

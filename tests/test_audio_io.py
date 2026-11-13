@@ -427,7 +427,12 @@ def test_a_device_that_delivered_real_frames_earns_a_fresh_budget() -> None:
                 audio_io.stream_forever(
                     sd,
                     DuplexAudio(),
-                    Settings(audio_stall_s=0.01, audio_reopen_attempts=1),
+                    # The feeder thread pushes all frames in a tight loop and then
+                    # goes silent.  A 10 ms stall window used to expire before the
+                    # pump loop had drained those 50 queued frames on a loaded
+                    # machine, so ``pipeline.frames`` was flaky; the window only
+                    # has to be long enough to drain the queue, not to test speed.
+                    Settings(audio_stall_s=0.2, audio_reopen_attempts=1),
                     pipeline,
                     reopen_delay=lambda _attempt: 0.0,
                 ),

@@ -99,6 +99,14 @@ class Report:
         status: str,
         note: str = "",
     ) -> None:
+        if value is None and status != NOT_MEASURED:
+            # A missing value is not a measurement, whichever label the caller
+            # expected: the component may be real, but the turn can time out
+            # before the metric is recorded (a non-speech input the ASR drops,
+            # so no reply ever starts).  Printing ``MEASURED`` next to a dash
+            # made the 13 Nov run look like a measurement of nothing.
+            status = NOT_MEASURED
+            note = "; ".join(part for part in (note, "value missing") if part)
         self.rows.append(Row(scenario, metric, value, unit, status, note))
 
     def table(self) -> str:
@@ -524,13 +532,27 @@ def scenario_combined(
                 status,
                 note,
             )
-        report.add(label, "turn_total_ms", total_ms, "ms", _worst(asr_status, tts_status, llm_status))
-        report.add(
-            label, "turn_completed", 1.0 if any(
-                event["type"] == "response_end" and event.get("status") == "complete"
-                for event in events
-            ) else 0.0, "flag", MEASURED,
+        report.add(label, "turn_completed", 1.0 if any(
+            event["type"] == "response_end" and event.get("status") == "complete"
+            for event in events
+        ) else 0.0, "flag", MEASURED,
         )
+        completed = any(
+            event["type"] == "response_end" and event.get("status") == "complete"
+            for event in events
+        )
+        if completed:
+            report.add(
+                label, "turn_total_ms", total_ms, "ms",
+                _worst(asr_status, tts_status, llm_status),
+            )
+        else:
+            # ``_one_turn`` waits up to 60 s for a reply that never starts; the
+            # elapsed value is that deadline, not a turn latency.
+            report.add(
+                label, "turn_total_ms", None, "ms", NOT_MEASURED,
+                "no reply completed; value was the 60 s wait deadline",
+            )
         report.add(label, "speech_queue_depth", metrics.gauge("speech_queue_depth"), "",
                    MEASURED, "must stay far below the configured bound")
 
@@ -635,13 +657,20 @@ def scenario_duplex(report: Report, settings: Settings, seconds: float) -> None:
             _close_quietly(speaker)
 
         report.add("duplex", "turns", float(turns), "count", MEASURED)
-        report.add(
-            "duplex", "turn_latency_mean_ms",
-            statistics.fmean(latencies) if latencies else None, "ms", status, note,
+        replied = any(event["type"] == "response_end" for event in events)
+        latency_status = status if replied else NOT_MEASURED
+        latency_note = note if replied else (
+            "no reply completed; the values are the 60 s wait deadline, not turn latency"
         )
         report.add(
-            "duplex", "turn_latency_max_ms", max(latencies) if latencies else None, "ms",
-            status, note,
+            "duplex", "turn_latency_mean_ms",
+            statistics.fmean(latencies) if latencies and replied else None, "ms",
+            latency_status, latency_note,
+        )
+        report.add(
+            "duplex", "turn_latency_max_ms",
+            max(latencies) if latencies and replied else None, "ms",
+            latency_status, latency_note,
         )
         report.add(
             "duplex", "interrupted_turns",

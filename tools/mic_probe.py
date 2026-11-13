@@ -21,6 +21,7 @@ import os
 import statistics
 import sys
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
@@ -80,6 +81,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     device_rate = int(args.device_rate or args.sample_rate)
     if device_rate <= 0 or args.sample_rate <= 0:
         raise SystemExit("sample rates must be positive")
+    if args.block_ms <= 0:
+        raise SystemExit("--block-ms must be positive")
+    if args.block_ms not in {10, 20, 40}:
+        # Same set the service accepts (``Settings.validate``): the report is
+        # only comparable to a live session if the probe blocks like one.
+        raise SystemExit("--block-ms must be one of 10, 20 or 40")
     block_bytes = int(device_rate * args.block_ms / 1000) * 2
 
     # Never let a misconfigured dependency reach the network.
@@ -97,6 +104,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     from server.vad import REJECTED, SEGMENT, ONSET, block_rms, build_vad
 
     settings = Settings.from_env()
+    if settings.audio_block_ms != args.block_ms:
+        # The VAD counts *frames* and converts them to milliseconds with the
+        # block length it was built with.  ``--block-ms 40`` while the detector
+        # still believed 20 ms made every segment twice as long as configured
+        # and the reported onset/endpoint delays wrong.  The probe's own block
+        # length is what the capture loop actually feeds, so it wins.
+        settings = replace(settings, audio_block_ms=args.block_ms)
     device = _resolve_device(sd, args.device)
 
     rows: list[dict[str, Any]] = []

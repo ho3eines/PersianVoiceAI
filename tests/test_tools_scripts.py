@@ -24,6 +24,7 @@ PARITY = {
     "chat": ("chat.sh", "chat.ps1"),
     "benchmark": ("benchmark.sh", "benchmark.ps1"),
     "start_llama": ("start_llama.sh", "start_llama.ps1"),
+    "start_webui": ("start_webui.sh", "start_webui.ps1"),
 }
 
 BASH_SCRIPTS = sorted(TOOLS.glob("*.sh"))

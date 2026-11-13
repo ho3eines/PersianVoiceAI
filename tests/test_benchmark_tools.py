@@ -197,6 +197,72 @@ def test_status_labelling_is_conservative(benchmark_voice) -> None:
     assert worst(simulated, not_measured) == not_measured
 
 
+def test_a_missing_value_is_never_labelled_measured(benchmark_voice) -> None:
+    """A dash next to ``MEASURED`` is a false claim, not a measurement.
+
+    The 13 Nov duplex/combined run fed a synthetic tone through the real
+    models: Whisper produced no Persian text, so no turn ever started and the
+    latency rows were recorded as ``None`` while the scenario still passed
+    ``MEASURED`` down to them.  The report must downgrade that to
+    ``NOT MEASURED`` and say why, so the JSON cannot be read as evidence.
+    """
+    report = benchmark_voice.Report()
+    report.add("combined", "asr_ms", None, "ms", benchmark_voice.MEASURED)
+    report.add("combined", "asr_ms_again", 12.5, "ms", benchmark_voice.MEASURED)
+
+    missing, present = report.rows
+    assert missing.status == benchmark_voice.NOT_MEASURED
+    assert "value missing" in missing.note
+    assert missing.value is None
+    # A real value keeps the status it was given.
+    assert present.status == benchmark_voice.MEASURED
+    assert present.note == ""
+
+
+def test_a_timed_out_turn_reports_no_latency(benchmark_voice, monkeypatch) -> None:
+    """When no reply ever starts, the 60 s wait must not be reported as the turn.
+
+    The 13 Nov run on the real weights hit exactly this: the synthetic tone was
+    not transcribed, so ``turn_total_ms`` was the ``_one_turn`` deadline.  The
+    row must say so instead of presenting 60 s as a measured latency.
+    """
+    simulated = benchmark_voice.SIMULATED
+
+    async def no_turn(*args, **kwargs):  # noqa: ANN002, ANN003 - mirrors _one_turn
+        return [], 60013.0
+
+    monkeypatch.setattr(benchmark_voice, "_one_turn", no_turn)
+    monkeypatch.setattr(
+        benchmark_voice, "_maybe_real_asr",
+        lambda settings, report: (simulated, "simulated ASR", benchmark_voice.SimulatedAsr(0.0)),
+    )
+    monkeypatch.setattr(
+        benchmark_voice, "_maybe_real_tts",
+        lambda settings, report: (simulated, "simulated TTS", benchmark_voice.SimulatedSpeaker()),
+    )
+    monkeypatch.setattr(
+        benchmark_voice, "_maybe_real_llm",
+        lambda settings, report: (
+            simulated,
+            "simulated LLM",
+            lambda: benchmark_voice.simulated_client(benchmark_voice.SimulatedStream()),
+        ),
+    )
+
+    report = benchmark_voice.Report()
+    settings = benchmark_voice.Settings.from_env()
+    benchmark_voice.scenario_combined(report, settings, 3.0)
+
+    rows = {row.metric: row for row in report.rows}
+    assert rows["turn_completed"].value == 0.0
+    assert rows["turn_total_ms"].value is None
+    assert rows["turn_total_ms"].status == benchmark_voice.NOT_MEASURED
+    assert "wait deadline" in rows["turn_total_ms"].note
+    # Every other metric of the fake turn has no value either and must not be
+    # presented as measured.
+    assert rows["asr_ms"].status == benchmark_voice.NOT_MEASURED
+
+
 def test_benchmark_runs_idle_scenario_and_labels_every_row(benchmark_voice, tmp_path: Path, capsys) -> None:
     out = tmp_path / "bench.json"
     code = benchmark_voice.main(["--quick", "--scenarios", "idle", "--json-out", str(out)])

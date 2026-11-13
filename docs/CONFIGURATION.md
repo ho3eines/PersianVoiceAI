@@ -83,7 +83,7 @@
 | `PVAI_ASR_HALLUCINATION_PHRASES` | فهرست فارسی/انگلیسی | عبارت‌های توهمی روی سکوت/نویز، جداشده با ویرگول. خالی = فیلتر خاموش (توصیه نمی‌شود) |
 | `PVAI_ASR_PARTIAL_WINDOW_S` | `3.0` | طول پنجرهٔ هم‌پوشان برای partial؛ cost هر decode را ثابت نگه می‌دارد. باید ≥ ۲× `PVAI_VOICE_ASR_INTERVAL` باشد |
 | `PVAI_ASR_MAX_FINAL_JOBS` | `16` | آستانهٔ هشدار عمق صف final؛ **هیچ final حذف نمی‌شود** |
-| `PVAI_ASR_WARMUP` | `true` | لود و warmup مدل در startup به‌جای اولین utterance |
+| `PVAI_ASR_WARMUP` | `true` | لود و warmup مدل در startup به‌جای اولین utterance. با `PVAI_WS_ENABLED=true` مدل مشترک `MODEL_POOL` در یک thread daemon از پیش بارگذاری و با ۲۰۰ms سکوت warm می‌شود، پس اولین اتصال ESP32 هزینهٔ لود را نمی‌پردازد؛ بدون transport صوتی هیچ مدلی بار نمی‌شود. شکست لود فقط در لاگ هشدار می‌دهد و `/ready` را خراب نمی‌کند |
 
 ### فیلتر توهم Whisper
 
@@ -267,8 +267,10 @@ AEC فقط با ۱۶kHz و بلوک ۲۰ms معنا دارد؛ `GET /ready` ای
 |---|---|---|
 | `PVAI_METRICS_ENABLED` | `true` | فعال‌سازی سنجه‌ها (`server/metrics.py`)؛ خاموش = ثبت سنجه‌ها غیرفعال؛ هزینهٔ فراخوانی‌های کد لزوماً صفر نیست |
 
-فهرست نام سنجه‌ها در `server/metrics.py::METRIC_NAMES` است و تست
-`tests/test_metrics.py::test_documented_metric_names_cover_the_pipeline` هم‌خوانی آن با کد را بررسی می‌کند.
+فهرست نام سنجه‌ها در `server/metrics.py::METRIC_NAMES` است. سه تست هم‌خوانی را در دو جهت
+بررسی می‌کنند: `tests/test_metrics.py::test_documented_metric_names_cover_the_pipeline` (نام‌های
+لازم موجود باشند)، `::test_every_declared_metric_is_actually_emitted_somewhere` (نام اعلام‌شدهٔ
+بدون محل ثبت ممنوع) و `::test_every_recorded_metric_is_declared` (نام ثبت‌شدهٔ اعلام‌نشده ممنوع).
 
 ---
 

@@ -689,7 +689,7 @@ Model weights are not stored in this repository and retain their respective lice
 
 ## بخش 2 — docs/STATUS.md
 
-# وضعیت اجرایی پروژه — PersianVoiceAI Conversation Engine
+﻿# وضعیت اجرایی پروژه — PersianVoiceAI Conversation Engine
 
 آخرین به‌روزرسانی: ۹ نوامبر ۲۰۲۶ — رفع باگ‌های گزارش‌شده، بازبینی مدل‌فری و مستندسازی؛
 مرحلهٔ ۱ تا ۶ پیشین: رفع P0، بهبود خط لولهٔ صوتی، ماندگاری مکالمه،
@@ -723,7 +723,7 @@ commit `9654a68` و شاخهٔ `arena/31347dde-persianvoiceai` فقط سابقه
 | ماشین حالت صریح `idle/listening/transcribing/thinking/speaking` | پیاده‌شده + تست جدول گذار | `tests/test_state_machine.py` |
 | barge-in: توقف LLM/TTS/پخش، بدون آسیب به صف final | پیاده‌شده + تست fake؛ تأخیر دستگاه **تست نشده** | `tests/test_tts.py`, `tests/test_long_run.py` |
 | TTS Piper: انتخاب مرد/زن، جمله‌بندی، لغو، نرمال‌سازی نرخ | پیاده‌شده + تست؛ وزن فارسی **تست نشده** | `server/live_voice.py` |
-| AEC SpeexDSP duplex پیش از VAD/ASR | پیاده‌شده + تست مصنوعی؛ اتاق واقعی **تست نشده** | `server/aec.py`, `docs/AEC.md` |
+| AEC SpeexDSP duplex پیش از VAD/ASR | پیاده‌شده؛ تست native مصنوعی **MEASURED** (۱۱/۱۱، ۱۲ نوامبر)؛ **تست اتاق واقعی روی همین لپ‌تاپ MEASURED (۱۳ نوامبر): با پیش‌فرض ۴۰ms هیچ حذفی ندارد، با تأخیر کالیبره ۶٫۸dB**؛ double-talk انسان و ESP32 **NOT TESTED** | `server/aec.py`, `tools/aec_room_measure.py`, `docs/AEC.md` |
 | تاریخچه: نشست، وضعیت interrupted، برش توکنی، JSONL محلی | پیاده‌شده + تست | `server/conversation.py`, `server/sessions.py` |
 | readiness و health (`/ready`, `/health`) | پیاده‌شده + تست | `server/readiness.py`, `tests/test_api.py` |
 | سنجه‌های کامل خط لوله (شامل jitter callback، صف، CPU/RAM در اجرای زنده) | پیاده‌شده + تست | `server/metrics.py`, `server/audio_io.py` |
@@ -731,9 +731,11 @@ commit `9654a68` و شاخهٔ `arena/31347dde-persianvoiceai` فقط سابقه
 | ارزیابی فارسی WER/CER | مجموعهٔ ۴۰ جمله + ۶ کلیپ `no_speech` + ابزار؛ اعداد واقعی **NOT MEASURED** | `benchmarks/persian_eval.py` |
 | نرخ پذیرش کاذب روی سکوت/نویز | سنجه و ورودی‌ها آماده؛ عدد واقعی **NOT MEASURED** (بدون wav) | `benchmarks/persian_eval.py`, `server/persian.py` |
 | پروتکل و **transport سمت سرور** WebSocket صوتی (`WS /ws/voice`) | پیاده‌شده + تست (fake)؛ توکن per-device، سقف اتصال، pacing، heartbeat، فریم ۲۰ms اجباری | `server/protocol.py`, `server/ws_voice.py`, `tests/test_ws_voice.py` |
+| **میز تست وب یک‌نوبتی** (صحبت/تایپ → ASR → LLM → TTS در مرورگر) | پیاده‌شده + تست (fake)؛ یک چرخهٔ واقعی mic→Whisper→llama.cpp→Piper هم روی همین لپ‌تاپ اجرا شد | `server/webui.py`, `web/index.html`, `tests/test_webui.py`, `docs/WEB_UI.md` |
 | امنیت REST (`PVAI_API_TOKEN`، rate limit، `/health` حداقلی) | پیاده‌شده + تست | `server/security.py`, `server/main.py`, `tests/test_ws_security.py` |
 | firmware ESP32-S3، OTA، تست LAN واقعی | **پیاده‌نشده / NOT MEASURED** | — |
-| Command Broker / IoT | **پیاده‌نشده** | — |
+| Command Broker فاز اول (schema، policy، audit، فقط `FakeDevice`) | پیاده‌شده + تست؛ **SIMULATED** (هیچ GPIO/رله واقعی وصل نیست)؛ به ASR/LLM وصل نشده | `server/broker.py`, `tests/test_broker.py` |
+| IoT واقعی (GPIO/رله/سنسور، اتصال به مسیر گفتار) | **پیاده‌نشده** | — |
 
 ## ۲. وضعیت تست
 
@@ -742,20 +744,22 @@ $ python -m pytest
 نتیجهٔ جاری را با اجرای python -m pytest ببینید (تعداد ثابت نیست)
 ```
 
-- تعداد تست‌های مجموعه (pytest --collect-only): **1139** تست — این تنها عدد
+- آخرین اجرای کامل `pytest -q` در این مخزن: exit 0، بدون شکست (MEASURED). تست‌های `test_ws_security.py` که `reset()` را با warmup واقعی Whisper در پس‌زمینه معطل می‌کردند، با `asr_warmup=False` بی‌خطر شدند.
+- تعداد تست‌های مجموعه (pytest --collect-only): **1227** تست — این تنها عدد
   مجاز است و `tests/test_docs_consistency.py` آن را با خروجی واقعی
   `pytest --collect-only` مقایسه می‌کند؛ عدد کهنه ⇒ تست قرمز. بقیهٔ اعداد این
   سند **تاریخی** و مربوط به همان مرحله‌اند.
 
-- ۳۸ تست امنیتی در `tests/test_ws_security.py` و ۱۸۹ تست آماده‌سازی متن TTS در
+- ۵۳ تست امنیتی/منابع در `tests/test_ws_security.py` و ۲۰۲ تست آماده‌سازی متن TTS در
   `tests/test_tts_text_preparation.py`: هر تست یک نقص گزارش‌شده را می‌پوشاند و
   روی کد پیش از رفع شکست می‌خورد (برای بارگذاری مدل، pacing، صف حیاتی و نرخ فریم دستی بررسی شد).
   (تصحیح: پیش‌تر «۳۶ امنیتی» و «متن/ASR» نوشته شده بود؛ فیلتر توهم ASR در
-  `tests/test_voice.py` تست می‌شود، نه در آن فایل.)
+  `tests/test_voice.py` تست می‌شود، نه در آن فایل. تعداد فعلی از `pytest --collect-only`
+  همان اجراست، نه شمارش دستی.)
 
 - تست‌های native SpeexDSP در sandbox بدون کتابخانهٔ ساخته‌شده صریحاً skip می‌شوند؛ اگر
   `libspeexdsp` نصب باشد اجرا می‌شوند (در اجرای قبلی همین محیط: ۵۴ تست موفق با کتابخانه).
-- ۱۴ تست تطابق مستندات در `tests/test_docs_consistency.py` برای متغیرهای محیطی، مسیرها، ارجاع تست‌ها، نقشهٔ مخزن و لینک‌ها افزوده شد.
+- ۱۹ تست تطابق مستندات در `tests/test_docs_consistency.py` برای متغیرهای محیطی، مسیرها، ارجاع تست‌ها، نقشهٔ مخزن و لینک‌ها افزوده شد.
 - تست پایه پیش از این مرحله: گزارش تاریخی (تعداد تست‌ها تغییر کرده است). یعنی ۵۵۳ تست جدید یا گسترش‌یافته
   آخرین افزوده: ۱۴ تست transport وب‌سوکت + ۱ تست قطع کلاینت SSE + ۲ تست پیکربندی/readiness +
   ۲۷ تست موتور مکالمه و مسیر صوتی + ۲۳ تست مرحلهٔ resume (ادامهٔ نشست از مسیر
@@ -814,6 +818,19 @@ $ python -m pytest
 فقط همین ماشین است.
 جدول کامل با برچسب `MEASURED`/`SIMULATED`/`NOT MEASURED` در [BENCHMARKS.md](BENCHMARKS.md).
 
+اجرای دوبارهٔ پنج وزن محلی با llama.cpp build 11040 در ۱۲ نوامبر ۲۰۲۶ انجام شد (MEASURED):
+Qwen3.5-4B با ۴٫۰۱ tok/s و TTFT ۴٫۶۴s بهترین تعادل را داشت؛ gemma-3-4b-persian با
+TTFT ۱۵٫۲۷s و پاسخ ریاضی غلط، و دو مدل کوچک (MiniCPM5-1B و qwen3-0.6b) با فارسی
+شکسته کنار گذاشته شدند. جزئیات در BENCHMARKS §۵٫۶؛ گزارش خام در
+`benchmarks/results/pc1-model-compare-20261112.json`. مقایسه با سقف ۱۶۰ توکن هم تکرار شد و
+داوری کیفیت سه پرامپت (ریاضی/دستور ویندوز/صداقت) در BENCHMARKS §۵٫۷ ثبت است.
+
+سناریوهای `asr,llm,tts` با Whisper و Piper محلی هم در ۱۲ نوامبر اجرا شد (MEASURED):
+`llm_ttft_ms=3211.3`، `4.01 tok/s`، `tts_first_chunk_ms=3039.6`، ولی ASR با RTF
+۷٫۷–۱۷٫۰ روی همین CPU عملاً غیرقابل‌استفاده است (روی گفتار Piper متن خالی یا حلقهٔ تکرار).
+جزئیات و هشدار نقص `tts_played_ms` در BENCHMARKS §۵٫۸؛ جایگزینی/کالیبراسیون مدل ASR
+اولویت بعدی است.
+
 ## ۴. کارهایی که فقط روی سخت‌افزار هدف معنا دارند (NOT TESTED)
 
 - کیفیت و سرعت Whisper فارسی با وزن واقعی روی i7-6500U؛ RTF و تأخیر final.
@@ -870,7 +887,8 @@ $ python -m pytest
 - کیفیت فارسی Whisper: WER/CER، false-reject گفتار، false-accept سکوت/نویز؛ آستانه‌های
   no_speech/logprob هنوز با فایل wav همسان کالیبره نشده‌اند.
 - کیفیت پاسخ فارسی Qwen با وزن/سرور واقعی و تلفظ فارسی Piper با صدای واقعی.
-- AEC و double-talk در اتاق واقعی و تأخیر قابل شنیدن دستگاه.
+- AEC و double-talk در اتاق واقعی: echo-only و پروکسی double-talk در بخش «تست واقعی اتاق AEC»
+  اندازه‌گیری شد؛ double-talk با گفتار انسان، فاصلهٔ متغیر و تأخیر/قطع دستگاه واقعی همچنان NOT TESTED.
 - بار CPU روی لپ‌تاپ دوهسته‌ای هدف و `asr_final_wait_behind_partial_ms` با مدل واقعی.
   آزمون مقایسه‌ای با همان backend ساختگیِ کند کاهش انتظار final را تأیید می‌کند،
   ولی فقط **SIMULATED** است، نه اندازه‌گیری سخت‌افزاری.
@@ -1042,6 +1060,149 @@ HTTP 503 مدل بارنشده و ادعای اجرای تست Windows/macOS ا�
 - اجرای واقعی Caddy/nginx زیر بار و handshake `wss://` از ESP32-S3.
 - ASR/TTS/LLM واقعی برای هر تغییر این مرحله (همهٔ تست‌ها fake هستند).
 - رفتار قفل فایل روی Windows (`msvcrt.locking`) در این نشست اجرا نشد؛ فقط Linux.
+
+## پیش‌بارگذاری مدل مشترک ASR در startup — ۱۲ نوامبر ۲۰۲۶
+
+بدون این تغییر، اولین اتصال ESP32 در `ModelPool` مدل Whisper را از صفر بار می‌کرد.
+روی این لپ‌تاپ دو‌هسته‌ای، `asr_model_load_ms` در `tools/mic_probe.py` برابر
+**۴۵٫۹ تا ۶۳٫۷ ثانیه** اندازه‌گیری شد (MEASURED، بخش ۹.۳ `docs/HARDWARE_VALIDATION.md`) —
+یعنی اولین utterance دستگاه عملاً به timeout می‌خورد.
+
+| مورد | رفتار | تست |
+|---|---|---|
+| `PVAI_ASR_WARMUP=true` + `PVAI_WS_ENABLED=true` | `MODEL_POOL.preload()` در thread daemon: `audio()` (لود) و `warmup()` (decode ۲۰۰ms سکوت) | `test_ws_security.py::test_preload_warms_the_shared_model_once` |
+| بدون transport صوتی (`ws_enabled=False`) | هیچ مدلی بار نمی‌شود؛ سرور فقط REST هزینهٔ ASR را نمی‌پردازد | `test_ws_security.py::test_startup_preload_needs_the_voice_transport` |
+| `voice_bundle` تزریق‌شده (تست/اپ میزبان) | preload اجرا نمی‌شود؛ مالکیت مدل دست فراخوان است | همان تست |
+| شکست لود (وزن غایب/خراب) | فقط `logger.warning` + traceback؛ startup و `/ready` سالم می‌مانند | پوشش با همان مسیر `_preload_voice_models` |
+| `ModelPool.reset()` | حالا `telemetry` را هم صفر می‌کند تا شمارش بارگذاری بین تست‌ها/ری‌ست‌ها تجمع نکند | `test_resetting_the_model_pool_releases_the_whisper_model` |
+
+startup **بلاک نمی‌شود**: thread جدا و daemon است، پس `/health` و `/ready` بلافاصله پاسخ می‌دهند.
+این عدد صرفه‌جویی (چند ده ثانیه) روی دستگاه واقعی اندازه‌گیری نشده است؛ فقط می‌دانیم لود مدل
+چقدر طول می‌کشد. صرفه‌جویی خودکار = همان مدت لود که به startup منتقل شده است (SIMULATED).
+
+### NOT MEASURED در این مرحله
+
+- زمان «اولین utterance» روی ESP32-S3 واقعی قبل و بعد از preload.
+- مقدار حافظهٔ بلندمدت اشغال‌شده توسط مدل پیش‌بارگذاری‌شده در سروری که هیچ دستگاه وصل نمی‌کند
+  (با `PVAI_WS_ENABLED=false` این مسیر کلاً اجرا نمی‌شود، پس مورد بحث نیست).
+
+## بازبینی نقص‌یابی — ۱۳ نوامبر ۲۰۲۶
+
+بازبینی کد (نه اجرای سخت‌افزار) برای یافتن مسیرهای نیمه‌کاره و اشتباه‌های خاموش.
+هر مورد با تستِ افزوده‌شده بسته شد؛ هیچ ادعای سخت‌افزاری تازه‌ای اضافه نشده است.
+
+| مورد | نقص | رفع | تست |
+|---|---|---|---|
+| ۱ | `NameError` بالقوه در `_open_pipeline`: `httpx` فقط داخل یک تابع دیگر import شده بود، پس مسیر خطای probe به استثنای خام می‌رسید | `import httpx` به سطح ماژول و انتقال probe به `_probe_local_api()` (timeout ۲ ثانیه، فقط `HTTPError/TimeoutError/OSError`، پاسخ ۴۰۱ ⇒ `api_auth_failed`) | `test_ws_security.py::test_a_dead_ready_probe_does_not_kill_a_device_connection`, `::test_a_401_from_the_local_api_is_reported_as_api_auth_failed` |
+| ۲ | `readiness.check_ws` توکن‌های per-device را نمی‌دید؛ `/ready` با `PVAI_WS_TOKENS` تنها، پیام گمراه‌کننده می‌داد | بررسی `device_tokens()` + اشارهٔ پیام فارسی به `PVAI_WS_TOKENS` | `test_api.py::test_ready_accepts_a_per_device_token_list_without_a_shared_token` |
+| ۳ | **گزارش غلط تأخیر VAD:** `onset_delay_ms`/`endpoint_delay_ms` شمارش فریم را با ثابت ۲۰ms تبدیل می‌کردند، پس با `PVAI_AUDIO_BLOCK_MS=10/40` عدد `vad_start_ms`/`vad_end_ms` دو برابر/نصف واقعیت بود | `EnergyVAD(block_ms=...)`؛ `build_vad` مقدار `settings.audio_block_ms` را می‌دهد و `describe()` هم `block_ms`/تأخیرها را برمی‌گرداند | `test_vad.py::test_delay_reporting_tracks_the_configured_block_length`, `::test_a_zero_block_length_is_refused` |
+| ۴ | `tools/mic_probe.py` با `--block-ms` مستقل از `PVAI_AUDIO_BLOCK_MS` کار می‌کرد؛ طول segment و تأخیرها با برچسب MEASURED غلط می‌شدند | پرچم فقط ۱۰/۲۰/۴۰ را می‌پذیرد و `Settings` با همان مقدار بازساخته می‌شود | `test_mic_probe.py::test_probe_refuses_a_block_length_the_service_would_not_use` |
+| ۵ | مهلت `HELLO` سه ثانیه بود، خلاف «ده ثانیه»ی `docs/PROTOCOL.md`؛ handshake TLS روی ESP32-S3 در آن پنجره جا نمی‌شد | `HANDSHAKE_TIMEOUT_S = 10.0`؛ محدودیت نیمه‌باز همان‌جا با `WsCounters.handshake_enter` اعمال می‌شود | `test_ws_voice.py::test_the_hello_deadline_matches_the_documented_ten_seconds` |
+| ۶ | تعریف‌های مردهٔ تکراری `_env_str`/`_env_choice` در `config.py` (نسخهٔ بی‌اثر که `_record` را صدا نمی‌زد) | حذف نسخهٔ مرده، نگه‌داشتن نسخهٔ فعال | پوشش غیرمستقیم با تست‌های پیکربندی |
+| ۷ | flakiness در `test_a_device_that_delivered_real_frames_earns_a_fresh_budget` (پنجرهٔ ۱۰ms پیش از تخلیهٔ ۵۰ فریم صف) | پنجرهٔ همان تست به ۲۰۰ms رفت؛ **کد تولیدی تغییر نکرد** | همان تست، ۸ اجرای متوالی سبز |
+| ۸ | **سنجهٔ مرده:** `vad_onset_events` در `METRIC_NAMES` اعلام شده بود ولی هیچ ماژولی آن را ثبت نمی‌کرد؛ نام دوم برای همان onset که `utterances` می‌شمارد | حذف از `METRIC_NAMES`؛ تست نگهبان هر نام اعلام‌شده را با متن `server/*.py` تطبیق می‌دهد | `test_metrics.py::test_every_declared_metric_is_actually_emitted_somewhere` |
+| ۹ | **سنجه‌های ثبت‌شدهٔ اعلام‌نشده:** ۲۰ نام (`ws_capture_out_of_order`, `ws_heartbeats`, `asr_model_load_ms`, `api_rate_limited`, …) در کد ثبت می‌شدند ولی در `METRIC_NAMES` نبودند، پس هر مصرف‌کنندهٔ رجیستری آن‌ها را نمی‌دید | افزودن آن ۲۰ نام با گروه‌بندی موجود (ASR، تعامل، WS، HTTP) + تست نگهبان جهت معکوس | `test_metrics.py::test_every_recorded_metric_is_declared` |
+| ۱۰ | **`/ready` دروغ می‌گفت:** `check_storage` فقط `is_dir()` را می‌دید، پس پوشهٔ read-only «آماده» گزارش می‌شد و اولین نوبت ذخیره با `OSError` می‌مرد؛ این بررسی هیچ تستی نداشت | `_can_write()` با فایل probe واقعی و حذف در `finally`؛ پیام فارسی شامل نوع و متن خطا | `test_readiness_storage.py` (۵ تست) |
+| ۱۱ | **کد مردهٔ مکالمه:** `Conversation.record_turn`، `Conversation.last_user` و `load_conversations` بدون هیچ مصرف‌کننده‌ای بودند؛ `purge_older_than` عمداً نگه داشته شد چون مصرف زنده دارد | حذف سه تابع و import بی‌مصرف `Iterable` | مجموعهٔ کامل `pytest` سبز؛ بدون تغییر رفتار |
+| ۱۲ | **بی‌تست:** `is_loopback_host`، `parse_device_tokens` (با `ENV_ISSUES`)، `StreamPlan.parameters`، `probe_aec` و `aec_status` فقط غیرمستقیم پوشش داشتند؛ import بی‌مصرف `StreamDone` در `server/main.py` و `re` در `server/streaming_voice.py` | تست مستقیم برای همهٔ توابع بالا؛ حذف دو import بی‌مصرف | `test_config_helpers.py`، `test_aec_status.py` (۲۵ تست)؛ مجموعهٔ کامل سبز |
+
+مستندات هم‌گام: `AGENTS.md` §۶ و `docs/SPEC.md` §۶ (خروجی ۱۶kHz، فریم ۲۰ms در transport،
+فهرست واقعی پیام‌ها، `turn_id`/`utterance_id`) و پیام‌های ناموجود (`DEVICE_INFO`/`INPUT_END`/
+`SET_VOLUME`) صریحاً «پیاده‌نشده» علامت خوردند.
+
+### NOT MEASURED در این بازبینی
+
+- هیچ‌کدام از این رفع‌ها روی ESP32-S3 واقعی یا با میکروفون/بلندگوی واقعی اجرا نشد؛ همه با fake تست شده‌اند.
+- مقدار واقعی `vad_start_ms`/`vad_end_ms` روی سخت‌افزار با `PVAI_AUDIO_BLOCK_MS` غیر از ۲۰ اندازه‌گیری نشد؛
+  فقط درستی تبدیل فریم‌به‌میلی‌ثانیه تست شده است.
+
+## تست واقعی اتاق AEC — ۱۳ نوامبر ۲۰۲۶
+
+این مرحله فقط روی **لپ‌تاپ توسعه** اجرا شد (میکروفون و بلندگوی توکار Realtek، ویندوز،
+ولوم ۱۰۰٪)؛ ESP32-S3 و اتاق با میکروفون دور همچنان NOT TESTED هستند. ابزار تازه
+`tools/aec_room_measure.py` (تست‌شده با `tests/test_aec_room_measure.py`، ۹ تست) محرک
+گفتار واقعی Piper پخش می‌کند و مرجع AEC را همان PCMی می‌گیرد که در `outdata` نوشته شده است.
+
+| سنجه | MME (پیش‌فرض) | DirectSound |
+|---|---|---|
+| تأخیر صوتی مؤثر | ۳۵۸ ms | ۲۳۱ و ۴۴۸ ms در دو نشست |
+| ERLE با `PVAI_AEC_DELAY_MS=40` | ۰٫۰۱ dB | ۰٫۰۱ dB |
+| ERLE با تأخیر کالیبره | ۶٫۸۲ dB @ ۳۴۰ms | ۵٫۸۸ dB @ ۴۴۰ms |
+| CPU هر فریم (RTF) | ۰٫۱۵ms (۰٫۰۰۸) | ۰٫۱۵ms (۰٫۰۰۸) |
+| حفظ سیگنال نزدیک در double-talk | −۰٫۱۷ dB | −۰٫۰ dB |
+
+- **نقص واقعی پیدا شد:** پیش‌فرض ۴۰ms با تأخیر مؤثر ۳۵۸ms (MME) هیچ هم‌ترازی ندارد و AEC
+  عملاً خاموش است؛ فقط با `PVAI_AEC_DELAY_MS=340` به ۶٫۸۲dB می‌رسد. این در
+  `docs/ISSUE_REGISTER.md` به‌عنوان مورد باز ثبت شد.
+- تأخیر **بین نشست‌ها/بک‌اندها ناپایدار** است (DirectSound: ۲۳۱ و ۴۴۸ms) ⇒ یک عدد ثابت در
+  `.env` برای اتاق واقعی کافی نیست؛ تخمین خودکار تأخیر در این نسخه پیاده نشده است.
+- ERLE کالیبره نزدیک سقف مجاز همان SNR است؛ عدد پایین‌تر به معنی فیلتر خراب نیست.
+- WASAPI/WDM-KS روی این دستگاه ۱۶kHz را قبول نمی‌کنند (فقط ۴۸kHz) و با قرارداد ۱۶k مسیر
+  جایگزین کم‌تأخیر وجود ندارد.
+- double-talk با گفتار انسان، قطع فیزیکی دستگاه و barge-in کامل با LLM زنده **NOT TESTED**؛
+  فقط پروکسی آکوستیک با سیگنال مستقل اجرا شد.
+- گزارش خام: `benchmarks/results/aec-room-mme-20261113.json` و
+  `benchmarks/results/aec-room-ds-20261113.json`؛ جزئیات در `docs/AEC.md` و §۹.۵
+  `docs/HARDWARE_VALIDATION.md`.
+
+## پاک‌سازی پیکربندی — ۱۳ نوامبر ۲۰۲۶
+
+در working tree، چند فیلد پیکربندی برای قابلیت‌هایی اضافه شده بود که هیچ مصرف‌کننده‌ای
+نداشتند؛ یعنی تنظیمشان بی‌صدا هیچ اثری نمی‌گذاشت. این فیلدها حذف شدند تا `/ready`
+و مستندات با رفتار واقعی یکی بمانند:
+
+- `PVAI_VAD_BACKEND`/`PVAI_VAD_WEBRTC_MODE` — `build_vad` همیشه `EnergyVAD` می‌سازد؛
+  VAD عصبی/WebRTC پیاده نشده و نیازمند ارزیابی اندازه‌گیری‌شده است (OPEN-04).
+- `PVAI_MEMORY_*` (حافظهٔ بلندمدت) — هیچ ماژول حافظه‌ای وجود ندارد؛
+  تصمیمش در `docs/SPEC.md` §۱۷ بند ۵ هنوز باز است.
+- `PVAI_AEC_AUTO_DELAY*` — تخمین خودکار تأخیر پیاده نشده؛ `PVAI_AEC_DELAY_MS` دستی
+  تنها راه کالیبره است (OPEN-06، `docs/AEC.md`).
+- `PVAI_AUDIO_OUTPUT_RATE` — خروجی همچنان ۱۶kHz است؛ مسیر ۲۴kHz پیاده نشده.
+
+همچنین `PVAI_AUDIO_SAMPLE_RATE` دوباره فقط `16000` را می‌پذیرد: نسخهٔ موقت، `48000`
+را با ادعای «بازنمونه‌برداری خودکار» می‌پذیرفت در حالی که هیچ resampler ای وجود ندارد و
+این مقدار VAD/ASR/AEC را بی‌صدا خراب می‌کرد (رجعت به رفع P2-07). تست:
+`tests/test_tts.py::test_non_16k_capture_rate_is_a_configuration_error`.
+
+این قابلیت‌ها هنوز **پیاده‌نشده** هستند و باید بعداً هرکدام جداگانه، با تست و اندازه‌گیری،
+اضافه شوند. مجموعهٔ تست سبز است و تعداد تست‌ها همان عدد زندهٔ `pytest --collect-only` است.
+
+## اجرای کامل بنچمارک با مدل‌های واقعی — ۱۳ نوامبر ۲۰۲۶
+
+- `duplex,bargein,combined` با Whisper-small + Piper + Qwen3.5-4B روی همین لپ‌تاپ اجرا شد
+  (گزارش خام: `benchmarks/results/voice-hw-20261113.json`؛ جزئیات: `docs/BENCHMARKS.md` §۴.۵).
+  ابزار ورودی گفتار واقعی ندارد (تُن مصنوعی) و Whisper آن را رونویسی نمی‌کند، پس هیچ نوبتی
+  کامل نشد و معیارهای تأخیر/`barge_in_latency_ms` همچنان `NOT MEASURED` ماندند.
+- در همین اجرا دو نقص برچسب‌گذاری پیدا و رفع شد: ردیف بدون مقدار دیگر `MEASURED` برچسب
+  نمی‌خورد، و سقف انتظار ۶۰ ثانیه‌ای به‌عنوان `turn_total_ms`/`turn_latency` گزارش نمی‌شود
+  (`tests/test_benchmark_tools.py`).
+
+## تست زندهٔ یک‌نوبتی و میز تست وب — ۱۳ نوامبر ۲۰۲۶
+
+روی همین لپ‌تاپ (Realtek MME، بلندگوی توکار، AEC خاموش برای این تست) زنجیرهٔ واقعی
+«میکروفون → VAD → Whisper-small → llama.cpp (Qwen3.5-4B) → Piper» یک‌بار کامل اجرا شد
+(ابزار موقت probe، بعد با `server/webui.py` جایگزین شد):
+
+| سنجه | مقدار | برچسب |
+|---|---|---|
+| طول utterance ضبط‌شده | ۷٫۶ s | MEASURED |
+| زمان رونویسی Whisper (`asr_ms`) | ۳۵٫۶ s (RTF ۴٫۶۹) | MEASURED |
+| کیفیت رونویسی | متن فارسی نادرست/نامفهوم | MEASURED (منفی) |
+| پاسخ LLM | «متوجه نشدم…» (صداقت درست، ولی ورودی خراب بود) | MEASURED |
+| زمان پاسخ LLM (`wall_ms`) | ~۳۹٫۹ s (بیشتر prompt-eval؛ ~۲۷ s) | MEASURED |
+| پخش پاسخ Piper | ۲۱٫۵ s | MEASURED |
+
+- **علت اصلی، ASR است نه LLM:** با متن تمیز و مستقیم، LLM فارسی را درست می‌فهمد
+  (پایتخت ایران، پیشنهاد عملی؛ حساب وقتی «فقط عدد» خواسته شد: «چهار»، «نُه»؛ یک نمونه هم
+  اشتباه «شش» داد). با `PVAI_LLM_ENABLE_THINKING=true` پاسخ ۱۴۱ s و ۵۱۲ توکن reasoning با
+  `content` خالی بود ⇒ برای صدا خاموش می‌ماند.
+- **حلقهٔ زندهٔ پیوسته روی این CPU قابل استفاده نیست:** در اجرای `python -m server.voice`،
+  الگوهای گفتار پشت‌سرهم صف final را پر کرد؛ `dispatch_wait_ms` تا ۱۳۷ s رسید،
+  پیام «ورودی صوت عقب افتاد؛ نوبت جاری حذف شد» آمد و رونویسی اولین utterance خالی بود.
+  یعنی محدودیت RTF همان Whisper است، نه باگ صف.
+- **راه‌حل موقت برای تست:** یک‌نوبت در هر لحظه + رونویسی قابل‌ویرایش در میز تست وب
+  ([WEB_UI.md](WEB_UI.md)): صفحه روی loopback، push-to-talk، ارسال `POST /api/turn`،
+  نمایش متن شنیده‌شده و پخش WAV برگشتی. تست‌های fake: `tests/test_webui.py` (۸ تست).
 
 ---
 
@@ -1339,7 +1500,7 @@ $env:PYTHONIOENCODING = "utf-8"
 | `PVAI_ASR_HALLUCINATION_PHRASES` | فهرست فارسی/انگلیسی | عبارت‌های توهمی روی سکوت/نویز، جداشده با ویرگول. خالی = فیلتر خاموش (توصیه نمی‌شود) |
 | `PVAI_ASR_PARTIAL_WINDOW_S` | `3.0` | طول پنجرهٔ هم‌پوشان برای partial؛ cost هر decode را ثابت نگه می‌دارد. باید ≥ ۲× `PVAI_VOICE_ASR_INTERVAL` باشد |
 | `PVAI_ASR_MAX_FINAL_JOBS` | `16` | آستانهٔ هشدار عمق صف final؛ **هیچ final حذف نمی‌شود** |
-| `PVAI_ASR_WARMUP` | `true` | لود و warmup مدل در startup به‌جای اولین utterance |
+| `PVAI_ASR_WARMUP` | `true` | لود و warmup مدل در startup به‌جای اولین utterance. با `PVAI_WS_ENABLED=true` مدل مشترک `MODEL_POOL` در یک thread daemon از پیش بارگذاری و با ۲۰۰ms سکوت warm می‌شود، پس اولین اتصال ESP32 هزینهٔ لود را نمی‌پردازد؛ بدون transport صوتی هیچ مدلی بار نمی‌شود. شکست لود فقط در لاگ هشدار می‌دهد و `/ready` را خراب نمی‌کند |
 
 ### فیلتر توهم Whisper
 
@@ -1523,8 +1684,10 @@ AEC فقط با ۱۶kHz و بلوک ۲۰ms معنا دارد؛ `GET /ready` ای
 |---|---|---|
 | `PVAI_METRICS_ENABLED` | `true` | فعال‌سازی سنجه‌ها (`server/metrics.py`)؛ خاموش = ثبت سنجه‌ها غیرفعال؛ هزینهٔ فراخوانی‌های کد لزوماً صفر نیست |
 
-فهرست نام سنجه‌ها در `server/metrics.py::METRIC_NAMES` است و تست
-`tests/test_metrics.py::test_documented_metric_names_cover_the_pipeline` هم‌خوانی آن با کد را بررسی می‌کند.
+فهرست نام سنجه‌ها در `server/metrics.py::METRIC_NAMES` است. سه تست هم‌خوانی را در دو جهت
+بررسی می‌کنند: `tests/test_metrics.py::test_documented_metric_names_cover_the_pipeline` (نام‌های
+لازم موجود باشند)، `::test_every_declared_metric_is_actually_emitted_somewhere` (نام اعلام‌شدهٔ
+بدون محل ثبت ممنوع) و `::test_every_recorded_metric_is_declared` (نام ثبت‌شدهٔ اعلام‌نشده ممنوع).
 
 ---
 
@@ -1861,6 +2024,9 @@ $env:PVAI_TEST_AEC_LIBRARY = "C:/AudioLibs/speexdsp/libspeexdsp.dll"
 
 روی این رایانه مقدار محیط تست برابر مسیر `models/speexdsp/Library/bin/speexdsp.dll` بود؛ دو تست
 native گذشتند (کاهش echo برابر ۵۷٫۸۲ dB، correlation دوصدایی ۰٫۹۱۸ و RMS retention برابر ۰٫۹۹۳).
+بازآزمایی ۱۲ نوامبر ۲۰۲۶ روی همین لپ‌تاپ (DLL نسخهٔ 1.2.1 conda-forge، `tests/test_aec.py` =
+۱۱/۱۱ سبز) همان اعداد را عیناً تولید کرد؛ گزارش خام: `benchmarks/results/aec-pc-20261112.json`
+و ثبت در `docs/BENCHMARKS.md` §۵٫۹.
 
 در sandbox لینوکسی، بخش AEC کتابخانه از upstream commit
 `7a158783df74efe7c2d1c6ee8363c1e695c71226` با GCC و floating-point/smallft، بیرون مخزن ساخته شد.
@@ -1869,15 +2035,69 @@ native گذشتند (کاهش echo برابر ۵۷٫۸۲ dB، correlation دوص
 تست double-talk مصنوعی با سیگنال مستقل دوفرکانسی نیز correlation حدود **۰٫۹۱۸** و
 RMS retention حدود **۰٫۹۹۳** داشت؛ این تست معادل کیفیت گفتار واقعی نیست.
 
-چک‌لیست تست سخت‌افزار (هنوز اجرا نشده):
+## تست واقعی اتاق — ۱۳ نوامبر ۲۰۲۶ (MEASURED، همین لپ‌تاپ)
 
-1. فقط صدای دستیار پخش شود؛ کاربر ساکت بماند. false `speech_start` و قطع ناخواسته را بشمارید.
-2. حین پخش صحبت کنید؛ صدای کاربر نباید mute شود و پاسخ قبلی باید قطع شود.
-3. با تغییر ولوم/فاصله، هم echo-only و هم double-talk را تکرار کنید.
-4. تأخیر و طول فیلتر را تنظیم و نتایج را همراه مشخصات دستگاه ثبت کنید.
-5. underflow/overflow، لغو پاسخ و قطع دستگاه را بررسی کنید؛ مرجع قدیمی نباید به نوبت بعدی نشت کند.
+ابزار تازه: `tools/aec_room_measure.py` (کاملاً آفلاین، صوت را روی دیسک نمی‌نویسد، خروجی JSON).
+همان `RawStream` دوطرفهٔ مسیر زنده را باز می‌کند، محرک را از بلندگو پخش می‌کند و برای هر فریم
+`(میکروفون، همان PCMی که در `outdata` نوشته شد)` را ثبت می‌کند — یعنی مرجع دقیقاً همان قرارداد
+`server/aec.py` است. محرک پیش‌فرض **گفتار واقعی Piper** است، نه نویز ایستا: پردازش میکروفون
+ویندوز نویز ایستا را در چند ثانیه حذف می‌کند و هر عدد ERLE را بی‌معنا می‌کند.
 
-تا عبور از این تست‌ها، «AEC پیاده شده» درست است ولی «مکالمهٔ بدون هدفون روی PC کاربر تأیید شده» درست نیست.
+```powershell
+.\.venv\Scripts\python.exe tools\aec_room_measure.py `
+    --input-device 1 --output-device 3 --amplitude 0.9 --noise-check `
+    --json-out benchmarks\results\aec-room-mme-20261113.json
+```
+
+سخت‌افزار: `Realtek High Definition Audio` روی همان لپ‌تاپ i7-6500U؛ **میکروفون و بلندگوی
+توکار خود لپ‌تاپ** (فاصلهٔ چند سانتی‌متر)، ویندوز، ولوم سیستم ۱۰۰٪. دو بک‌اند ۱۶kHz که این
+دستگاه قبول می‌کند: MME (پیش‌فرض) و DirectSound. WASAPI/WDM-KS روی این دستگاه ۱۶kHz را
+قبول نمی‌کنند (فقط ۴۸kHz)، پس با قرارداد ۱۶kHz مسیر زنده قابل استفاده نیستند.
+
+| سنجه | MME (پیش‌فرض) | DirectSound |
+|---|---|---|
+| تأخیر صوتی مؤثر (همبستگی با مرجع) | **۳۵۸ ms** (پایدار در دو نشست) | ۲۳۱–۴۴۸ ms (**ناپایدار بین نشست‌ها**) |
+| SNR اکو در میکروفون (۳۰۰–۳۰۰۰Hz) | ۱۹٫۷ dB | ۳٫۱ dB |
+| ERLE با `PVAI_AEC_DELAY_MS=40` (پیش‌فرض) | **۰٫۰۱ dB** | **۰٫۰۱ dB** |
+| ERLE با تأخیر کالیبره‌شده | **۶٫۸۲ dB** (۳۴۰ms) | **۵٫۸۸ dB** (۴۴۰ms) |
+| ERLE کل ۶۰–۷۰۰۰Hz با تأخیر کالیبره | ۳٫۵۶ dB | ۳٫۰۴ dB |
+| `PVAI_AEC_FILTER_MS=500` | ۶٫۸۵ dB | ۵٫۸۹ dB |
+| هزینهٔ CPU هر فریم | ۰٫۱۵ms (RTF ۰٫۰۰۷۶) | ۰٫۱۵ms (RTF ۰٫۰۰۷۵) |
+| onset خام VAD → بعد از AEC | ۲ → ۲ | ۱ → ۲ |
+| double-talk: حفظ سیگنال نزدیک | −۰٫۱۷ dB | −۰٫۰ dB |
+| double-talk: ERLE اکو | ۳٫۲۶ dB | ۰٫۰۱ dB |
+| نویز ایستا: SNR / ERLE | ۸٫۲ dB / ۷٫۰ dB | ۱۵٫۵ dB / ۰٫۰۱ dB |
+
+یافته‌های صریح:
+
+1. **پیش‌فرض ۴۰ms روی این دستگاه غلط است.** تأخیر واقعی MME ۳۵۸ms است؛ چون این اختلاف
+   (۳۱۸ms) از طول فیلتر ۲۵۰ms بیشتر است، SpeexDSP هیچ چیز را حذف نمی‌کند (ERLE ≈ ۰).
+   با `PVAI_AEC_DELAY_MS=340` همان ضبط به ۶٫۸۲ dB می‌رسد.
+2. تأخیر **بین بک‌اندها و نشست‌ها پایدار نیست** (DirectSound در دو نشست ۲۳۱ و ۴۴۸ms دیده شد)؛
+   پس یک عدد ثابت در `.env` برای اتاق واقعی کافی نیست. تخمین خودکار تأخیر در این نسخه
+   پیاده نشده است (بند ۱۵ ریسک‌ها).
+3. ERLE کالیبره (۶–۷ dB) تقریباً به سقف مجاز همین SNR می‌رسد: وقتی اکو فقط ۳–۲۰ dB از نویز
+   اتاق بالاتر است، حداکثر کاهش قابل‌اندازه‌گیری از همین‌جا محدود می‌شود؛ عدد پایین‌تر یعنی
+   «اتاق پرنویز/اکوی ضعیف»، نه «فیلتر خراب».
+4. onset خام VAD فقط ۱–۲ بار رخ می‌دهد چون echo در میکروفون تقریباً هم‌سطح آستانهٔ
+   `PVAI_VOICE_VAD_THRESHOLD=0.015` است؛ این «عبور تست» نیست، یعنی این معیار روی این
+   دستگاه به‌تنهایی نمی‌تواند تفاوت AEC را نشان دهد.
+5. سیگنال نزدیک در double-talk حفظ می‌شود (≈۰ dB)، ولی حذف اکو زیر double-talk ضعیف است
+   (۰–۳ dB).
+
+**آنچه هنوز NOT TESTED است:** double-talk با گفتار انسان، قطع/وصل فیزیکی میکروفون و
+بلندگو، اتاق با میکروفون دور، ESP32-S3. نزدیک‌شدن به سقف SNR و ناپایداری تأخیر یعنی
+«AEC پیاده و روی این لپ‌تاپ در حالت کالیبره اثرگذار است»، نه «مکالمهٔ بدون هدفون تأیید شد».
+
+### چک‌لیست تست سخت‌افزار
+
+1. **انجام‌شده (۱۳ نوامبر):** فقط صدای دستیار پخش شد؛ onset خام VAD ۱–۲ بار بود (بخش بالا).
+2. **انجام‌نشده:** صحبت انسان حین پخش (فقط پروکسی آکوستیک با سیگنال مستقل انجام شد).
+3. **انجام‌شده به‌صورت دامنه‌ای:** دامنهٔ محرک ۰٫۳ تا ۰٫۹ و دو بک‌اند MME/DirectSound؛
+   فاصلهٔ میکروفون/بلندگو قابل تغییر نبود (توکار).
+4. **انجام‌شده:** تأخیر ۰–۵۰۰ms و طول فیلتر ۲۵۰/۵۰۰/۱۰۰۰ms با ثبت دستگاه.
+5. **نیمه‌انجام‌شده:** underflow/overflow/frame mismatch ثبت شد (صفر)؛ قطع فیزیکی دستگاه
+   انجام نشد.
 
 ---
 
@@ -2835,17 +3055,56 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 
 | معیار | i7-6500U (Windows 11) |
 |---|---|
-| `asr_ms` / `asr_rtf` (whisper-small int8, 6s window) | NOT MEASURED |
+| `asr_ms` / `asr_rtf` (whisper-small int8, 6s window) | MEASURED — ۴۶٫۲–۵۰٫۹s، RTF ۷٫۷–۱۷٫۰؛ روی گفتار Piper متن خالی (§۵٫۸) |
 | `asr_final_latency_ms` (utterance 3s) | NOT MEASURED |
 | `llm_ttft_ms` (Qwen3-4B-Q4_K_M) | 4.69 s CPU / 5.76 s GPU-auto (MEASURED) |
 | `llm_tokens_per_second` (Qwen3-4B-Q4_K_M) | 4.64 CPU / 3.90 GPU-auto tok/s (MEASURED) |
-| `tts_first_chunk_ms` (Piper fa) | NOT MEASURED |
+| `tts_first_chunk_ms` (Piper fa) | MEASURED — ۳۰۳۹٫۶ms (§۵٫۸) |
 | `first_audible_ms` | NOT MEASURED |
 | `barge_in_latency_ms` (real device) | NOT MEASURED |
 | `audio_callback_jitter_ms` | NOT MEASURED |
 | CPU/RAM در ASR+LLM+TTS هم‌زمان | NOT MEASURED |
 
 پس از اجرا، این جدول را با همان برچسب‌ها پر کنید و فایل JSON را در `benchmarks/results/` نگه دارید.
+
+## ۴.۵. اجرای سناریوهای گفتار کامل با مدل‌های واقعی — ۱۳ نوامبر ۲۰۲۶
+
+محیط: همان i7-6500U/Windows 11؛ Whisper-small int8 روی CPU، Piper `fa_IR`، و llama-server با
+Qwen3.5-4B-Q4_K_M (`--jinja`، `-ngl 0`، `-t 4`، ctx=4096). دستور:
+
+```text
+python tools/benchmark_voice.py --scenarios duplex,bargein,combined \
+    --json-out benchmarks/results/voice-hw-20261113.json
+```
+
+| سناریو | معیار | نتیجه | برچسب |
+|---|---|---|---|
+| duplex | `turns` | ۳ نوبت تغذیه شد | MEASURED |
+| duplex | `turn_latency_mean_ms` / `turn_latency_max_ms` | — (۶۰s سقف انتظار بود، نه تأخیر) | NOT MEASURED |
+| duplex | `messages_recorded` | ۰ | MEASURED |
+| duplex | `interrupted_turns` | ۰ | MEASURED |
+| duplex | `stale_completions_after_interrupt` | ۰ | MEASURED |
+| bargein | `barge_in_latency_ms` | — (دستیار هرگز به `speaking` نرسید) | NOT MEASURED |
+| combined | `asr_ms`, `asr_final_latency_ms`, `llm_ttft_ms`, `first_audible_ms`, `playback_duration_ms` | — (هیچ مقداری ثبت نشد) | NOT MEASURED |
+| combined | `vad_start_ms` / `vad_end_ms` | ۶۰ / ۶۰۰ | MEASURED |
+| combined | `turn_completed` | ۰ | MEASURED |
+
+**ریشهٔ نبودِ عدد (نه بهانه):** ابزار ورودی گفتار واقعی ندارد و «گفتار» را با تُن مصنوعی
+`frame()` می‌سازد (۲۴ فریم = ۴۸۰ms). Whisper روی این تُن متن فارسی تولید نمی‌کند؛ utterance
+رد می‌شود، پس LLM/TTS هرگز شروع نمی‌شوند و نوبت کامل نمی‌شود. بنابراین `duplex`/`bargein`/
+`combined` حتی با مدل‌های واقعی هنوز **قابل اندازه‌گیری نیستند** و عدد ۶۰ ثانیه‌ای سقف
+انتظار `_one_turn` بود، نه تأخیر.
+
+**نقص برچسب‌گذاری که در همین اجرا پیدا و رفع شد:** `Report.add` هر ردیف بدون مقدار (`None`)
+را به `NOT MEASURED` با یادداشت `value missing` تنزل می‌دهد، و `duplex`/`combined` وقتی نوبتی
+کامل نشده باشد عدد سقف انتظار را به‌عنوان تأخیر گزارش نمی‌کنند. تست‌ها:
+`tests/test_benchmark_tools.py::test_a_missing_value_is_never_labelled_measured` و
+`::test_a_timed_out_turn_reports_no_latency`.
+
+**راه واقعی برای پر کردن این ردیف‌ها:** ورودی گفتار واقعی لازم است — ضبط ۴۰ جمله و اجرای
+`benchmarks/persian_eval.py --audio-dir` برای کیفیت، و یک نشست واقعی با میکروفون برای تأخیر
+نوبت و barge-in (چک‌لیست [HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md)). تا آن زمان این
+معیارها `NOT MEASURED` می‌مانند و «تست‌شده» علامت نمی‌خورند.
 
 ## ۵. بنچمارک متنی (سابقه)
 
@@ -2881,6 +3140,177 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 از نظر کیفیت (بازبینی دستی همان ۸ خروجی): Qwen3.5-4B و gemma-3-4b-persian فارسی روان و
 مرتبط تولید کردند؛ MiniCPM5-1B خروجی نامفهوم و پراکنده داد. انتخاب مدل نهایی هستهٔ متنی:
 **Qwen3.5-4B-Q4_K_M**. اعتبارسنجی آماری این مقایسه انجام نشده و مقایسهٔ کیفیت تک‌بازبین است.
+
+
+## ۵.۶. اجرای دوبارهٔ پنج وزن محلی با llama.cpp build 11040 — ۱۲ نوامبر ۲۰۲۶ (MEASURED)
+
+همان ماشین (i7-6500U، ۱۵٫۸۷GB RAM، ۹۴۰MX که استفاده نشد)، ویندوز ۱۱.
+موتور: `D:\Lama.cpp\bin\llama-server.exe` نسخهٔ `0.4.1-dev (build 11040, 5b335f413)`.
+فرمان: `benchmarks/compare_models.py --gpu-layers 0 --ctx-size 4096 --threads 4 --max-tokens 48`
+(CPU خالص، `--parallel 1`، `temperature=0`، همان ۸ پرامپت فارسی).
+گزارش خام: `benchmarks/results/pc1-model-compare-20261112.json`.
+
+| مدل | TTFT میانگین | tok/s میانگین | زمان کل میانگین | RAM اوج پروسه | VRAM delta |
+|---|---|---|---|---|---|
+| Qwen3.5-4B-Q4_K_M | ۴٫۶۴s | ۴٫۰۱ | ۱۶٫۷۰s | ۳۰۴۷MiB | ۷۲MiB |
+| Qwen3-4B-Q4_K_M | ۶٫۵۱s | ۳٫۳۷ | ۲۰٫۶۷s | ۴۱۱۰MiB | ۱۲۴MiB |
+| gemma-3-4b-persian-v0.Q4_K_M | ۱۵٫۲۷s | ۶٫۱۷ | ۲۱٫۹۷s | ۴۲۴۱MiB | ۷۸MiB |
+| MiniCPM5-1B-Q8_0 | ۲٫۱۲s | ۱۵٫۸۴ | ۵٫۰۸s | ۱۰۹۱MiB | ۵۰MiB |
+| qwen3-0.6b-Q4_K_M | ۰٫۸۲s | ۲۲٫۱۸ | ۲٫۸۴s | ۱۱۲۳MiB | ۴۵MiB |
+
+**کیفیت (بازبینی دستی، تک‌بازبین؛ `max_tokens=48` یعنی همهٔ پاسخ‌ها بریده‌اند و این سنجش کامل نیست):**
+
+- **Qwen3.5-4B**: فارسی روان و درست؛ پرسش ریاضی (۱۲۰ صفحه ÷ ۱۵ صفحه در روز) با پاسخ درست آغاز شد.
+- **Qwen3-4B**: روان ولی موجزتر و کم‌دقت‌تر از Qwen3.5.
+- **gemma-3-4b-persian**: متن روان، ولی **پاسخ ریاضی غلط** (ابتدا «چهل و پنج روز»، سپس «۴ روز»؛ پاسخ درست ۸ است). کندی prefill قبلی هم تکرار شد: TTFT ۱۵٫۳s.
+- **MiniCPM5-1B و qwen3-0.6b**: فارسی شکسته/نامفهوم؛ برای دستیار فارسی قابل استفاده نیستند.
+
+`token_limit_reached` برای هر سه مدل ۴B برابر ۸ از ۸ است، پس سرعت این جدول دست‌کم گرفته نشده
+ولی مقایسهٔ کیفیت فقط یک بازبینی سطحی است. انتخاب قبلی (Qwen3.5-4B) با این اجرا نقض نشد.
+
+### ۵.۶.۱ مسیر REST خود پروژه (MEASURED)
+
+یک درخواست واقعی `POST /api/chat` با `max_tokens=64` روی همان سرور
+(`-ngl 0 -c 4096`, چهار اسلات پیش‌فرض llama-server):
+
+| معیار | مقدار |
+|---|---|
+| توکن تولیدشده | ۴۶ |
+| زمان کل | ۲۱٫۵۵s |
+| `prompt_eval` | ۳٫۶۱s (۲۷۳ توکن) |
+| `generation` | ۱۷٫۹۳s |
+| tok/s | ۲٫۵۱ |
+
+این عدد از میانگین ۸ پرامپت جدول بالا کمتر است چون **اولین درخواست پس از لود مدل** و بدون
+`--parallel 1` است؛ برای مقایسهٔ مدل‌ها از جدول ۵٫۶ استفاده کنید، نه این ردیف.
+
+## ۵.۷. مقایسهٔ مدل‌ها با سقف ۱۶۰ توکن (بدون برش پاسخ) — ۱۲ نوامبر ۲۰۲۶ (MEASURED)
+
+همان ماشین و همان موتور (`build 11040`)؛ فرمان:
+`benchmarks/compare_models.py --gpu-layers 0 --ctx-size 4096 --threads 4 --max-tokens 160`.
+گزارش خام: `benchmarks/results/pc1-model-compare-160-20261112.json`.
+
+| مدل | TTFT | tok/s | زمان کل | RAM اوج | VRAM Δ | بریده‌شده |
+|---|---|---|---|---|---|---|
+| Qwen3.5-4B-Q4_K_M | ۴٫۰۵s | ۴٫۶۵ | ۲۶٫۲۲s | ۴۳۵۰MiB | ۱۷MiB | ۲/۸ |
+| Qwen3-4B-Q4_K_M | ۴٫۲۸s | ۵٫۹۰ | ۲۷٫۰۵s | ۴۷۷۸MiB | ۶۰MiB | ۴/۸ |
+| gemma-3-4b-persian-v0 | ۱۳٫۴۲s | ۶٫۷۴ | ۲۲٫۹۹s | ۴۲۴۰MiB | ۰ | ۰/۸ |
+| MiniCPM5-1B-Q8_0 | ۱٫۸۰s | ۱۷٫۷۷ | ۶٫۰۱s | ۱۰۹۲MiB | ۰ | ۰/۸ |
+| qwen3-0.6b-Q4_K_M | ۰٫۷۵s | ۲۴٫۷۱ | ۵٫۴۸s | ۱۱۲۳MiB | ۰ | ۴/۸ |
+
+**داوری کیفیت (دستی، سه پرامپت دشوار: ریاضی، دستور ویندوز، صداقت):**
+
+| مدل | ریاضی (۱۲۰÷۱۵) | دستور ویندوز | صداقت در ندانستن | حکم |
+|---|---|---|---|---|
+| Qwen3.5-4B | ✅ «۸ روز» با محاسبهٔ درست | قابل‌قبول ولی مراحل ساختگی (Win+E پنجرهٔ Explorer است، نه جستجو؛ «بزرگ‌تر از» فیلتر واقعی Explorer نیست) | ✅ صریحاً گفت اطلاعات ندارد و ادعای ساختگی را رد کرد | **بهترین گزینهٔ موجود** |
+| Qwen3-4B | ✅ درست | کلی و مبهم | ❌ به‌جای پاسخ، یک الگو تکرار کرد («این را بگو: …») | قابل استفاده، ضعیف‌تر در پیروی از دستور |
+| gemma-3-4b-persian | ❌ «چهل و پنج روز»، سپس «۴ روز» | قابل‌قبول | ✅ کوتاه و درست | روان ولی در حساب ناتوان |
+| MiniCPM5-1B | ❌ نامفهوم | ❌ نامفهوم | ❌ نامفهوم | کنار گذاشته شد |
+| qwen3-0.6b | ❌ حلقهٔ تکرار | ❌ بی‌معنا | ❌ بی‌معنا | کنار گذاشته شد |
+
+مقایسه با اجرای ۴۸ توکنی (§۵٫۶) نشان می‌دهد TTFT و tok/s پایدارند (اختلاف <۱s در TTFT میانگین)
+و تفاوت اصلی، کامل‌شدن پاسخ‌هاست. این داوری تک‌بازبین و روی ۸ پرامپت است، نه یک ارزیابی آماری.
+
+## ۵.۸. زنجیرهٔ صوت با Whisper و Piper محلی — ۱۲ نوامبر ۲۰۲۶ (MEASURED)
+
+فرمان: `tools/benchmark_voice.py --scenarios asr,llm,tts --json-out benchmarks/results/voice-pc-20261112.json`
+روی همان لپ‌تاپ، با `models/whisper-small` (int8، CPU) و `models/piper/fa_IR.onnx`.
+
+### ASR
+
+| ورودی | زمان | RTF | متن |
+|---|---|---|---|
+| تُن مصنوعی ۱s | ۴۸۹۴٫۹ms | ۴٫۸۹ | — (زمان‌سنجی محض) |
+| تُن مصنوعی ۳s | ۵۰۹۴۶٫۴ms | ۱۶٫۹۸ | — |
+| تُن مصنوعی ۶s | ۴۶۲۲۲٫۹ms | ۷٫۷۰ | — |
+| گفتار Piper `persian_synthetic.wav` (۶٫۴۳s) | ۵۴۴۴۳ms (میانهٔ ۳ اجرا) | ۸٫۴۶ | **خالی** (فیلتر توهم رد کرد) |
+| همان فایل، فیلتر خاموش | ۴۹۲۶۰ms | ۷٫۶۶ | حلقهٔ تکرار: «ایندرگی کنیدی … دیدیدیدیدی…» |
+| گفتار Piper `smoke-test.wav` (۵٫۰۶s) | ۴۶۹۹۸ms | ۹٫۲۸ | **خالی** |
+
+- لود/گرم‌کردن مدل: ۵۲٫۰–۶۰٫۴s (تکرار عدد ۴۵٫۹–۶۳٫۷s در `HARDWARE_VALIDATION.md` §۹٫۳).
+- **نتیجهٔ صریح:** با این وزن و این CPU، ASR برای مکالمهٔ زندهٔ فارسی قابل استفاده نیست:
+  RTF ۸–۱۷ (یعنی ۵–۹ برابر کندتر از زمان واقعی) و روی گفتار واقعی خروجی خالی یا حلقهٔ تکرار.
+  خالی بودن خروجی با فیلترهای پیش‌فرض **رفتار درست فیلتر** است، نه خرابی آن؛ مشکل خودِ decode است.
+- **دقت خودِ فیلتر توهم روی دادهٔ فارسی برچسب‌دار `NOT MEASURED` است**؛ آستانه‌ها پیش‌فرض‌اند و
+  کالیبراسیون در انتهای همین سند (بخش «کالیبراسیون فیلتر توهم Whisper») توضیح داده شده است.
+- این با ادعای «WER ۰٫۲۱ روی Piper→Whisper» در §۹٫۳ هم‌خوان نیست. تفاوت‌ها: آن اجرا از مسیر
+  دیگری (با پرامپت اولیه/تنظیمات متفاوت) بود و اعدادش هم در همان سند «غیرقابل استناد» علامت خورده‌اند.
+  **عدد معتبر امروز همین جدول است** و کالیبراسیون یا تعویض مدل ASR لازم است.
+
+### LLM (از مسیر `benchmark_voice`، llama-server روی ۸۰۸۰ با Qwen3.5-4B)
+
+| معیار | مقدار |
+|---|---|
+| `llm_ttft_ms` | ۳۲۱۱٫۳ |
+| `llm_tokens_per_second` | ۴٫۰۱ |
+| `llm_stream_total_ms` | ۱۹۱۵۸٫۰ |
+
+### TTS (Piper فارسی، صدای زن)
+
+| معیار | مقدار |
+|---|---|
+| `tts_first_chunk_ms` | ۳۰۳۹٫۶ |
+| `tts_first_frame_ms` | ۵۹۵۸٫۲ (تقریب تحویل به دستگاه؛ تأخیر DAC اندازه‌گیری‌شدنی نیست) |
+| `tts_total_ms` | ۶۰۰۵٫۳ |
+| `tts_played_ms` | ۱۲۶۳۱۸۰٫۰ ⚠️ |
+
+`tts_played_ms` با `tts_total_ms` (۶s) و مدت متن ناسازگار است؛ این یک **ایراد حساب‌داری پخش**
+(یا پخش بدون دستگاه واقعی) است و به‌عنوان عدد کارایی نقل نمی‌شود. برای رفع، باید مدت پخش
+از بلوک‌های تحویل‌شده به دستگاه شمارش شود، نه از مسیر تولید. تا آن زمان فقط سه ردیف اول معتبرند.
+
+## ۵.۹. AEC با SpeexDSP — مصنوعی MEASURED — ۱۲ نوامبر ۲۰۲۶ (اتاق واقعی: §۵٫۱۰)
+
+AEC **پیاده‌سازی شده** است (`server/aec.py`، مسیر duplex پیش از VAD/ASR) و کتابخانهٔ native
+روی همین رایانه موجود است: `models/speexdsp/Library/bin/speexdsp.dll` (۱۲۵۵۱۲ بایت، SpeexDSP 1.2.1
+از conda-forge). تست‌های `tests/test_aec.py` با `PVAI_TEST_AEC_LIBRARY` روی این ماشین **۱۱/۱۱ سبز**
+شدند؛ دو تست native هم اجرا شدند (skip نشدند).
+
+اندازه‌گیری تازهٔ همان سناریوهای تست، این بار با ثبت عدد
+(`benchmarks/results/aec-pc-20261112.json`، `logs/aec-measure-20261112.log`):
+
+| سنجه | مقدار | شرایط |
+|---|---|---|
+| ERLE (کاهش توان اکو) | **۵۷٫۸۲ dB** | نویز مرجع ۱۲s، اکو با تأخیر ۴۰ms و gain=۰٫۵۵، ۲s پایانی |
+| RMS اکو / باقی‌مانده | ۱۶۵۳٫۴ / ۲٫۱ | همان |
+| هزینهٔ پردازش | ۰٫۰۸۸s برای ۱۲s صوت (RTF ۰٫۰۰۷۴) | حلقهٔ تک‌رشته‌ای، بدون callback |
+| double-talk: correlation | **۰٫۹۱۸** | سیگنال نزدیک مستقل ۲۲۰+۳۷۰Hz، ۴s پایانی |
+| double-talk: RMS retention | **۰٫۹۹۳** | همان |
+| کنترل منفی: تأخیر مرجع ۰ms | ۳۳٫۴۱ dB | نشان می‌دهد تنظیم `PVAI_AEC_DELAY_MS` واقعاً اثر دارد |
+
+این اعداد عیناً همان مقادیر مستند در `docs/AEC.md` هستند؛ بازتولیدپذیری با seed ثابت تأیید شد.
+RTF پایین AEC یعنی هزینهٔ DSP در بودجهٔ نرم‌افزاری مسئله نیست؛ گلوگاه همان ASR است (§۵٫۸).
+
+تست اتاق واقعی با میکروفون و بلندگوی همین لپ‌تاپ در §۵٫۱۰ اندازه‌گیری شد؛ آنچه همچنان
+`NOT MEASURED` است double-talk با گفتار انسان، قطع/وصل فیزیکی دستگاه، فاصلهٔ متغیر و
+ESP32-S3 است. «AEC پیاده شده و در تأخیر کالیبره اثر می‌کند» درست است؛ «مکالمهٔ بدون هدفون
+روی PC تأیید شده» همچنان درست نیست (تأخیر ناپایدار و SNR محدود).
+
+## ۵.۱۰. AEC در مسیر آکوستیک واقعی — MEASURED، ۱۳ نوامبر ۲۰۲۶
+
+ابزار: `tools/aec_room_measure.py`. یک `RawStream` دوطرفه (همان مسیر زنده)، محرک **گفتار
+Piper** (نه نویز ایستا؛ پردازش میکروفون ویندوز نویز ایستا را در چند ثانیه حذف می‌کند)، و برای
+هر فریم `(میکروفون، همان PCM نوشته‌شده در outdata)`. دستگاه: Realtek HD Audio توکار همان
+لپ‌تاپ، بلندگو و میکروفون داخلی، ولوم ۱۰۰٪.
+
+| سنجه | MME (پیش‌فرض) | DirectSound |
+|---|---|---|
+| تأخیر صوتی مؤثر (cross-correlation) | ۳۵۸ ms | ۲۳۱ و ۴۴۸ ms (دو نشست) |
+| SNR اکو ۳۰۰–۳۰۰۰Hz | ۱۹٫۷ dB | ۳٫۱ dB |
+| ERLE با `PVAI_AEC_DELAY_MS=40` | **۰٫۰۱ dB** | **۰٫۰۱ dB** |
+| ERLE با تأخیر کالیبره | **۶٫۸۲ dB** @۳۴۰ms | **۵٫۸۸ dB** @۴۴۰ms |
+| ERLE کل ۶۰–۷۰۰۰Hz | ۳٫۵۶ dB | ۳٫۰۴ dB |
+| `PVAI_AEC_FILTER_MS=500` | ۶٫۸۵ dB | ۵٫۸۹ dB |
+| CPU / RTF | ۰٫۱۵ms / ۰٫۰۰۸ | ۰٫۱۵ms / ۰٫۰۰۸ |
+| onset خام VAD → بعد از AEC | ۲ → ۲ | ۱ → ۲ |
+| double-talk: نزدیک / اکو | −۰٫۱۷ dB / ۳٫۲۶ dB | −۰٫۰ dB / ۰٫۰۱ dB |
+
+گزارش خام: `benchmarks/results/aec-room-mme-20261113.json` و
+`benchmarks/results/aec-room-ds-20261113.json`؛ لاگ: `logs/aec-room-*-20261113.log`.
+
+**تفسیر:** عدد ۰٫۰۱dB یعنی پیش‌فرض ۴۰ms با تأخیر واقعی هم‌تراز نیست و AEC کاری نمی‌کند؛
+در تأخیر کالیبره به ۵٫۹–۶٫۸dB می‌رسد که تقریباً سقفِ همین SNR است. ناپایداری تأخیر بین
+نشست‌ها (DirectSound) یعنی عدد ثابت `.env` برای اتاق واقعی کافی نیست و تخمین خودکار تأخیر
+لازم است. این‌ها `MEASURED` روی همین ماشین‌اند، نه ادعای کیفیت برای ESP32-S3 یا اتاق دیگر.
 
 
 ## ۶. ارزیابی فارسی (WER/CER)
@@ -2955,8 +3385,10 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 
 # چک‌لیست اعتبارسنجی روی سخت‌افزار واقعی
 
-> هیچ مورد این سند در sandbox اجرا نشده است. تا زمانی که هر ردیف با تاریخ و نتیجه پر نشود،
-> وضعیت آن **NOT TESTED** است. تست‌های خودکار `pytest` با fake اجرا می‌شوند و جای این سند را نمی‌گیرند.
+> **دامنهٔ اجرا:** بخش‌های ۰ تا ۷ همچنان اجرا نشده‌اند، به‌جز ردیف‌هایی که صریحاً در §۶
+> پر شده‌اند (AEC روی همین لپ‌تاپ، ۱۳ نوامبر ۲۰۲۶) و اجرای تک‌جهتهٔ §۹.۳. تا زمانی که هر
+> ردیف با تاریخ و نتیجه پر نشود، وضعیت آن **NOT TESTED** است. تست‌های خودکار `pytest` با
+> fake اجرا می‌شوند و جای این سند را نمی‌گیرند.
 
 ماشین هدف: Intel i7-6500U (۲ هسته/۴ رشته)، ۱۶GB RAM، GeForce 940MX (۲GB، پیش‌فرض استفاده نمی‌شود)،
 Windows 11 64-bit، SSD+HDD.
@@ -3016,12 +3448,22 @@ Windows 11 64-bit، SSD+HDD.
 
 ## ۶. barge-in و AEC
 
+اجرا‌شده روی همین لپ‌تاپ: ۱۳ نوامبر ۲۰۲۶ — جزئیات و روش در [AEC.md](AEC.md) و §۹.۵.
+ابزار: `tools/aec_room_measure.py` (محرک گفتار واقعی Piper، مرجع = همان PCM ارسال‌شده).
+
+- [x] بلندگو و AEC فعال، echo-only: **ERLE ۰٫۰۱ dB با پیش‌فرض ۴۰ms؛ ۶٫۸۲ dB با تأخیر
+      کالیبره‌شدهٔ ۳۴۰ms (MME)** — یعنی پیش‌فرض روی این دستگاه کار نمی‌کند.
+- [x] onset خام VAD در echo-only: **۲ (MME) / ۱ (DirectSound)**؛ بعد از AEC: **۲ / ۲** —
+      echo تقریباً هم‌سطح آستانهٔ ۰٫۰۱۵ است، پس این معیار به‌تنهایی گویا نیست.
+- [x] کالیبراسیون `PVAI_AEC_DELAY_MS`: جاروب ۰–۵۰۰ms انجام شد؛ بهترین MME **۳۴۰ms**،
+      بهترین DirectSound در دو نشست **۲۰۰ و ۴۴۰ms** (ناپایدار).
+- [~] double-talk: فقط **پروکسی آکوستیک** (سیگنال مستقل از همان بلندگو، خارج از مرجع):
+      حفظ سیگنال نزدیک ≈ ۰ dB، حذف اکو ۰ تا ۳٫۳ dB. **گفتار انسان NOT TESTED.**
 - [ ] با هدفون و `PVAI_AEC_ENABLED=false`: حین پخش صحبت کنید → صدا در <۳۰۰ms قطع شود
-- [ ] با بلندگو و AEC فعال: هیچ قطع ناخواسته در سکوت (false barge-in) رخ ندهد
-- [ ] کالیبراسیون `PVAI_AEC_DELAY_MS`: مقادیر ۰/۲۰/۴۰/۶۰/۸۰ را امتحان و بهترین را ثبت کنید
-- [ ] double-talk: کاربر و دستیار همزمان → صدای کاربر ادامه پیدا کند، پخش قطع شود
+      (**NOT TESTED** — نیازمند انسان).
 - [ ] `tools/benchmark_voice.py --scenarios bargein` → `stale_completions_after_interrupt=0`
-- [ ] هیچ صدای کهنه‌ای بعد از قطع پخش شنیده نشود
+      (**NOT TESTED** در این مرحله).
+- [ ] قطع/وصل فیزیکی میکروفون و بلندگو (**NOT TESTED**).
 
 ## ۷. مکالمهٔ پیوسته (سناریوی پذیرش نهایی)
 
@@ -3085,7 +3527,8 @@ WER/CER فارسی: …
 - ESP32-S3 واقعی، I2S، RMS، Wi-Fi و `wss://` از دستگاه.
 - میکروفون، بلندگو و کارت صدای واقعی **در مسیر duplex با AEC**؛ (ضبط تک‌جهته روی
   لپ‌تاپ توسعه انجام شد — بخش ۹.۳ — ولی duplex و خطای `AudioStalled` با قطع فیزیکی نه).
-- AEC با duplex واقعی و کالیبراسیون `PVAI_AEC_DELAY_MS` و double-talk.
+- AEC با duplex واقعی، کالیبراسیون `PVAI_AEC_DELAY_MS` و double-talk **انسان**؛ مسیر
+  echo-only و پروکسی double-talk در §۹.۵ اجرا شد، ولی گفتار انسان همزمان با پخش نه.
 - اعداد WER/CER فارسی روی گفتار انسان (نه TTS). بخش ۹.۳ یک اجرای تک‌نفره است، نه ارزیابی.
 - LLM زنده: در این محیط `llama-server` اجرا نبود، پس TTFT/tok/s اندازه‌گیری نشد.
 - Caddy/nginx زیر بار و handshake واقعی TLS.
@@ -3142,6 +3585,33 @@ modulation درست) و مدل روی همان صدا از TTS بی‌نقص ک�
 - سبز بودن تست‌های خودکار فقط یعنی «قرارداد نرم‌افزاری نقض نشده»، نه «مسیر صوت کار می‌کند».
 - برای پر کردن ردیف ASR بخش ۳، ارزیابی روی `benchmarks/persian_eval_set.json`
   لازم است، نه یک جملهٔ پراکنده.
+
+### ۹.۵. AEC روی مسیر آکوستیک واقعی — MEASURED، ۲۰۲۶-۱۱-۱۳
+
+این اجرا با ابزار تازهٔ `tools/aec_room_measure.py` انجام شد: یک `RawStream` دوطرفه،
+محرک **گفتار Piper**، و برای هر فریم `(میکروفون، همان PCM نوشته‌شده در `outdata`)`.
+عددها از گزارش خام `benchmarks/results/aec-room-mme-20261113.json` و
+`benchmarks/results/aec-room-ds-20261113.json` می‌آیند. میکروفون و بلندگو **توکار همین
+لپ‌تاپ** بودند؛ اتاق همان محیط کار است، نه اتاق با میکروفون دور.
+
+| سنجه | MME (پیش‌فرض) | DirectSound |
+|---|---|---|
+| تأخیر صوتی مؤثر | ۳۵۸ ms | ۲۳۱ و ۴۴۸ ms در دو نشست |
+| SNR اکو (۳۰۰–۳۰۰۰Hz) | ۱۹٫۷ dB | ۳٫۱ dB |
+| ERLE با پیش‌فرض ۴۰ms | ۰٫۰۱ dB | ۰٫۰۱ dB |
+| ERLE با تأخیر کالیبره | ۶٫۸۲ dB @ ۳۴۰ms | ۵٫۸۸ dB @ ۴۴۰ms |
+| ERLE کل ۶۰–۷۰۰۰Hz | ۳٫۵۶ dB | ۳٫۰۴ dB |
+| CPU هر فریم / RTF | ۰٫۱۵ms / ۰٫۰۰۸ | ۰٫۱۵ms / ۰٫۰۰۸ |
+| onset خام → بعد از AEC | ۲ → ۲ | ۱ → ۲ |
+
+نتیجه‌گیری صریح: **(۱)** پیش‌فرض `PVAI_AEC_DELAY_MS=40` روی این دستگاه غلط است و AEC عملاً
+هیچ کاری نمی‌کند؛ **(۲)** با تأخیر کالیبره، کاهش اکو ۵٫۹–۶٫۸ dB است که تقریباً به سقف مجاز
+همان SNR می‌رسد؛ **(۳)** تأخیر بین نشست‌ها/بک‌اندها پایدار نیست، پس عدد ثابت کافی نیست و
+تخمین خودکار تأخیر لازم است. WASAPI و WDM-KS روی این دستگاه ۱۶kHz را قبول نمی‌کنند، پس
+با قرارداد ۱۶kHz مسیر جایگزین کم‌تأخیر در دسترس نبود.
+
+**NOT TESTED در همین بخش:** double-talk با گفتار انسان، قطع فیزیکی دستگاه، فاصلهٔ متغیر
+میکروفون/بلندگو، و الگوی false barge-in در یک مکالمهٔ کامل با LLM زنده.
 
 ---
 
@@ -3309,7 +3779,7 @@ loopback-only test sources. Do not claim a model's licence from its extension.
 | بنچمارک فارسی (TTFT، tok/s، زمان کل) | اجراشده روی MiniCPM؛ جزئیات در STATUS |
 | ESP32-S3 (I2S، پخش، RMS) | کد V1-A **در این مخزن نیست** (خارج از مخزن نگه داشته می‌شود) و روی سخت‌افزار واقعی build/تست نشده |
 | صوت PC | ورودی پیوسته، VAD با هیسترزیس/پیش‌رول، صف final بدون‌افت، partial هم‌پوشان، async SSE، Piper تدریجی؛ تست خودکار سبز، تست واقعی لازم |
-| AEC روی PC | SpeexDSP با مرجع duplex؛ تست مصنوعی موفق، تست دستگاه واقعی لازم |
+| AEC روی PC | SpeexDSP با مرجع duplex؛ مصنوعی و **اتاق واقعی روی همین لپ‌تاپ MEASURED** (۱۳ نوامبر، `docs/AEC.md`)؛ double-talk انسان و ESP32 NOT TESTED |
 | ماشین حالت و barge-in | صریح و تست‌شده (`tests/test_state_machine.py`, `tests/test_utterance_lifecycle.py`) |
 | حافظهٔ مکالمه | محلی/JSONL، برش توکنی، پنجرهٔ RAM محدود، وضعیت interrupted |
 | readiness / سنجه‌ها | `/ready` کامل + `server/metrics.py` با تست |
@@ -3366,11 +3836,15 @@ PersianVoiceAI/
 │  ├─ BENCHMARKS.md       ← روش‌شناسی و نتایج برچسب‌دار
 │  ├─ TROUBLESHOOTING.md  ← پیام‌های خطا و راه‌حل
 │  ├─ PC_VOICE.md         ← نصب و اجرای صوت PC
+│  ├─ WEB_UI.md           ← میز تست وب یک‌نوبتی (صحبت/تایپ → رونویسی → پاسخ → صدا)
 │  ├─ PLATFORMS.md        ← Windows/Linux، اسکریپت‌ها، تفاوت‌ها
 │  ├─ AUDIT_REPORT.md     ← گزارش بازبینی (سند تاریخی)
 │  └─ HARDWARE_VALIDATION.md ← چک‌لیست تست واقعی
+├─ web/
+│  └─ index.html          ← صفحهٔ تک‌فایلی میز تست (RTL، push-to-talk، پخش پاسخ)
 ├─ server/                ← سرویس محلی پایتون (FastAPI)
 │  ├─ main.py             ← اپ FastAPI، /ready، /api/sessions، OpenAI-compatible
+│  ├─ webui.py            ← میز تست یک‌نوبتی: ضبط→ASR→LLM→TTS در مرورگر (loopback)
 │  ├─ llm.py              ← کلاینت async llama.cpp + اندازه‌گیری زمان
 │  ├─ config.py           ← تنظیمات از env / .env (PVAI_*) + اعتبارسنجی
 │  ├─ voice.py            ← LocalAudio (Whisper) و CLI حالت turn-based
@@ -3388,6 +3862,7 @@ PersianVoiceAI/
 │  ├─ protocol.py         ← قرارداد فریم/پیام ESP32
 │  ├─ ws_voice.py         ← transport WebSocket سرور برای دستگاه LAN
 │  ├─ security.py         ← توکن REST/WS، rate limit، سقف اتصال
+│  ├─ broker.py           ← IoT Command Broker فاز اول (schema، policy، audit، فقط FakeDevice)
 │  ├─ rag.py              ← RAG محلی (BM25، KnowledgeBase) برای پاسخ دانش‌محور
 │  ├─ cli.py              ← کلاینت چت فارسی ترمینال
 │  ├─ __main__.py         ← اجرای `python -m server`
@@ -3396,7 +3871,9 @@ PersianVoiceAI/
 ├─ benchmarks/            ← پرامپت‌های متنی + persian_eval.py + persian_eval_set.json
 ├─ tools/                 ← اسکریپت‌های .ps1 و .sh + benchmark_voice.py + download_parallel.py
 │                             + prepare_dataset.py / train_plan.py / training_config.py
+│                             + start_webui.ps1/.sh (میز تست وب یک‌نوبتی)
 │                             + mic_probe.py (ضبط میکروفون واقعی → VAD → Whisper)
+│                             + aec_room_measure.py (AEC روی مسیر آکوستیک واقعی)
 ├─ models/                ← مدل‌های محلی GGUF (خارج از git)
 ├─ data/                  ← مکالمه/بازخورد/دانش محلی (خارج از git)
 └─ firmware/              ← (ساخته نشده) هدف: پروژهٔ ESP-IDF esp32s3_terminal
@@ -3480,12 +3957,15 @@ cp .env.example .env
 ## ۶. قرارداد صوت و شبکه (هدف معماری)
 
 - ورودی: PCM، mono، **16 kHz، 16-bit** → ۳۲ KB/s.
-- خروجی پیشنهادی: PCM، mono، **24 kHz، 16-bit** (وابسته به TTS نهایی).
-- فریم ۲۰–۴۰ ms → ۶۴۰ یا ۱۲۸۰ بایت.
+- خروجی: در پیاده‌سازی فعلی هم **16 kHz، 16-bit** (Piper روی PC به 16kHz نرمال می‌شود)؛
+  ۲۴ kHz فقط یک گزینهٔ آیندهٔ وابسته به TTS منتخب است و پیاده نشده.
+- فریم ۲۰–۴۰ ms → ۶۴۰ یا ۱۲۸۰ بایت؛ transport فقط **۲۰ ms** را می‌پذیرد.
 - انتقال: **WebSocket، فریم باینری**؛ BLE فقط Pairing/تنظیمات/کنترل سبک (Bluetooth Classic پشتیبانی نمی‌شود).
-- پیام‌های کنترلی: `HELLO`, `DEVICE_INFO`, `SESSION_START`, `INPUT_END`, `PLAY_START`, `PLAY_END`,
-  `PLAY_STOP`, `SET_VOLUME`, `SET_VOICE`, `PING/PONG`, `ERROR`.
-- شناسه‌ها: `device_id` (هر دستگاه)، `session_id` (هر مکالمه)، `stream_id` (هر جریان) جداگانه.
+- پیام‌های کنترلی پیاده‌شده (مرجع: `server/protocol.py::MessageType` و جدول `docs/PROTOCOL.md`):
+  `HELLO`, `HELLO_OK`, `SESSION_START`, `SESSION_ACK`, `SPEECH_START`, `SPEECH_END`, `INTERRUPT`,
+  `PLAY_START`, `PLAY_END`, `PLAY_STOP`, `SET_VOICE`, `ASR_PARTIAL`, `ASR_FINAL`, `PING/PONG`, `ERROR`.
+- شناسه‌ها: `device_id` (هر دستگاه)، `session_id` (هر مکالمه)، `turn_id` (هر پاسخ دستیار)،
+  `utterance_id` (هر گفتار کاربر) جداگانه.
 
 ---
 
@@ -3696,19 +4176,25 @@ idf.py -p COM5 flash monitor
 | مورد | مقدار |
 |---|---|
 | ورودی اولیه | PCM، تک‌کاناله، 16 kHz، 16-bit |
-| خروجی اولیهٔ پیشنهادی | PCM، تک‌کاناله، 24 kHz، 16-bit (وابسته به TTS منتخب و تست سخت‌افزار) |
-| فریم صوتی | ۲۰ تا ۴۰ میلی‌ثانیه |
+| خروجی (پیاده‌شده) | PCM، تک‌کاناله، 16 kHz، 16-bit — Piper روی PC نرمال می‌شود |
+| خروجی پیشنهادی آینده | PCM، تک‌کاناله، 24 kHz، 16-bit (وابسته به TTS منتخب و تست سخت‌افزار) — پیاده نشده |
+| فریم صوتی | ۲۰ تا ۴۰ میلی‌ثانیه (transport فقط ۲۰ms را می‌پذیرد) |
 | حجم خام | حدود **32 KB/s** (16 kHz mono 16-bit) |
 | اندازهٔ فریم | 20ms = **640 بایت**، 40ms = **1280 بایت** |
 | انتقال | **WebSocket** با فریم‌های باینری |
 | BLE برای استریم صوت | انتخاب نشده؛ ESP32-S3 از Bluetooth Classic پشتیبانی نمی‌کند |
 
-### پیام‌های کنترلی پیشنهادی
+### پیام‌های کنترلی (پیاده‌شده — مرجع `server/protocol.py::MessageType`)
 
-`HELLO`، `DEVICE_INFO`، `SESSION_START`، `INPUT_END`، `PLAY_START`، `PLAY_END`،
-`PLAY_STOP`، `SET_VOLUME`، `SET_VOICE`، `PING/PONG`، `ERROR`.
+`HELLO`، `HELLO_OK`، `SESSION_START`، `SESSION_ACK`، `SPEECH_START`، `SPEECH_END`، `INTERRUPT`،
+`PLAY_START`، `PLAY_END`، `PLAY_STOP`، `SET_VOICE`، `ASR_PARTIAL`، `ASR_FINAL`، `PING/PONG`، `ERROR`.
 
-هر دستگاه `device_id`، هر مکالمه `session_id` و هر جریان `stream_id` مستقل خواهد داشت.
+جدول کامل فیلدهای الزامی و قواعد در [`PROTOCOL.md`](PROTOCOL.md). پیام‌هایی که در این نسخه **وجود ندارند**
+(و نباید توسط firmware فرض شوند): `DEVICE_INFO`، `INPUT_END`، `SET_VOLUME` — به‌جای آن‌ها
+`SPEECH_START`/`SPEECH_END` و `SET_VOICE` پیاده شده‌اند. کنترل بلندی صدا در این نسخه سمت دستگاه است.
+
+هر دستگاه `device_id`، هر مکالمه `session_id`، هر پاسخ دستیار `turn_id` و هر گفتار کاربر
+`utterance_id` مستقل خواهد داشت.
 
 ## ۷. پردازش گفتار و ASR
 
@@ -4175,9 +4661,10 @@ ASR → LLM Intent → Structured Command → Command Broker
 | OPEN-01 | P1 | توقف قطعی inference در حال اجرا (thread درجا قابل kill نیست) | نیازمند process isolation؛ خارج از دامنهٔ این مرحله |
 | OPEN-02a | — | transport سمت سرور WebSocket صوتی + احراز هویت دستگاه | **رفع‌شده** (`server/ws_voice.py`، ۱۴ تست در `tests/test_ws_voice.py`، متریک‌های `ws_*`، کلید `ws_voice` در `/ready`) |
 | OPEN-02b | P1 | firmware ESP32-S3، رجیستری دستگاه و OTA | هیچ کد سخت‌افزاری در مخزن نیست؛ تا پاس‌شدن پذیرش PC شروع نمی‌شود |
-| OPEN-03 | P1 | صحت اکوی اتاق واقعی و تأخیر دستگاه | نیازمند سخت‌افزار |
+| OPEN-03 | P1 | صحت اکوی اتاق واقعی و تأخیر دستگاه | **بخشی اندازه‌گیری شد (۱۳ نوامبر):** اتاق واقعی روی همین لپ‌تاپ، `docs/AEC.md`؛ گفتار انسان همزمان و دستگاه هدف همچنان باز |
+| OPEN-06 | P1 | تأخیر مرجع AEC روی ویندوز از پیش‌فرض بزرگ‌تر و ناپایدار است | اندازه‌گیری ۱۳ نوامبر: MME ۳۵۸ms ثابت، DirectSound ۲۳۱/۴۴۸ms در دو نشست؛ پیش‌فرض ۴۰ms ⇒ ERLE ۰٫۰۱dB. رفع نیازمند تخمین خودکار تأخیر (خارج از دامنهٔ این مرحله)؛ تا آن زمان `PVAI_AEC_DELAY_MS` باید دستی کالیبره شود |
 | OPEN-04 | P2 | VAD عصبی محلی (Silero/WebRTC) | وابستگی جدید بدون سنجش؛ حالت انرژی با هیسترزیس فعلی حفظ شد |
-| OPEN-05 | P2 | Command Broker / IoT و OTA | خارج از دامنهٔ موتور مکالمه |
+| OPEN-05 | P2 | IoT واقعی (GPIO/رله/سنسور)، اتصال Broker به مسیر گفتار، و OTA | Command Broker فاز اول (`server/broker.py`، فقط `FakeDevice`، SIMULATED) پیاده شده؛ اتصال به ASR/LLM و سخت‌افزار منتظر تأیید است |
 
 
 ---
@@ -4698,6 +5185,101 @@ ASR → LLM Intent → Structured Command → Command Broker
   `test_the_file_flags_and_the_documented_manual_command_agree`,
   `test_launch_cli_prints_the_command`, `test_launch_cli_warns_about_rejected_values`
 - **وضعیت:** رفع‌شده + تست (اجرای واقعی PowerShell در sandbox تست نشده؛ **NOT MEASURED**)
+
+---
+
+## مرحلهٔ هفتم — بازبینی نقص‌یابی کامل پروژه (۱۳ نوامبر ۲۰۲۶)
+
+بازبینی کد و تحلیل استاتیک (`undefined names`, تطبیق `PVAI_*`, وفاداری سنجه‌ها)، بدون اجرای
+سخت‌افزار. رفع‌ها با تست بسته شدند؛ جدول کامل (شامل موارد مستنداتی و readiness) در
+[STATUS](STATUS.md#بازبینی-نقصیابی--۱۳-نوامبر-۲۰۲۶) است.
+
+### E1-01 — تأخیر VAD با `PVAI_AUDIO_BLOCK_MS` غیر از ۲۰ اشتباه گزارش می‌شد
+
+- **فایل:** `server/vad.py` → `EnergyVAD.__init__`, `onset_delay_ms`, `endpoint_delay_ms`,
+  `describe`, `build_vad`
+- **ریشه:** شمارش فریم‌ها به میلی‌ثانیه با ثابت `FRAME_SECONDS * 1000 = 20` تبدیل می‌شد، در حالی
+  که طول واقعی بلوک از `PVAI_AUDIO_BLOCK_MS` می‌آمد و `Settings` مقدار ۱۰/۴۰ را هم می‌پذیرفت.
+  نتیجه: `vad_start_ms`/`vad_end_ms` با بلوک ۱۰ms دو برابر و با بلوک ۴۰ms نصف واقعیت بود —
+  سنجه‌ای که مبنای کالیبراسیون endpointing است، بی‌صدا غلط می‌شد.
+- **رفع:** `EnergyVAD(block_ms=...)` را نگه می‌دارد (پیش‌فرض `FRAME_SECONDS * 1000`)؛ `build_vad`
+  مقدار `settings.audio_block_ms` را منتقل می‌کند؛ `block_ms = 0` صریحاً رد می‌شود؛
+  `describe()` هم `block_ms` و هر دو تأخیر را گزارش می‌کند تا کالیبراسیون قابل بازبینی باشد.
+- **تست:** `tests/test_vad.py::test_delay_reporting_tracks_the_configured_block_length`,
+  `::test_a_zero_block_length_is_refused`
+- **وضعیت:** رفع‌شده + تست (عدد واقعی روی دستگاه با بلوک غیر ۲۰: **NOT MEASURED**)
+
+### E1-02 — `vad_onset_events` سنجه‌ای اعلام‌شده بود که هیچ‌جا ثبت نمی‌شد
+
+- **فایل:** `server/metrics.py` → `METRIC_NAMES`
+- **ریشه:** این نام در فهرست سنجه‌های رسمی بود، پس `Metrics.missing()`، `/api/protocol` و
+  بنچمارک عددی را وعده می‌دادند که در هیچ اجرایی نمی‌توانست ظاهر شود. در عمل هم نام دومی بود
+  برای همان رخدادی که `utterances` می‌شمارد (هر دو روی onset).
+- **رفع:** حذف از `METRIC_NAMES`؛ به‌جای آن یک تست نگهبان متن `server/*.py` را اسکن می‌کند و
+  هر نام اعلام‌شده‌ای که هیچ ماژولی ثبتش نکند شکست می‌خورد.
+- **تست:** `tests/test_metrics.py::test_every_declared_metric_is_actually_emitted_somewhere`
+- **وضعیت:** رفع‌شده + تست (اکنون ۷۰ نام اعلام‌شده، همه دارای محل ثبت)
+
+### E1-03 — `tools/mic_probe.py` با `--block-ms` مستقل از سرویس اندازه‌گیری می‌کرد
+
+- **فایل:** `tools/mic_probe.py` → `build_parser`, `main`
+- **ریشه:** پرچم `--block-ms` هر عددی را می‌پذیرفت و `Settings` را با آن بازنمی‌ساخت؛ طول segment
+  و تأخیرهای گزارش‌شده با برچسب MEASURED مربوط به پیکربندی‌ای بودند که سرویس واقعی هرگز اجرا
+  نمی‌کرد.
+- **رفع:** فقط ۱۰/۲۰/۴۰ پذیرفته می‌شود و `Settings` با `dataclasses.replace(..., audio_block_ms=...)`
+  بازساخته می‌شود تا همان مقدار در VAD و در گزارش دیده شود.
+- **تست:** `tests/test_mic_probe.py::test_probe_refuses_a_block_length_the_service_would_not_use`
+- **وضعیت:** رفع‌شده + تست (ضبط واقعی با بلوک غیر ۲۰: **NOT MEASURED**)
+
+### E1-04 — بیست سنجه در کد ثبت می‌شد ولی در رجیستری اعلام نشده بود
+
+- **فایل:** `server/metrics.py` → `METRIC_NAMES`
+- **ریشه:** جهت مخالف E1-02. کد این نام‌ها را ثبت می‌کرد: `ws_capture_bad_size`,
+  `ws_capture_duplicate_or_reordered`, `ws_capture_gap_frames`, `ws_capture_out_of_order`,
+  `ws_capture_rate_limited`, `ws_control_dropped`, `ws_heartbeats`, `ws_idle_timeouts`,
+  `ws_session_errors`, `ws_voice_rejected` (همه در `ws_voice.py`)، `asr_model_load_ms` و
+  `asr_segments_rejected` (`voice.py`)، `asr_partial_jobs_submitted`, `asr_partial_late`,
+  `asr_duplicate_final`, `barge_in_playback_ms`, `last_playback_ms`, `last_response_chars`
+  (`streaming_voice.py`) و `api_auth_failures`/`api_rate_limited` (`main.py`). در حالی که
+  docstring ماژول ادعا می‌کرد «هر نام سنجهٔ خط لوله در `METRIC_NAMES` اعلام شده است»، این ۲۰ عدد
+  اندازه‌گیری می‌شدند و برای هر مصرف‌کنندهٔ رجیستری نامرئی بودند.
+- **رفع:** افزودن هر ۲۰ نام در گروه‌های موجود (ASR، تعامل، WS، HTTP API) بدون تغییر مقدار یا
+  محل ثبت؛ تست نگهبان جهت معکوس، هر نام ثبت‌شده‌ای را که اعلام نشده باشد شکست می‌دهد. یک
+  استثنای عمدی: `llm_failures`/`tts_failures` با نام متغیر ثبت می‌شوند
+  (`streaming_voice.py:1218`)، بنابراین اسکن متنی آن را نمی‌بیند و اعلام‌شده باقی می‌ماند.
+- **تست:** `tests/test_metrics.py::test_every_recorded_metric_is_declared`
+- **وضعیت:** رفع‌شده + تست (اکنون ۷۰ نام اعلام‌شده؛ اسکن متنی ۶۹ محل ثابت را می‌بیند و
+  `llm_failures` از مسیر شرطی ثبت می‌شود)
+
+### E1-05 — `check_storage` پوشهٔ بدون دسترسی نوشتن را «آماده» گزارش می‌کرد
+
+- **فایل:** `server/readiness.py` → `check_storage`
+- **ریشه:** شرط آمادگی `probe.is_dir() and probe.exists()` بود. `is_dir()` هیچ چیزی دربارهٔ مجوز
+  نوشتن نمی‌گوید: پایهٔ read-only، پوشهٔ متعلق به حساب دیگر، یا پوشهٔ ویندوز با ACL فقط‌خواندنی
+  همه `True` می‌دهند. پس `/ready` سبز می‌شد و اولین نوبت ذخیره‌شده در زمان اجرا با `OSError` می‌مرد.
+  این تابع هیچ تستی نداشت.
+- **رفع:** `_can_write()` یک فایل probe واقعی می‌سازد، می‌نویسد، flush می‌کند و در `finally` با
+  `os.unlink` حذف می‌کند. خطا با `{type}: {message}` در پیام فارسی می‌آید تا اپراتور بداند چرا.
+  پوشه ساخته نمی‌شود؛ نزدیک‌ترین جد موجود بررسی می‌شود.
+- **تست:** `tests/test_readiness_storage.py::test_a_writable_directory_is_ready_and_leaves_no_probe_file`,
+  `::test_a_read_only_directory_is_reported_not_ready`,
+  `::test_a_missing_data_directory_falls_back_to_the_nearest_existing_ancestor`,
+  `::test_disabled_persistence_skips_the_check`,
+  `::test_the_write_probe_reports_the_os_error_instead_of_swallowing_it`
+- **وضعیت:** رفع‌شده + تست (پوشهٔ واقعی read-only روی ویندوز/لینوکس با ACL: **NOT MEASURED**؛
+  تست با monkeypatch روی `NamedTemporaryFile` شبیه‌سازی شده)
+
+### E1-06 — سه کمکی مکالمه بدون هیچ مصرف‌کننده‌ای باقی مانده بود
+
+- **فایل:** `server/conversation.py`
+- **ریشه:** `Conversation.record_turn`، `Conversation.last_user` و تابع `load_conversations` در
+  هیچ کد، تست، ابزار یا مستندی فراخوانی نمی‌شدند. `load_conversations` فقط `store.sessions()` را
+  بسته‌بندی می‌کرد و `record_turn` مسیر `/api/chat` را دور می‌زد (آن مسیر مستقیم `add_user`/`finish_assistant`
+  را صدا می‌زند).
+- **رفع:** حذف هر سه؛ `Iterable` از import هم حذف شد. `purge_older_than` عمداً نگه داشته شد چون از
+  `purge_expired` و `server/sessions.py` فراخوانی می‌شود.
+- **تست:** رفتار دیگری تغییر نکرد؛ مجموعهٔ کامل `pytest` سبز است.
+- **وضعیت:** رفع‌شده (حذف کد مرده؛ بدون تغییر رفتار)
 
 ---
 

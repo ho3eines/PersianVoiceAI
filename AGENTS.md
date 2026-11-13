@@ -22,7 +22,7 @@
 | بنچمارک فارسی (TTFT، tok/s، زمان کل) | اجراشده روی MiniCPM؛ جزئیات در STATUS |
 | ESP32-S3 (I2S، پخش، RMS) | کد V1-A **در این مخزن نیست** (خارج از مخزن نگه داشته می‌شود) و روی سخت‌افزار واقعی build/تست نشده |
 | صوت PC | ورودی پیوسته، VAD با هیسترزیس/پیش‌رول، صف final بدون‌افت، partial هم‌پوشان، async SSE، Piper تدریجی؛ تست خودکار سبز، تست واقعی لازم |
-| AEC روی PC | SpeexDSP با مرجع duplex؛ تست مصنوعی موفق، تست دستگاه واقعی لازم |
+| AEC روی PC | SpeexDSP با مرجع duplex؛ مصنوعی و **اتاق واقعی روی همین لپ‌تاپ MEASURED** (۱۳ نوامبر، `docs/AEC.md`)؛ double-talk انسان و ESP32 NOT TESTED |
 | ماشین حالت و barge-in | صریح و تست‌شده (`tests/test_state_machine.py`, `tests/test_utterance_lifecycle.py`) |
 | حافظهٔ مکالمه | محلی/JSONL، برش توکنی، پنجرهٔ RAM محدود، وضعیت interrupted |
 | readiness / سنجه‌ها | `/ready` کامل + `server/metrics.py` با تست |
@@ -79,11 +79,15 @@ PersianVoiceAI/
 │  ├─ BENCHMARKS.md       ← روش‌شناسی و نتایج برچسب‌دار
 │  ├─ TROUBLESHOOTING.md  ← پیام‌های خطا و راه‌حل
 │  ├─ PC_VOICE.md         ← نصب و اجرای صوت PC
+│  ├─ WEB_UI.md           ← میز تست وب یک‌نوبتی (صحبت/تایپ → رونویسی → پاسخ → صدا)
 │  ├─ PLATFORMS.md        ← Windows/Linux، اسکریپت‌ها، تفاوت‌ها
 │  ├─ AUDIT_REPORT.md     ← گزارش بازبینی (سند تاریخی)
 │  └─ HARDWARE_VALIDATION.md ← چک‌لیست تست واقعی
+├─ web/
+│  └─ index.html          ← صفحهٔ تک‌فایلی میز تست (RTL، push-to-talk، پخش پاسخ)
 ├─ server/                ← سرویس محلی پایتون (FastAPI)
 │  ├─ main.py             ← اپ FastAPI، /ready، /api/sessions، OpenAI-compatible
+│  ├─ webui.py            ← میز تست یک‌نوبتی: ضبط→ASR→LLM→TTS در مرورگر (loopback)
 │  ├─ llm.py              ← کلاینت async llama.cpp + اندازه‌گیری زمان
 │  ├─ config.py           ← تنظیمات از env / .env (PVAI_*) + اعتبارسنجی
 │  ├─ voice.py            ← LocalAudio (Whisper) و CLI حالت turn-based
@@ -101,6 +105,7 @@ PersianVoiceAI/
 │  ├─ protocol.py         ← قرارداد فریم/پیام ESP32
 │  ├─ ws_voice.py         ← transport WebSocket سرور برای دستگاه LAN
 │  ├─ security.py         ← توکن REST/WS، rate limit، سقف اتصال
+│  ├─ broker.py           ← IoT Command Broker فاز اول (schema، policy، audit، فقط FakeDevice)
 │  ├─ rag.py              ← RAG محلی (BM25، KnowledgeBase) برای پاسخ دانش‌محور
 │  ├─ cli.py              ← کلاینت چت فارسی ترمینال
 │  ├─ __main__.py         ← اجرای `python -m server`
@@ -109,7 +114,9 @@ PersianVoiceAI/
 ├─ benchmarks/            ← پرامپت‌های متنی + persian_eval.py + persian_eval_set.json
 ├─ tools/                 ← اسکریپت‌های .ps1 و .sh + benchmark_voice.py + download_parallel.py
 │                             + prepare_dataset.py / train_plan.py / training_config.py
+│                             + start_webui.ps1/.sh (میز تست وب یک‌نوبتی)
 │                             + mic_probe.py (ضبط میکروفون واقعی → VAD → Whisper)
+│                             + aec_room_measure.py (AEC روی مسیر آکوستیک واقعی)
 ├─ models/                ← مدل‌های محلی GGUF (خارج از git)
 ├─ data/                  ← مکالمه/بازخورد/دانش محلی (خارج از git)
 └─ firmware/              ← (ساخته نشده) هدف: پروژهٔ ESP-IDF esp32s3_terminal
@@ -193,12 +200,15 @@ cp .env.example .env
 ## ۶. قرارداد صوت و شبکه (هدف معماری)
 
 - ورودی: PCM، mono، **16 kHz، 16-bit** → ۳۲ KB/s.
-- خروجی پیشنهادی: PCM، mono، **24 kHz، 16-bit** (وابسته به TTS نهایی).
-- فریم ۲۰–۴۰ ms → ۶۴۰ یا ۱۲۸۰ بایت.
+- خروجی: در پیاده‌سازی فعلی هم **16 kHz، 16-bit** (Piper روی PC به 16kHz نرمال می‌شود)؛
+  ۲۴ kHz فقط یک گزینهٔ آیندهٔ وابسته به TTS منتخب است و پیاده نشده.
+- فریم ۲۰–۴۰ ms → ۶۴۰ یا ۱۲۸۰ بایت؛ transport فقط **۲۰ ms** را می‌پذیرد.
 - انتقال: **WebSocket، فریم باینری**؛ BLE فقط Pairing/تنظیمات/کنترل سبک (Bluetooth Classic پشتیبانی نمی‌شود).
-- پیام‌های کنترلی: `HELLO`, `DEVICE_INFO`, `SESSION_START`, `INPUT_END`, `PLAY_START`, `PLAY_END`,
-  `PLAY_STOP`, `SET_VOLUME`, `SET_VOICE`, `PING/PONG`, `ERROR`.
-- شناسه‌ها: `device_id` (هر دستگاه)، `session_id` (هر مکالمه)، `stream_id` (هر جریان) جداگانه.
+- پیام‌های کنترلی پیاده‌شده (مرجع: `server/protocol.py::MessageType` و جدول `docs/PROTOCOL.md`):
+  `HELLO`, `HELLO_OK`, `SESSION_START`, `SESSION_ACK`, `SPEECH_START`, `SPEECH_END`, `INTERRUPT`,
+  `PLAY_START`, `PLAY_END`, `PLAY_STOP`, `SET_VOICE`, `ASR_PARTIAL`, `ASR_FINAL`, `PING/PONG`, `ERROR`.
+- شناسه‌ها: `device_id` (هر دستگاه)، `session_id` (هر مکالمه)، `turn_id` (هر پاسخ دستیار)،
+  `utterance_id` (هر گفتار کاربر) جداگانه.
 
 ---
 

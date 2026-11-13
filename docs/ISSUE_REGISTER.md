@@ -204,9 +204,10 @@
 | OPEN-01 | P1 | توقف قطعی inference در حال اجرا (thread درجا قابل kill نیست) | نیازمند process isolation؛ خارج از دامنهٔ این مرحله |
 | OPEN-02a | — | transport سمت سرور WebSocket صوتی + احراز هویت دستگاه | **رفع‌شده** (`server/ws_voice.py`، ۱۴ تست در `tests/test_ws_voice.py`، متریک‌های `ws_*`، کلید `ws_voice` در `/ready`) |
 | OPEN-02b | P1 | firmware ESP32-S3، رجیستری دستگاه و OTA | هیچ کد سخت‌افزاری در مخزن نیست؛ تا پاس‌شدن پذیرش PC شروع نمی‌شود |
-| OPEN-03 | P1 | صحت اکوی اتاق واقعی و تأخیر دستگاه | نیازمند سخت‌افزار |
+| OPEN-03 | P1 | صحت اکوی اتاق واقعی و تأخیر دستگاه | **بخشی اندازه‌گیری شد (۱۳ نوامبر):** اتاق واقعی روی همین لپ‌تاپ، `docs/AEC.md`؛ گفتار انسان همزمان و دستگاه هدف همچنان باز |
+| OPEN-06 | P1 | تأخیر مرجع AEC روی ویندوز از پیش‌فرض بزرگ‌تر و ناپایدار است | اندازه‌گیری ۱۳ نوامبر: MME ۳۵۸ms ثابت، DirectSound ۲۳۱/۴۴۸ms در دو نشست؛ پیش‌فرض ۴۰ms ⇒ ERLE ۰٫۰۱dB. رفع نیازمند تخمین خودکار تأخیر (خارج از دامنهٔ این مرحله)؛ تا آن زمان `PVAI_AEC_DELAY_MS` باید دستی کالیبره شود |
 | OPEN-04 | P2 | VAD عصبی محلی (Silero/WebRTC) | وابستگی جدید بدون سنجش؛ حالت انرژی با هیسترزیس فعلی حفظ شد |
-| OPEN-05 | P2 | Command Broker / IoT و OTA | خارج از دامنهٔ موتور مکالمه |
+| OPEN-05 | P2 | IoT واقعی (GPIO/رله/سنسور)، اتصال Broker به مسیر گفتار، و OTA | Command Broker فاز اول (`server/broker.py`، فقط `FakeDevice`، SIMULATED) پیاده شده؛ اتصال به ASR/LLM و سخت‌افزار منتظر تأیید است |
 
 
 ---
@@ -727,3 +728,98 @@
   `test_the_file_flags_and_the_documented_manual_command_agree`,
   `test_launch_cli_prints_the_command`, `test_launch_cli_warns_about_rejected_values`
 - **وضعیت:** رفع‌شده + تست (اجرای واقعی PowerShell در sandbox تست نشده؛ **NOT MEASURED**)
+
+---
+
+## مرحلهٔ هفتم — بازبینی نقص‌یابی کامل پروژه (۱۳ نوامبر ۲۰۲۶)
+
+بازبینی کد و تحلیل استاتیک (`undefined names`, تطبیق `PVAI_*`, وفاداری سنجه‌ها)، بدون اجرای
+سخت‌افزار. رفع‌ها با تست بسته شدند؛ جدول کامل (شامل موارد مستنداتی و readiness) در
+[STATUS](STATUS.md#بازبینی-نقصیابی--۱۳-نوامبر-۲۰۲۶) است.
+
+### E1-01 — تأخیر VAD با `PVAI_AUDIO_BLOCK_MS` غیر از ۲۰ اشتباه گزارش می‌شد
+
+- **فایل:** `server/vad.py` → `EnergyVAD.__init__`, `onset_delay_ms`, `endpoint_delay_ms`,
+  `describe`, `build_vad`
+- **ریشه:** شمارش فریم‌ها به میلی‌ثانیه با ثابت `FRAME_SECONDS * 1000 = 20` تبدیل می‌شد، در حالی
+  که طول واقعی بلوک از `PVAI_AUDIO_BLOCK_MS` می‌آمد و `Settings` مقدار ۱۰/۴۰ را هم می‌پذیرفت.
+  نتیجه: `vad_start_ms`/`vad_end_ms` با بلوک ۱۰ms دو برابر و با بلوک ۴۰ms نصف واقعیت بود —
+  سنجه‌ای که مبنای کالیبراسیون endpointing است، بی‌صدا غلط می‌شد.
+- **رفع:** `EnergyVAD(block_ms=...)` را نگه می‌دارد (پیش‌فرض `FRAME_SECONDS * 1000`)؛ `build_vad`
+  مقدار `settings.audio_block_ms` را منتقل می‌کند؛ `block_ms = 0` صریحاً رد می‌شود؛
+  `describe()` هم `block_ms` و هر دو تأخیر را گزارش می‌کند تا کالیبراسیون قابل بازبینی باشد.
+- **تست:** `tests/test_vad.py::test_delay_reporting_tracks_the_configured_block_length`,
+  `::test_a_zero_block_length_is_refused`
+- **وضعیت:** رفع‌شده + تست (عدد واقعی روی دستگاه با بلوک غیر ۲۰: **NOT MEASURED**)
+
+### E1-02 — `vad_onset_events` سنجه‌ای اعلام‌شده بود که هیچ‌جا ثبت نمی‌شد
+
+- **فایل:** `server/metrics.py` → `METRIC_NAMES`
+- **ریشه:** این نام در فهرست سنجه‌های رسمی بود، پس `Metrics.missing()`، `/api/protocol` و
+  بنچمارک عددی را وعده می‌دادند که در هیچ اجرایی نمی‌توانست ظاهر شود. در عمل هم نام دومی بود
+  برای همان رخدادی که `utterances` می‌شمارد (هر دو روی onset).
+- **رفع:** حذف از `METRIC_NAMES`؛ به‌جای آن یک تست نگهبان متن `server/*.py` را اسکن می‌کند و
+  هر نام اعلام‌شده‌ای که هیچ ماژولی ثبتش نکند شکست می‌خورد.
+- **تست:** `tests/test_metrics.py::test_every_declared_metric_is_actually_emitted_somewhere`
+- **وضعیت:** رفع‌شده + تست (اکنون ۷۰ نام اعلام‌شده، همه دارای محل ثبت)
+
+### E1-03 — `tools/mic_probe.py` با `--block-ms` مستقل از سرویس اندازه‌گیری می‌کرد
+
+- **فایل:** `tools/mic_probe.py` → `build_parser`, `main`
+- **ریشه:** پرچم `--block-ms` هر عددی را می‌پذیرفت و `Settings` را با آن بازنمی‌ساخت؛ طول segment
+  و تأخیرهای گزارش‌شده با برچسب MEASURED مربوط به پیکربندی‌ای بودند که سرویس واقعی هرگز اجرا
+  نمی‌کرد.
+- **رفع:** فقط ۱۰/۲۰/۴۰ پذیرفته می‌شود و `Settings` با `dataclasses.replace(..., audio_block_ms=...)`
+  بازساخته می‌شود تا همان مقدار در VAD و در گزارش دیده شود.
+- **تست:** `tests/test_mic_probe.py::test_probe_refuses_a_block_length_the_service_would_not_use`
+- **وضعیت:** رفع‌شده + تست (ضبط واقعی با بلوک غیر ۲۰: **NOT MEASURED**)
+
+### E1-04 — بیست سنجه در کد ثبت می‌شد ولی در رجیستری اعلام نشده بود
+
+- **فایل:** `server/metrics.py` → `METRIC_NAMES`
+- **ریشه:** جهت مخالف E1-02. کد این نام‌ها را ثبت می‌کرد: `ws_capture_bad_size`,
+  `ws_capture_duplicate_or_reordered`, `ws_capture_gap_frames`, `ws_capture_out_of_order`,
+  `ws_capture_rate_limited`, `ws_control_dropped`, `ws_heartbeats`, `ws_idle_timeouts`,
+  `ws_session_errors`, `ws_voice_rejected` (همه در `ws_voice.py`)، `asr_model_load_ms` و
+  `asr_segments_rejected` (`voice.py`)، `asr_partial_jobs_submitted`, `asr_partial_late`,
+  `asr_duplicate_final`, `barge_in_playback_ms`, `last_playback_ms`, `last_response_chars`
+  (`streaming_voice.py`) و `api_auth_failures`/`api_rate_limited` (`main.py`). در حالی که
+  docstring ماژول ادعا می‌کرد «هر نام سنجهٔ خط لوله در `METRIC_NAMES` اعلام شده است»، این ۲۰ عدد
+  اندازه‌گیری می‌شدند و برای هر مصرف‌کنندهٔ رجیستری نامرئی بودند.
+- **رفع:** افزودن هر ۲۰ نام در گروه‌های موجود (ASR، تعامل، WS، HTTP API) بدون تغییر مقدار یا
+  محل ثبت؛ تست نگهبان جهت معکوس، هر نام ثبت‌شده‌ای را که اعلام نشده باشد شکست می‌دهد. یک
+  استثنای عمدی: `llm_failures`/`tts_failures` با نام متغیر ثبت می‌شوند
+  (`streaming_voice.py:1218`)، بنابراین اسکن متنی آن را نمی‌بیند و اعلام‌شده باقی می‌ماند.
+- **تست:** `tests/test_metrics.py::test_every_recorded_metric_is_declared`
+- **وضعیت:** رفع‌شده + تست (اکنون ۷۰ نام اعلام‌شده؛ اسکن متنی ۶۹ محل ثابت را می‌بیند و
+  `llm_failures` از مسیر شرطی ثبت می‌شود)
+
+### E1-05 — `check_storage` پوشهٔ بدون دسترسی نوشتن را «آماده» گزارش می‌کرد
+
+- **فایل:** `server/readiness.py` → `check_storage`
+- **ریشه:** شرط آمادگی `probe.is_dir() and probe.exists()` بود. `is_dir()` هیچ چیزی دربارهٔ مجوز
+  نوشتن نمی‌گوید: پایهٔ read-only، پوشهٔ متعلق به حساب دیگر، یا پوشهٔ ویندوز با ACL فقط‌خواندنی
+  همه `True` می‌دهند. پس `/ready` سبز می‌شد و اولین نوبت ذخیره‌شده در زمان اجرا با `OSError` می‌مرد.
+  این تابع هیچ تستی نداشت.
+- **رفع:** `_can_write()` یک فایل probe واقعی می‌سازد، می‌نویسد، flush می‌کند و در `finally` با
+  `os.unlink` حذف می‌کند. خطا با `{type}: {message}` در پیام فارسی می‌آید تا اپراتور بداند چرا.
+  پوشه ساخته نمی‌شود؛ نزدیک‌ترین جد موجود بررسی می‌شود.
+- **تست:** `tests/test_readiness_storage.py::test_a_writable_directory_is_ready_and_leaves_no_probe_file`,
+  `::test_a_read_only_directory_is_reported_not_ready`,
+  `::test_a_missing_data_directory_falls_back_to_the_nearest_existing_ancestor`,
+  `::test_disabled_persistence_skips_the_check`,
+  `::test_the_write_probe_reports_the_os_error_instead_of_swallowing_it`
+- **وضعیت:** رفع‌شده + تست (پوشهٔ واقعی read-only روی ویندوز/لینوکس با ACL: **NOT MEASURED**؛
+  تست با monkeypatch روی `NamedTemporaryFile` شبیه‌سازی شده)
+
+### E1-06 — سه کمکی مکالمه بدون هیچ مصرف‌کننده‌ای باقی مانده بود
+
+- **فایل:** `server/conversation.py`
+- **ریشه:** `Conversation.record_turn`، `Conversation.last_user` و تابع `load_conversations` در
+  هیچ کد، تست، ابزار یا مستندی فراخوانی نمی‌شدند. `load_conversations` فقط `store.sessions()` را
+  بسته‌بندی می‌کرد و `record_turn` مسیر `/api/chat` را دور می‌زد (آن مسیر مستقیم `add_user`/`finish_assistant`
+  را صدا می‌زند).
+- **رفع:** حذف هر سه؛ `Iterable` از import هم حذف شد. `purge_older_than` عمداً نگه داشته شد چون از
+  `purge_expired` و `server/sessions.py` فراخوانی می‌شود.
+- **تست:** رفتار دیگری تغییر نکرد؛ مجموعهٔ کامل `pytest` سبز است.
+- **وضعیت:** رفع‌شده (حذف کد مرده؛ بدون تغییر رفتار)

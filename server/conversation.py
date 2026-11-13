@@ -41,7 +41,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Literal
+from typing import Any, Iterator, Literal
 
 ROLE_USER: Literal["user"] = "user"
 ROLE_ASSISTANT: Literal["assistant"] = "assistant"
@@ -682,13 +682,6 @@ class Conversation:
         )
         return self._append(message)
 
-    def record_turn(self, user_text: str, assistant_text: str, **kwargs: Any) -> tuple[Any, Any]:
-        """Convenience for the non-streaming API path."""
-        return (
-            self.add_user(user_text, **{k: v for k, v in kwargs.items() if k == "turn_id"}),
-            self.finish_assistant(assistant_text, **kwargs),
-        )
-
     # --------------------------------------------------------------- context
     def eligible(self) -> Iterator[Message]:
         for message in self.messages:
@@ -732,12 +725,6 @@ class Conversation:
     @property
     def tokens(self) -> int:
         return sum(message.tokens for message in self.eligible())
-
-    def last_user(self) -> Message | None:
-        for message in reversed(self.messages):
-            if message.role == ROLE_USER:
-                return message
-        return None
 
     def clear(self) -> None:
         with self._lock:
@@ -797,11 +784,6 @@ class Conversation:
         if len(conversation.messages) > conversation.max_stored_messages:
             conversation.messages = conversation.messages[-conversation.max_stored_messages :]
         return conversation
-
-
-def load_conversations(store: ConversationStore | NullStore) -> Iterable[dict[str, Any]]:
-    """Session summaries for the inspection CLI and the API."""
-    return store.sessions()
 
 
 def resume_target(

@@ -20,6 +20,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -49,7 +50,6 @@ from .llm import (
     LlamaServerUnavailable,
     ModelNotLoaded,
     StreamDelta,
-    StreamDone,
 )
 
 logger = logging.getLogger("persian_voice_ai")
@@ -130,6 +130,22 @@ def _apply_rag(messages: list[dict[str, str]], knowledge: KnowledgeBase, query: 
     return [{"id": hit["id"], "title": hit["title"]} for hit in hits]
 
 
+def _preload_voice_models(settings: Settings) -> None:
+    """Warm the shared process-wide voice models without blocking startup.
+
+    The LAN transport loads Whisper on the first connection; on a two-core CPU
+    that is tens of seconds and the first utterance of the first device pays it.
+    A failure here is only logged: ``/ready`` still reports the model check and
+    the device endpoint keeps returning the actionable error.
+    """
+    from .ws_voice import MODEL_POOL
+
+    try:
+        MODEL_POOL.preload(settings)
+    except Exception:  # noqa: BLE001 - startup must survive a missing model
+        logger.warning("ASR preload skipped", exc_info=True)
+
+
 async def periodic_retention(settings: Settings, store: Any, interval_s: float = 86400) -> None:
     """Purge plain-text transcripts once daily without blocking API requests."""
     while True:
@@ -192,6 +208,13 @@ def create_app(
             __version__,
             resolved.model_path,
         )
+        if resolved.asr_warmup and resolved.ws_enabled and voice_bundle is None:
+            threading.Thread(
+                target=_preload_voice_models,
+                args=(resolved,),
+                name="asr-preload",
+                daemon=True,
+            ).start()
         retention_task = asyncio.create_task(periodic_retention(resolved, app.state.store))
         try:
             yield
@@ -358,6 +381,31 @@ def create_app(
                 "uptime_s": round(time.time() - request.app.state.started_at, 1),
                 **report,
             },
+        )
+
+    @app.get("/metrics", tags=["meta"])
+    async def metrics(request: Request) -> JSONResponse:
+        """Exposes the in-process metrics (read-only)."""
+        settings = request.app.state.settings
+        snapshot = request.app.state.metrics.snapshot()
+        uptime_s = round(time.time() - request.app.state.started_at, 1)
+        format_arg = request.query_params.get("format", "")
+        if format_arg == "flat":
+            return JSONResponse(
+                content={
+                    "status": "ok",
+                    "uptime_s": uptime_s,
+                    "enabled": settings.metrics_enabled,
+                    "metrics": request.app.state.metrics.flat(),
+                }
+            )
+        return JSONResponse(
+            content={
+                "status": "ok",
+                "uptime_s": uptime_s,
+                "enabled": settings.metrics_enabled,
+                **snapshot,
+            }
         )
 
     @app.get("/api/protocol", tags=["meta"])

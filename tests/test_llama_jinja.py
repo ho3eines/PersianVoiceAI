@@ -56,6 +56,12 @@ def test_the_bash_launcher_prints_a_plan_with_jinja(tmp_path: Path) -> None:
         "PVAI_PYTHON": sys.executable,
         "PVAI_MODEL_PATH": str(tmp_path / "qwen.gguf"),
         "PVAI_DATA_DIR": str(tmp_path),
+        # Git Bash's default /tmp is outside the writable scope of a sandboxed
+        # run (mktemp then fails); the launcher's own temp files must not depend
+        # on that.  tmp_path belongs to this test.
+        "TMPDIR": str(tmp_path),
+        "TMP": str(tmp_path),
+        "TEMP": str(tmp_path),
     }
     completed = subprocess.run(
         # ``--exe`` skips the PATH lookup for a real llama-server: this test is

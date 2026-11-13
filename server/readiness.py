@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -137,12 +139,17 @@ def check_ws(settings: Any) -> dict[str, Any]:
             "enabled": False,
             "detail": "انتقال WebSocket صوتی خاموش است (PVAI_WS_ENABLED).",
         }
-    if not getattr(settings, "ws_token", ""):
+    tokens = settings.device_tokens() if hasattr(settings, "device_tokens") else {}
+    if not (getattr(settings, "ws_token", "") or tokens):
+        # ``PVAI_WS_TOKENS`` alone is a complete, documented configuration: the
+        # handshake accepts per-device tokens first and only then the shared
+        # one.  Checking ``ws_token`` alone reported a correctly configured
+        # per-device deployment as not ready.
         return {
             "ok": False,
             "enabled": True,
-            "detail": "PVAI_WS_ENABLED روشن است ولی PVAI_WS_TOKEN خالی است؛ "
-            "اتصال دستگاه‌ها عمداً رد می‌شود.",
+            "detail": "PVAI_WS_ENABLED روشن است ولی هیچ توکن دستگاهی تنظیم نشده "
+            "(PVAI_WS_TOKENS یا PVAI_WS_TOKEN)؛ اتصال دستگاه‌ها عمداً رد می‌شود.",
         }
     return {
         "ok": True,
@@ -198,6 +205,36 @@ def check_thinking_template(settings: Any, backend: dict[str, Any] | None) -> di
     }
 
 
+def _can_write(directory: Path) -> tuple[bool, str]:
+    """Actually create and delete a probe file instead of trusting ``is_dir()``.
+
+    ``Path.is_dir()`` says nothing about write permission: a read-only mount, a
+    directory owned by another account, or a Windows folder with ``Everyone:
+    read`` all report ``True``.  Readiness used to accept those, so the first
+    persisted turn failed at runtime with an OSError instead of startup telling
+    the operator which path is unwritable.  The probe file is removed again;
+    nothing else is written.
+    """
+    handle = None
+    try:
+        handle = tempfile.NamedTemporaryFile(
+            dir=str(directory), prefix=".pvai-write-probe-", suffix=".tmp", delete=False
+        )
+        handle.write(b"ok")
+        handle.flush()
+        return True, ""
+    except OSError as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    finally:
+        if handle is not None:
+            name = handle.name
+            handle.close()
+            try:
+                os.unlink(name)
+            except OSError:
+                pass
+
+
 def check_storage(settings: Any) -> dict[str, Any]:
     if not getattr(settings, "history_persist", False):
         return {"ok": True, "skipped": True, "detail": "ذخیره‌سازی محلی خاموش است."}
@@ -207,14 +244,11 @@ def check_storage(settings: Any) -> dict[str, Any]:
     probe = root
     while not probe.exists() and probe != probe.parent:
         probe = probe.parent
-    try:
-        writable = probe.is_dir() and probe.exists()
-    except OSError:
-        writable = False
+    writable, reason = _can_write(probe)
     if not writable:
         return {
             "ok": False,
-            "detail": f"مسیر دادهٔ محلی قابل نوشتن نیست: {root}",
+            "detail": f"مسیر دادهٔ محلی قابل نوشتن نیست: {root} ({reason})",
             "path": str(root),
         }
     return {"ok": True, "detail": "ذخیره‌سازی محلی آماده است.", "path": str(root)}

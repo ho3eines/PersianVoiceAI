@@ -1,0 +1,561 @@
+{
+  "created_at": "2026-11-13T16:01:47.063214+03:30",
+  "mode": "local_only",
+  "device": {
+    "input": "Microphone (Realtek High Defini",
+    "output": "Speakers (Realtek High Definiti",
+    "input_index": 1,
+    "output_index": 3,
+    "sample_rate_hz": 16000,
+    "block_ms": 20,
+    "host_api": "MME"
+  },
+  "settings": {
+    "filter_ms": 250,
+    "delay_ms": 40,
+    "library": "D:\\PersianVoiceAI\\models\\speexdsp\\Library\\bin\\speexdsp.dll"
+  },
+  "echo_run": {
+    "stimulus": "speech",
+    "seconds": 12.79,
+    "text": "سلام. امروز هوا خوب است و من در خانه هستم. لطفاً بگویید فردا چه کاری انجام دهم و چه ساعتی به تو زنگ بزنم. دمای اتاق الان بیست و یک درجه است.",
+    "stats": {
+      "callbacks": 760,
+      "jitter_ms": 20.0,
+      "max_jitter_ms": 43.0,
+      "frame_mismatch": 0,
+      "last_frames": 320
+    },
+    "overflow": false
+  },
+  "acoustic_delay_ms": 358,
+  "acoustic_delay_prominence": 24.6,
+  "echo_path_snr_db": 19.72,
+  "delay_sweep": [
+    {
+      "delay_ms": 0,
+      "erle_db": 0.01,
+      "erle_total_db": 0.34
+    },
+    {
+      "delay_ms": 20,
+      "erle_db": 0.02,
+      "erle_total_db": 0.34
+    },
+    {
+      "delay_ms": 40,
+      "erle_db": 0.01,
+      "erle_total_db": 0.32
+    },
+    {
+      "delay_ms": 60,
+      "erle_db": 0.01,
+      "erle_total_db": 0.33
+    },
+    {
+      "delay_ms": 80,
+      "erle_db": 0.02,
+      "erle_total_db": 0.33
+    },
+    {
+      "delay_ms": 100,
+      "erle_db": 3.29,
+      "erle_total_db": 2.14
+    },
+    {
+      "delay_ms": 120,
+      "erle_db": 6.08,
+      "erle_total_db": 3.29
+    },
+    {
+      "delay_ms": 140,
+      "erle_db": 6.39,
+      "erle_total_db": 3.39
+    },
+    {
+      "delay_ms": 160,
+      "erle_db": 6.47,
+      "erle_total_db": 3.48
+    },
+    {
+      "delay_ms": 180,
+      "erle_db": 6.49,
+      "erle_total_db": 3.46
+    },
+    {
+      "delay_ms": 200,
+      "erle_db": 6.51,
+      "erle_total_db": 3.43
+    },
+    {
+      "delay_ms": 220,
+      "erle_db": 6.54,
+      "erle_total_db": 3.47
+    },
+    {
+      "delay_ms": 240,
+      "erle_db": 6.59,
+      "erle_total_db": 3.52
+    },
+    {
+      "delay_ms": 260,
+      "erle_db": 6.69,
+      "erle_total_db": 3.54
+    },
+    {
+      "delay_ms": 280,
+      "erle_db": 6.73,
+      "erle_total_db": 3.54
+    },
+    {
+      "delay_ms": 300,
+      "erle_db": 6.75,
+      "erle_total_db": 3.51
+    },
+    {
+      "delay_ms": 320,
+      "erle_db": 6.74,
+      "erle_total_db": 3.51
+    },
+    {
+      "delay_ms": 340,
+      "erle_db": 6.82,
+      "erle_total_db": 3.56
+    },
+    {
+      "delay_ms": 360,
+      "erle_db": 1.04,
+      "erle_total_db": 0.85
+    },
+    {
+      "delay_ms": 380,
+      "erle_db": 0.01,
+      "erle_total_db": 0.32
+    },
+    {
+      "delay_ms": 400,
+      "erle_db": 0.02,
+      "erle_total_db": 0.33
+    },
+    {
+      "delay_ms": 420,
+      "erle_db": -0.02,
+      "erle_total_db": 0.29
+    },
+    {
+      "delay_ms": 440,
+      "erle_db": 0.01,
+      "erle_total_db": 0.32
+    },
+    {
+      "delay_ms": 460,
+      "erle_db": 0.01,
+      "erle_total_db": 0.32
+    },
+    {
+      "delay_ms": 480,
+      "erle_db": 0.01,
+      "erle_total_db": 0.32
+    },
+    {
+      "delay_ms": 500,
+      "erle_db": 0.01,
+      "erle_total_db": 0.32
+    }
+  ],
+  "erle": {
+    "configured_delay_ms": 40,
+    "configured_erle_db": 0.01,
+    "calibrated_delay_ms": 340,
+    "calibrated_erle_db": 6.82,
+    "calibrated_erle_total_db": 3.56,
+    "cpu_ms_per_frame": 0.1519,
+    "rtf": 0.0076
+  },
+  "convergence": [
+    {
+      "t_s": 0.0,
+      "erle_db": null,
+      "echo_rms": 0.00087
+    },
+    {
+      "t_s": 0.5,
+      "erle_db": null,
+      "echo_rms": 0.00159
+    },
+    {
+      "t_s": 1.0,
+      "erle_db": 0.02,
+      "echo_rms": 0.00256
+    },
+    {
+      "t_s": 1.5,
+      "erle_db": 4.14,
+      "echo_rms": 0.01755
+    },
+    {
+      "t_s": 2.0,
+      "erle_db": 2.11,
+      "echo_rms": 0.01637
+    },
+    {
+      "t_s": 2.5,
+      "erle_db": 7.65,
+      "echo_rms": 0.01882
+    },
+    {
+      "t_s": 3.0,
+      "erle_db": 6.57,
+      "echo_rms": 0.01287
+    },
+    {
+      "t_s": 3.5,
+      "erle_db": 5.33,
+      "echo_rms": 0.01363
+    },
+    {
+      "t_s": 4.0,
+      "erle_db": 5.68,
+      "echo_rms": 0.01559
+    },
+    {
+      "t_s": 4.5,
+      "erle_db": 2.57,
+      "echo_rms": 0.00672
+    },
+    {
+      "t_s": 5.0,
+      "erle_db": 6.02,
+      "echo_rms": 0.00825
+    },
+    {
+      "t_s": 5.5,
+      "erle_db": 4.32,
+      "echo_rms": 0.01202
+    },
+    {
+      "t_s": 6.0,
+      "erle_db": null,
+      "echo_rms": 0.00138
+    },
+    {
+      "t_s": 6.5,
+      "erle_db": 8.56,
+      "echo_rms": 0.02531
+    },
+    {
+      "t_s": 7.0,
+      "erle_db": 7.6,
+      "echo_rms": 0.01271
+    },
+    {
+      "t_s": 7.5,
+      "erle_db": 8.02,
+      "echo_rms": 0.01544
+    },
+    {
+      "t_s": 8.0,
+      "erle_db": 5.15,
+      "echo_rms": 0.01122
+    },
+    {
+      "t_s": 8.5,
+      "erle_db": 8.4,
+      "echo_rms": 0.01826
+    },
+    {
+      "t_s": 9.0,
+      "erle_db": 4.46,
+      "echo_rms": 0.00922
+    },
+    {
+      "t_s": 9.5,
+      "erle_db": 4.69,
+      "echo_rms": 0.01007
+    },
+    {
+      "t_s": 10.0,
+      "erle_db": -0.67,
+      "echo_rms": 0.00299
+    },
+    {
+      "t_s": 10.5,
+      "erle_db": 7.67,
+      "echo_rms": 0.01493
+    },
+    {
+      "t_s": 11.0,
+      "erle_db": 8.03,
+      "echo_rms": 0.01764
+    },
+    {
+      "t_s": 11.5,
+      "erle_db": 5.04,
+      "echo_rms": 0.0087
+    },
+    {
+      "t_s": 12.0,
+      "erle_db": null,
+      "echo_rms": 0.00162
+    },
+    {
+      "t_s": 12.5,
+      "erle_db": 4.72,
+      "echo_rms": 0.00516
+    },
+    {
+      "t_s": 13.0,
+      "erle_db": 4.73,
+      "echo_rms": 0.00605
+    },
+    {
+      "t_s": 13.5,
+      "erle_db": null,
+      "echo_rms": 0.00158
+    },
+    {
+      "t_s": 14.0,
+      "erle_db": 0.05,
+      "echo_rms": 0.00347
+    },
+    {
+      "t_s": 14.5,
+      "erle_db": null,
+      "echo_rms": 0.00137
+    }
+  ],
+  "erle_at_10s_db": -0.67,
+  "filter_sweep": [
+    {
+      "filter_ms": 250,
+      "erle_db": 6.82,
+      "cpu_ms_per_frame": 0.1433,
+      "rtf": 0.0072
+    },
+    {
+      "filter_ms": 500,
+      "erle_db": 6.85,
+      "cpu_ms_per_frame": 0.2031,
+      "rtf": 0.0102
+    },
+    {
+      "filter_ms": 1000,
+      "erle_db": 6.65,
+      "cpu_ms_per_frame": 0.3113,
+      "rtf": 0.0156
+    }
+  ],
+  "vad": {
+    "raw": {
+      "onset": 2,
+      "segment": 1,
+      "rejected": 0
+    },
+    "aec": {
+      "onset": 2,
+      "segment": 1,
+      "rejected": 0
+    }
+  },
+  "noise_crosscheck": {
+    "echo_snr_db": 8.22,
+    "erle_db": 7.05,
+    "note": "Windows/Realtek microphone processing adapts to stationary noise within seconds, so this SNR is much lower than for speech and the ERLE number must not be compared with the speech one."
+  },
+  "doubletalk": {
+    "near_frequency_hz": 2500.0,
+    "near_amplitudes": {
+      "before": 0.00734,
+      "after": 0.00719
+    },
+    "near_retention_db": -0.17,
+    "echo_erle_db": 3.26,
+    "near_only_reference_amp": 0.00624,
+    "proxy_warning": "Near-end was emitted by the same speaker without being part of the AEC reference. It exercises the canceller acoustically but is not human speech at a real distance; do not call it a human double-talk measurement."
+  },
+  "metrics": [
+    {
+      "metric": "frames_captured",
+      "value": 759,
+      "unit": "frames",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "metric": "frame_mismatch",
+      "value": 0,
+      "unit": "count",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "metric": "callback_overflow",
+      "value": 0,
+      "unit": "flag",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "metric": "max_jitter_ms",
+      "value": 43.0,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "metric": "echo_seconds",
+      "value": 12.79,
+      "unit": "s",
+      "status": "MEASURED",
+      "note": "speech stimulus"
+    },
+    {
+      "metric": "acoustic_delay_ms",
+      "value": 358,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": "mic echo vs played reference (prominence 24.6)"
+    },
+    {
+      "metric": "echo_path_snr_db",
+      "value": 19.72,
+      "unit": "dB",
+      "status": "MEASURED",
+      "note": "echo band vs pre-playback room noise"
+    },
+    {
+      "metric": "echo_band_rms",
+      "value": 0.01259,
+      "unit": "rms",
+      "status": "MEASURED",
+      "note": "300–3000 Hz at the microphone"
+    },
+    {
+      "metric": "best_delay_ms",
+      "value": 340,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": "ERLE 6.82 dB"
+    },
+    {
+      "metric": "configured_delay_ms",
+      "value": 40,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": "PVAI_AEC_DELAY_MS default in .env"
+    },
+    {
+      "metric": "erle_db",
+      "value": 0.01,
+      "unit": "dB",
+      "status": "MEASURED",
+      "note": "300–2000 Hz at the configured 40 ms delay"
+    },
+    {
+      "metric": "erle_db_calibrated",
+      "value": 6.82,
+      "unit": "dB",
+      "status": "MEASURED",
+      "note": "300–2000 Hz at the calibrated 340 ms delay"
+    },
+    {
+      "metric": "erle_total_db",
+      "value": 3.56,
+      "unit": "dB",
+      "status": "MEASURED",
+      "note": "60–7000 Hz at the calibrated delay"
+    },
+    {
+      "metric": "aec_cpu_ms_per_frame",
+      "value": 0.1519,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "metric": "aec_rtf",
+      "value": 0.0076,
+      "unit": "x",
+      "status": "MEASURED",
+      "note": "process() time / 20 ms of audio"
+    },
+    {
+      "metric": "best_filter_ms",
+      "value": 500,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": "ERLE 6.85 dB, CPU 0.2031 ms/frame"
+    },
+    {
+      "metric": "vad_onsets_raw_echo",
+      "value": 2,
+      "unit": "count",
+      "status": "MEASURED",
+      "note": "no AEC: echo triggers the detector"
+    },
+    {
+      "metric": "vad_onsets_after_aec",
+      "value": 2,
+      "unit": "count",
+      "status": "MEASURED",
+      "note": "same detector, AEC output"
+    },
+    {
+      "metric": "vad_rejected_raw",
+      "value": 0,
+      "unit": "count",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "metric": "vad_rejected_after_aec",
+      "value": 0,
+      "unit": "count",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "metric": "noise_echo_snr_db",
+      "value": 8.22,
+      "unit": "dB",
+      "status": "MEASURED",
+      "note": "stationary noise, same device"
+    },
+    {
+      "metric": "noise_erle_db",
+      "value": 7.05,
+      "unit": "dB",
+      "status": "MEASURED",
+      "note": "stationary noise at the calibrated delay"
+    },
+    {
+      "metric": "doubletalk_near_line_before",
+      "value": 0.00734,
+      "unit": "amp",
+      "status": "MEASURED",
+      "note": "at the microphone"
+    },
+    {
+      "metric": "doubletalk_near_line_after",
+      "value": 0.00719,
+      "unit": "amp",
+      "status": "MEASURED",
+      "note": "AEC output"
+    },
+    {
+      "metric": "doubletalk_near_retention_db",
+      "value": -0.17,
+      "unit": "dB",
+      "status": "MEASURED",
+      "note": "0 dB = near-end untouched"
+    },
+    {
+      "metric": "doubletalk_echo_erle_db",
+      "value": 3.26,
+      "unit": "dB",
+      "status": "MEASURED",
+      "note": "300–3000 Hz under double-talk"
+    }
+  ],
+  "warning": "MEASURED on this machine, this room and this run only. Built-in microphone and speakers of the same laptop: a real acoustic path, not a distant-microphone living room, not ESP32-S3, and not a human double-talk test. Captured audio was not written to disk."
+}

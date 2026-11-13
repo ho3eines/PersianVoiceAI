@@ -23,7 +23,8 @@ allocation-heavy work per block beyond the RMS loop, and every threshold is
 configurable (see ``docs/CONFIGURATION.md``).
 
 A transport-independent adapter for a future neural VAD is intentionally *not*
-added; ``PVAI_VAD_BACKEND`` exists in the documentation as a design note only.
+added: a WebRTC/Silero backend needs an installed native dependency and a
+measured comparison against this detector before it earns a configuration flag.
 """
 
 from __future__ import annotations
@@ -35,7 +36,13 @@ from collections import deque
 from dataclasses import dataclass
 
 FRAME_SECONDS = 0.02
-"""Audio block duration assumed by the detector (20 ms, 320 samples @ 16 kHz)."""
+"""Default audio block duration (20 ms, 320 samples @ 16 kHz).
+
+Only the default: ``PVAI_AUDIO_BLOCK_MS`` can be 10, 20 or 40, so the detector
+stores the block length it was built with (``block_ms``) and reports its
+delays from that.  Converting ``frames`` with this constant unconditionally
+reported the onset delay doubled at 10 ms and halved at 40 ms.
+"""
 
 ONSET = "onset"
 """A speech onset was claimed: an utterance is now open."""
@@ -108,9 +115,12 @@ class EnergyVAD:
         noise_adapt: bool = False,
         noise_multiplier: float = 2.5,
         noise_alpha: float = 0.05,
+        block_ms: float = FRAME_SECONDS * 1000,
     ) -> None:
         if threshold <= 0:
             raise ValueError("VAD threshold must be positive")
+        if block_ms <= 0:
+            raise ValueError("VAD block length must be positive")
         if offset_threshold is not None and not 0 < offset_threshold <= threshold:
             raise ValueError("VAD offset threshold must be in (0, threshold]")
         self.threshold = float(threshold)
@@ -123,6 +133,7 @@ class EnergyVAD:
         self.noise_adapt = bool(noise_adapt)
         self.noise_multiplier = float(noise_multiplier)
         self.noise_alpha = float(noise_alpha)
+        self.block_ms = float(block_ms)
 
         self._ring: deque[bytes] = deque(maxlen=max(self.onset_frames + self.pre_roll_frames, 1))
         self.frames: list[bytes] = []
@@ -260,11 +271,11 @@ class EnergyVAD:
     # ------------------------------------------------------------- diagnostics
     def onset_delay_ms(self) -> float:
         """Detection delay of the last onset in milliseconds (block quantised)."""
-        return self.onset_frames * FRAME_SECONDS * 1000
+        return self.onset_frames * self.block_ms
 
     def endpoint_delay_ms(self) -> float:
         """Detection delay of the endpoint in milliseconds (block quantised)."""
-        return self.silence_frames * FRAME_SECONDS * 1000
+        return self.silence_frames * self.block_ms
 
     def describe(self) -> dict[str, float | int | bool]:
         return {
@@ -278,6 +289,9 @@ class EnergyVAD:
             "max_frames": self.max_frames,
             "pre_roll_frames": self.pre_roll_frames,
             "min_voiced_frames": self.min_voiced_frames,
+            "block_ms": self.block_ms,
+            "onset_delay_ms": round(self.onset_delay_ms(), 3),
+            "endpoint_delay_ms": round(self.endpoint_delay_ms(), 3),
         }
 
 
@@ -294,4 +308,5 @@ def build_vad(settings) -> EnergyVAD:  # noqa: ANN001 - avoids a config import c
         pre_roll_frames=max(0, round(settings.voice_vad_pre_roll_ms / block_ms)),
         noise_adapt=settings.voice_vad_noise_adapt,
         noise_multiplier=settings.voice_vad_noise_multiplier,
+        block_ms=block_ms,
     )

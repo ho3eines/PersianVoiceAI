@@ -50,6 +50,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable
 
+import httpx
 from fastapi import APIRouter, WebSocket
 
 from .config import Settings
@@ -77,7 +78,17 @@ CLOSE_UNAUTHORIZED = 1008
 CLOSE_UNAVAILABLE = 1011
 CLOSE_TRY_AGAIN = 1013
 CLOSE_GOING_AWAY = 1001
-HANDSHAKE_TIMEOUT_S = 3.0
+HANDSHAKE_TIMEOUT_S = 10.0
+"""How long a freshly accepted socket has to send ``hello`` (docs/PROTOCOL.md §۶).
+
+This used to be 3 s.  The first frame is not a plain TCP write on the target
+hardware: an ESP32-S3 completes a TLS handshake, allocates its WebSocket
+buffers and *then* sends the first text frame, which routinely takes longer
+than 3 s on a busy 2.4 GHz network.  A too-short deadline therefore closed
+connections of correctly working devices with ``handshake_timeout``.  The
+rate/half-open limits (``WsCounters.handshake_enter``) are what bound memory,
+so the deadline itself can stay generous.
+"""
 PLAYBACK_FRAME_BYTES = 640  # 20 ms of PCM16 mono at 16 kHz
 SINK_QUEUE_FRAMES = 250  # ~5 s of playback backpressure before synthesis blocks
 PLAYBACK_FRAME_MS = 20.0
@@ -227,6 +238,18 @@ class ModelPool:
                 # connection that may already have gone away.
             return self._audio
 
+    def preload(self, settings: Settings) -> None:
+        """Load and warm the shared Whisper model before the first device connects.
+
+        Without this the first ESP32 connection pays the full model load
+        (tens of seconds on a two-core CPU) and its first utterance times out.
+        """
+        audio = self.audio(settings, Metrics(enabled=settings.metrics_enabled))
+        warmup = getattr(audio, "warmup", None)
+        if callable(warmup):
+            warmup()
+            logger.info("Whisper model preloaded for the LAN voice transport")
+
     def piper_voice(self, settings: Settings, voice: str) -> Any:
         """The loaded Piper model for ``voice`` (``male``/``female`` only)."""
         key = (voice or settings.tts_voice or "female").strip().lower()
@@ -265,6 +288,7 @@ class ModelPool:
             self.asr_metrics = None
             self._voices.clear()
             self._voice_locks.clear()
+            self.telemetry = {"asr_loads": 0, "voice_loads": 0, "hits": 0}
         if audio is not None:
             closer = getattr(audio, "close", None)
             if callable(closer):
@@ -880,6 +904,36 @@ class VoiceWebSocket:
 
         ConversationStore.sanitize(session_id)
 
+    async def _probe_local_api(self) -> None:
+        """Best-effort check that the internal REST API accepts our token.
+
+        The pipeline talks to this service over HTTP, so a *missing* internal
+        ``PVAI_API_TOKEN`` produces a 401 for every turn: the device would hear
+        nothing and the only clue was a generic stream error.  This probe turns
+        that into the specific ``api_auth_failed`` refusal.
+
+        It must never break the connection for any other reason.  The previous
+        version named ``httpx`` without importing it at module level; because
+        the call sits behind ``await``, the ``NameError`` was raised *inside*
+        the outer ``except Exception`` arm and every device was refused with
+        ``voice_unavailable`` whenever ``/ready`` was unreachable (which is the
+        normal case for an offline install and also for a 401).  Bounded by a
+        short timeout for the same reason: an unreachable API must not stall
+        the handshake.
+        """
+        from .voice import assert_local_api_authorized
+
+        client = getattr(self.bundle, "client", None)
+        if client is None:
+            return
+        try:
+            response = await client.get("/ready", timeout=2.0)
+        except (httpx.HTTPError, TimeoutError, OSError):
+            return  # no server, or no time: the pipeline reports stream errors
+        # ``assert_local_api_authorized`` raises ``VoiceError`` (401 only), which
+        # ``_open_pipeline`` turns into ``api_auth_failed``.
+        assert_local_api_authorized(response)
+
     async def _open_pipeline(self) -> bool:
         # ``resume=False`` only disables the *implicit* default: a device that
         # asked for a ``session_id`` still resumes that session, while a device
@@ -931,11 +985,7 @@ class VoiceWebSocket:
             )
             speaker = await asyncio.to_thread(self.bundle.speaker_for, self.voice)
             if self.bundle_factory is default_bundle:
-                from .voice import assert_local_api_authorized
-                try:
-                    assert_local_api_authorized(await self.bundle.client.get("/ready"))
-                except httpx.HTTPError:
-                    pass  # no server: stream failure is reported by the pipeline
+                await self._probe_local_api()
         except VoiceError as exc:
             await self._reject("api_auth_failed", str(exc), CLOSE_UNAVAILABLE)
             return False

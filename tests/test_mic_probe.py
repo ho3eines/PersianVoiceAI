@@ -56,6 +56,23 @@ def test_probe_rejects_a_non_positive_capture(probe) -> None:
     assert "positive" in str(caught.value)
 
 
+def test_probe_refuses_a_block_length_the_service_would_not_use(probe) -> None:
+    """``--block-ms 40`` must not silently be measured as if it were 20 ms.
+
+    The detector converts frame counts to milliseconds with the block length it
+    was built with, so a probe flag that disagreed with ``PVAI_AUDIO_BLOCK_MS``
+    produced segment durations and onset/endpoint delays that were simply wrong
+    while still being labelled MEASURED.
+    """
+    with pytest.raises(SystemExit) as caught:
+        probe.main(["--block-ms", "0"])
+    assert "positive" in str(caught.value)
+
+    with pytest.raises(SystemExit) as caught:
+        probe.main(["--block-ms", "30"])
+    assert "10, 20 or 40" in str(caught.value)
+
+
 def test_device_resolution_finds_an_input_by_name(probe) -> None:
     class FakeSD:
         def query_devices(self):

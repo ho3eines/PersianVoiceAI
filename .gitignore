@@ -1,4 +1,4 @@
-﻿.venv/
+.venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -15,6 +15,11 @@ data/conversations/
 data/feedback/
 data/knowledge/
 *.log
+# pytest falls back to the repository directory when no system temp dir is
+# usable, so its numbered temp tree may appear here; it is disposable.
+pytest-of-*/
+# Runtime logs and ready/bench captures from manual runs (local evidence).
+logs/
 .DS_Store
 Thumbs.db
 .vscode/
