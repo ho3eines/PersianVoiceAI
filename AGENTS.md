@@ -79,11 +79,15 @@ PersianVoiceAI/
 │  ├─ BENCHMARKS.md       ← روش‌شناسی و نتایج برچسب‌دار
 │  ├─ TROUBLESHOOTING.md  ← پیام‌های خطا و راه‌حل
 │  ├─ PC_VOICE.md         ← نصب و اجرای صوت PC
+│  ├─ WEB_UI.md           ← میز تست وب یک‌نوبتی (صحبت/تایپ → رونویسی → پاسخ → صدا)
 │  ├─ PLATFORMS.md        ← Windows/Linux، اسکریپت‌ها، تفاوت‌ها
 │  ├─ AUDIT_REPORT.md     ← گزارش بازبینی (سند تاریخی)
 │  └─ HARDWARE_VALIDATION.md ← چک‌لیست تست واقعی
+├─ web/
+│  └─ index.html          ← صفحهٔ تک‌فایلی میز تست (RTL، push-to-talk، پخش پاسخ)
 ├─ server/                ← سرویس محلی پایتون (FastAPI)
 │  ├─ main.py             ← اپ FastAPI، /ready، /api/sessions، OpenAI-compatible
+│  ├─ webui.py            ← میز تست یک‌نوبتی: ضبط→ASR→LLM→TTS در مرورگر (loopback)
 │  ├─ llm.py              ← کلاینت async llama.cpp + اندازه‌گیری زمان
 │  ├─ config.py           ← تنظیمات از env / .env (PVAI_*) + اعتبارسنجی
 │  ├─ voice.py            ← LocalAudio (Whisper) و CLI حالت turn-based
@@ -110,6 +114,7 @@ PersianVoiceAI/
 ├─ benchmarks/            ← پرامپت‌های متنی + persian_eval.py + persian_eval_set.json
 ├─ tools/                 ← اسکریپت‌های .ps1 و .sh + benchmark_voice.py + download_parallel.py
 │                             + prepare_dataset.py / train_plan.py / training_config.py
+│                             + start_webui.ps1/.sh (میز تست وب یک‌نوبتی)
 │                             + mic_probe.py (ضبط میکروفون واقعی → VAD → Whisper)
 │                             + aec_room_measure.py (AEC روی مسیر آکوستیک واقعی)
 ├─ models/                ← مدل‌های محلی GGUF (خارج از git)

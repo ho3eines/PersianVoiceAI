@@ -689,7 +689,7 @@ Model weights are not stored in this repository and retain their respective lice
 
 ## بخش 2 — docs/STATUS.md
 
-# وضعیت اجرایی پروژه — PersianVoiceAI Conversation Engine
+﻿# وضعیت اجرایی پروژه — PersianVoiceAI Conversation Engine
 
 آخرین به‌روزرسانی: ۹ نوامبر ۲۰۲۶ — رفع باگ‌های گزارش‌شده، بازبینی مدل‌فری و مستندسازی؛
 مرحلهٔ ۱ تا ۶ پیشین: رفع P0، بهبود خط لولهٔ صوتی، ماندگاری مکالمه،
@@ -731,6 +731,7 @@ commit `9654a68` و شاخهٔ `arena/31347dde-persianvoiceai` فقط سابقه
 | ارزیابی فارسی WER/CER | مجموعهٔ ۴۰ جمله + ۶ کلیپ `no_speech` + ابزار؛ اعداد واقعی **NOT MEASURED** | `benchmarks/persian_eval.py` |
 | نرخ پذیرش کاذب روی سکوت/نویز | سنجه و ورودی‌ها آماده؛ عدد واقعی **NOT MEASURED** (بدون wav) | `benchmarks/persian_eval.py`, `server/persian.py` |
 | پروتکل و **transport سمت سرور** WebSocket صوتی (`WS /ws/voice`) | پیاده‌شده + تست (fake)؛ توکن per-device، سقف اتصال، pacing، heartbeat، فریم ۲۰ms اجباری | `server/protocol.py`, `server/ws_voice.py`, `tests/test_ws_voice.py` |
+| **میز تست وب یک‌نوبتی** (صحبت/تایپ → ASR → LLM → TTS در مرورگر) | پیاده‌شده + تست (fake)؛ یک چرخهٔ واقعی mic→Whisper→llama.cpp→Piper هم روی همین لپ‌تاپ اجرا شد | `server/webui.py`, `web/index.html`, `tests/test_webui.py`, `docs/WEB_UI.md` |
 | امنیت REST (`PVAI_API_TOKEN`، rate limit، `/health` حداقلی) | پیاده‌شده + تست | `server/security.py`, `server/main.py`, `tests/test_ws_security.py` |
 | firmware ESP32-S3، OTA، تست LAN واقعی | **پیاده‌نشده / NOT MEASURED** | — |
 | Command Broker فاز اول (schema، policy، audit، فقط `FakeDevice`) | پیاده‌شده + تست؛ **SIMULATED** (هیچ GPIO/رله واقعی وصل نیست)؛ به ASR/LLM وصل نشده | `server/broker.py`, `tests/test_broker.py` |
@@ -744,7 +745,7 @@ $ python -m pytest
 ```
 
 - آخرین اجرای کامل `pytest -q` در این مخزن: exit 0، بدون شکست (MEASURED). تست‌های `test_ws_security.py` که `reset()` را با warmup واقعی Whisper در پس‌زمینه معطل می‌کردند، با `asr_warmup=False` بی‌خطر شدند.
-- تعداد تست‌های مجموعه (pytest --collect-only): **1215** تست — این تنها عدد
+- تعداد تست‌های مجموعه (pytest --collect-only): **1227** تست — این تنها عدد
   مجاز است و `tests/test_docs_consistency.py` آن را با خروجی واقعی
   `pytest --collect-only` مقایسه می‌کند؛ عدد کهنه ⇒ تست قرمز. بقیهٔ اعداد این
   سند **تاریخی** و مربوط به همان مرحله‌اند.
@@ -1175,6 +1176,33 @@ startup **بلاک نمی‌شود**: thread جدا و daemon است، پس `/he
 - در همین اجرا دو نقص برچسب‌گذاری پیدا و رفع شد: ردیف بدون مقدار دیگر `MEASURED` برچسب
   نمی‌خورد، و سقف انتظار ۶۰ ثانیه‌ای به‌عنوان `turn_total_ms`/`turn_latency` گزارش نمی‌شود
   (`tests/test_benchmark_tools.py`).
+
+## تست زندهٔ یک‌نوبتی و میز تست وب — ۱۳ نوامبر ۲۰۲۶
+
+روی همین لپ‌تاپ (Realtek MME، بلندگوی توکار، AEC خاموش برای این تست) زنجیرهٔ واقعی
+«میکروفون → VAD → Whisper-small → llama.cpp (Qwen3.5-4B) → Piper» یک‌بار کامل اجرا شد
+(ابزار موقت probe، بعد با `server/webui.py` جایگزین شد):
+
+| سنجه | مقدار | برچسب |
+|---|---|---|
+| طول utterance ضبط‌شده | ۷٫۶ s | MEASURED |
+| زمان رونویسی Whisper (`asr_ms`) | ۳۵٫۶ s (RTF ۴٫۶۹) | MEASURED |
+| کیفیت رونویسی | متن فارسی نادرست/نامفهوم | MEASURED (منفی) |
+| پاسخ LLM | «متوجه نشدم…» (صداقت درست، ولی ورودی خراب بود) | MEASURED |
+| زمان پاسخ LLM (`wall_ms`) | ~۳۹٫۹ s (بیشتر prompt-eval؛ ~۲۷ s) | MEASURED |
+| پخش پاسخ Piper | ۲۱٫۵ s | MEASURED |
+
+- **علت اصلی، ASR است نه LLM:** با متن تمیز و مستقیم، LLM فارسی را درست می‌فهمد
+  (پایتخت ایران، پیشنهاد عملی؛ حساب وقتی «فقط عدد» خواسته شد: «چهار»، «نُه»؛ یک نمونه هم
+  اشتباه «شش» داد). با `PVAI_LLM_ENABLE_THINKING=true` پاسخ ۱۴۱ s و ۵۱۲ توکن reasoning با
+  `content` خالی بود ⇒ برای صدا خاموش می‌ماند.
+- **حلقهٔ زندهٔ پیوسته روی این CPU قابل استفاده نیست:** در اجرای `python -m server.voice`،
+  الگوهای گفتار پشت‌سرهم صف final را پر کرد؛ `dispatch_wait_ms` تا ۱۳۷ s رسید،
+  پیام «ورودی صوت عقب افتاد؛ نوبت جاری حذف شد» آمد و رونویسی اولین utterance خالی بود.
+  یعنی محدودیت RTF همان Whisper است، نه باگ صف.
+- **راه‌حل موقت برای تست:** یک‌نوبت در هر لحظه + رونویسی قابل‌ویرایش در میز تست وب
+  ([WEB_UI.md](WEB_UI.md)): صفحه روی loopback، push-to-talk، ارسال `POST /api/turn`،
+  نمایش متن شنیده‌شده و پخش WAV برگشتی. تست‌های fake: `tests/test_webui.py` (۸ تست).
 
 ---
 
@@ -3808,11 +3836,15 @@ PersianVoiceAI/
 │  ├─ BENCHMARKS.md       ← روش‌شناسی و نتایج برچسب‌دار
 │  ├─ TROUBLESHOOTING.md  ← پیام‌های خطا و راه‌حل
 │  ├─ PC_VOICE.md         ← نصب و اجرای صوت PC
+│  ├─ WEB_UI.md           ← میز تست وب یک‌نوبتی (صحبت/تایپ → رونویسی → پاسخ → صدا)
 │  ├─ PLATFORMS.md        ← Windows/Linux، اسکریپت‌ها، تفاوت‌ها
 │  ├─ AUDIT_REPORT.md     ← گزارش بازبینی (سند تاریخی)
 │  └─ HARDWARE_VALIDATION.md ← چک‌لیست تست واقعی
+├─ web/
+│  └─ index.html          ← صفحهٔ تک‌فایلی میز تست (RTL، push-to-talk، پخش پاسخ)
 ├─ server/                ← سرویس محلی پایتون (FastAPI)
 │  ├─ main.py             ← اپ FastAPI، /ready، /api/sessions، OpenAI-compatible
+│  ├─ webui.py            ← میز تست یک‌نوبتی: ضبط→ASR→LLM→TTS در مرورگر (loopback)
 │  ├─ llm.py              ← کلاینت async llama.cpp + اندازه‌گیری زمان
 │  ├─ config.py           ← تنظیمات از env / .env (PVAI_*) + اعتبارسنجی
 │  ├─ voice.py            ← LocalAudio (Whisper) و CLI حالت turn-based
@@ -3839,6 +3871,7 @@ PersianVoiceAI/
 ├─ benchmarks/            ← پرامپت‌های متنی + persian_eval.py + persian_eval_set.json
 ├─ tools/                 ← اسکریپت‌های .ps1 و .sh + benchmark_voice.py + download_parallel.py
 │                             + prepare_dataset.py / train_plan.py / training_config.py
+│                             + start_webui.ps1/.sh (میز تست وب یک‌نوبتی)
 │                             + mic_probe.py (ضبط میکروفون واقعی → VAD → Whisper)
 │                             + aec_room_measure.py (AEC روی مسیر آکوستیک واقعی)
 ├─ models/                ← مدل‌های محلی GGUF (خارج از git)
