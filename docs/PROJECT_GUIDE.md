@@ -744,7 +744,7 @@ $ python -m pytest
 ```
 
 - آخرین اجرای کامل `pytest -q` در این مخزن: exit 0، بدون شکست (MEASURED). تست‌های `test_ws_security.py` که `reset()` را با warmup واقعی Whisper در پس‌زمینه معطل می‌کردند، با `asr_warmup=False` بی‌خطر شدند.
-- تعداد تست‌های مجموعه (pytest --collect-only): **1213** تست — این تنها عدد
+- تعداد تست‌های مجموعه (pytest --collect-only): **1215** تست — این تنها عدد
   مجاز است و `tests/test_docs_consistency.py` آن را با خروجی واقعی
   `pytest --collect-only` مقایسه می‌کند؛ عدد کهنه ⇒ تست قرمز. بقیهٔ اعداد این
   سند **تاریخی** و مربوط به همان مرحله‌اند.
@@ -1165,6 +1165,16 @@ startup **بلاک نمی‌شود**: thread جدا و daemon است، پس `/he
 
 این قابلیت‌ها هنوز **پیاده‌نشده** هستند و باید بعداً هرکدام جداگانه، با تست و اندازه‌گیری،
 اضافه شوند. مجموعهٔ تست سبز است و تعداد تست‌ها همان عدد زندهٔ `pytest --collect-only` است.
+
+## اجرای کامل بنچمارک با مدل‌های واقعی — ۱۳ نوامبر ۲۰۲۶
+
+- `duplex,bargein,combined` با Whisper-small + Piper + Qwen3.5-4B روی همین لپ‌تاپ اجرا شد
+  (گزارش خام: `benchmarks/results/voice-hw-20261113.json`؛ جزئیات: `docs/BENCHMARKS.md` §۴.۵).
+  ابزار ورودی گفتار واقعی ندارد (تُن مصنوعی) و Whisper آن را رونویسی نمی‌کند، پس هیچ نوبتی
+  کامل نشد و معیارهای تأخیر/`barge_in_latency_ms` همچنان `NOT MEASURED` ماندند.
+- در همین اجرا دو نقص برچسب‌گذاری پیدا و رفع شد: ردیف بدون مقدار دیگر `MEASURED` برچسب
+  نمی‌خورد، و سقف انتظار ۶۰ ثانیه‌ای به‌عنوان `turn_total_ms`/`turn_latency` گزارش نمی‌شود
+  (`tests/test_benchmark_tools.py`).
 
 ---
 
@@ -3028,6 +3038,45 @@ llm_backend) وضعیت `ok` و پیام فارسی می‌دهد و کل پاس
 | CPU/RAM در ASR+LLM+TTS هم‌زمان | NOT MEASURED |
 
 پس از اجرا، این جدول را با همان برچسب‌ها پر کنید و فایل JSON را در `benchmarks/results/` نگه دارید.
+
+## ۴.۵. اجرای سناریوهای گفتار کامل با مدل‌های واقعی — ۱۳ نوامبر ۲۰۲۶
+
+محیط: همان i7-6500U/Windows 11؛ Whisper-small int8 روی CPU، Piper `fa_IR`، و llama-server با
+Qwen3.5-4B-Q4_K_M (`--jinja`، `-ngl 0`، `-t 4`، ctx=4096). دستور:
+
+```text
+python tools/benchmark_voice.py --scenarios duplex,bargein,combined \
+    --json-out benchmarks/results/voice-hw-20261113.json
+```
+
+| سناریو | معیار | نتیجه | برچسب |
+|---|---|---|---|
+| duplex | `turns` | ۳ نوبت تغذیه شد | MEASURED |
+| duplex | `turn_latency_mean_ms` / `turn_latency_max_ms` | — (۶۰s سقف انتظار بود، نه تأخیر) | NOT MEASURED |
+| duplex | `messages_recorded` | ۰ | MEASURED |
+| duplex | `interrupted_turns` | ۰ | MEASURED |
+| duplex | `stale_completions_after_interrupt` | ۰ | MEASURED |
+| bargein | `barge_in_latency_ms` | — (دستیار هرگز به `speaking` نرسید) | NOT MEASURED |
+| combined | `asr_ms`, `asr_final_latency_ms`, `llm_ttft_ms`, `first_audible_ms`, `playback_duration_ms` | — (هیچ مقداری ثبت نشد) | NOT MEASURED |
+| combined | `vad_start_ms` / `vad_end_ms` | ۶۰ / ۶۰۰ | MEASURED |
+| combined | `turn_completed` | ۰ | MEASURED |
+
+**ریشهٔ نبودِ عدد (نه بهانه):** ابزار ورودی گفتار واقعی ندارد و «گفتار» را با تُن مصنوعی
+`frame()` می‌سازد (۲۴ فریم = ۴۸۰ms). Whisper روی این تُن متن فارسی تولید نمی‌کند؛ utterance
+رد می‌شود، پس LLM/TTS هرگز شروع نمی‌شوند و نوبت کامل نمی‌شود. بنابراین `duplex`/`bargein`/
+`combined` حتی با مدل‌های واقعی هنوز **قابل اندازه‌گیری نیستند** و عدد ۶۰ ثانیه‌ای سقف
+انتظار `_one_turn` بود، نه تأخیر.
+
+**نقص برچسب‌گذاری که در همین اجرا پیدا و رفع شد:** `Report.add` هر ردیف بدون مقدار (`None`)
+را به `NOT MEASURED` با یادداشت `value missing` تنزل می‌دهد، و `duplex`/`combined` وقتی نوبتی
+کامل نشده باشد عدد سقف انتظار را به‌عنوان تأخیر گزارش نمی‌کنند. تست‌ها:
+`tests/test_benchmark_tools.py::test_a_missing_value_is_never_labelled_measured` و
+`::test_a_timed_out_turn_reports_no_latency`.
+
+**راه واقعی برای پر کردن این ردیف‌ها:** ورودی گفتار واقعی لازم است — ضبط ۴۰ جمله و اجرای
+`benchmarks/persian_eval.py --audio-dir` برای کیفیت، و یک نشست واقعی با میکروفون برای تأخیر
+نوبت و barge-in (چک‌لیست [HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md)). تا آن زمان این
+معیارها `NOT MEASURED` می‌مانند و «تست‌شده» علامت نمی‌خورند.
 
 ## ۵. بنچمارک متنی (سابقه)
 

@@ -1,0 +1,150 @@
+{
+  "generated_at": "2026-11-13T16:00:18+00:00",
+  "environment": {
+    "python": "3.12.10",
+    "platform": "Windows-11-10.0.22621-SP0",
+    "processor": "Intel64 Family 6 Model 78 Stepping 3, GenuineIntel",
+    "cpu_count": 4,
+    "ram_total_mb": null,
+    "process_ram_mb": null,
+    "note": "single-run numbers; repeat and compare medians before quoting"
+  },
+  "rows": [
+    {
+      "scenario": "duplex",
+      "metric": "turns",
+      "value": 3.0,
+      "unit": "count",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "scenario": "duplex",
+      "metric": "turn_latency_mean_ms",
+      "value": null,
+      "unit": "ms",
+      "status": "NOT MEASURED",
+      "note": "no reply completed; the values are the 60 s wait deadline, not turn latency"
+    },
+    {
+      "scenario": "duplex",
+      "metric": "turn_latency_max_ms",
+      "value": null,
+      "unit": "ms",
+      "status": "NOT MEASURED",
+      "note": "no reply completed; the values are the 60 s wait deadline, not turn latency"
+    },
+    {
+      "scenario": "duplex",
+      "metric": "interrupted_turns",
+      "value": 0.0,
+      "unit": "count",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "scenario": "duplex",
+      "metric": "stale_completions_after_interrupt",
+      "value": 0.0,
+      "unit": "count",
+      "status": "MEASURED",
+      "note": "completed replies; compare with the number of turns asked"
+    },
+    {
+      "scenario": "duplex",
+      "metric": "messages_recorded",
+      "value": 0.0,
+      "unit": "count",
+      "status": "MEASURED",
+      "note": "no user utterance should be lost across turns"
+    },
+    {
+      "scenario": "bargein",
+      "metric": "barge_in_latency_ms",
+      "value": null,
+      "unit": "ms",
+      "status": "NOT MEASURED",
+      "note": "assistant was not speaking when the interruption arrived"
+    },
+    {
+      "scenario": "combined",
+      "metric": "asr_ms",
+      "value": null,
+      "unit": "ms",
+      "status": "NOT MEASURED",
+      "note": "value missing"
+    },
+    {
+      "scenario": "combined",
+      "metric": "asr_final_latency_ms",
+      "value": null,
+      "unit": "ms",
+      "status": "NOT MEASURED",
+      "note": "value missing"
+    },
+    {
+      "scenario": "combined",
+      "metric": "llm_ttft_ms",
+      "value": null,
+      "unit": "ms",
+      "status": "NOT MEASURED",
+      "note": "value missing"
+    },
+    {
+      "scenario": "combined",
+      "metric": "first_audible_ms",
+      "value": null,
+      "unit": "ms",
+      "status": "NOT MEASURED",
+      "note": "value missing"
+    },
+    {
+      "scenario": "combined",
+      "metric": "playback_duration_ms",
+      "value": null,
+      "unit": "ms",
+      "status": "NOT MEASURED",
+      "note": "value missing"
+    },
+    {
+      "scenario": "combined",
+      "metric": "vad_start_ms",
+      "value": 60.0,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "scenario": "combined",
+      "metric": "vad_end_ms",
+      "value": 600.0,
+      "unit": "ms",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "scenario": "combined",
+      "metric": "turn_completed",
+      "value": 0.0,
+      "unit": "flag",
+      "status": "MEASURED",
+      "note": ""
+    },
+    {
+      "scenario": "combined",
+      "metric": "turn_total_ms",
+      "value": null,
+      "unit": "ms",
+      "status": "NOT MEASURED",
+      "note": "no reply completed; value was the 60 s wait deadline"
+    },
+    {
+      "scenario": "combined",
+      "metric": "speech_queue_depth",
+      "value": 0.0,
+      "unit": "",
+      "status": "MEASURED",
+      "note": "must stay far below the configured bound"
+    }
+  ]
+}
