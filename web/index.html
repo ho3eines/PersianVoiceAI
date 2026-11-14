@@ -3,21 +3,21 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>دستیار صوتی فارسی — محیط تست</title>
+<title>دستیار صوتی فارسی — تست مرحله‌به‌مرحله</title>
 <style>
   :root {
     --bg: #0f172a; --panel: #1e293b; --panel-2: #273449; --text: #e2e8f0;
-    --muted: #94a3b8; --accent: #38bdf8; --ok: #22c55e; --warn: #f59e0b;
-    --err: #ef4444; --radius: 14px;
+    --muted: #94a3b8; --accent: #38bdf8; --ok: #22c55e; --err: #ef4444;
+    --radius: 14px;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
     font-family: "Vazirmatn", "Segoe UI", Tahoma, sans-serif; display: flex;
-    flex-direction: column; align-items: center; padding: 24px 16px 48px;
+    flex-direction: column; align-items: center; padding: 22px 14px 48px;
   }
-  header { text-align: center; margin-bottom: 18px; }
-  h1 { font-size: 1.35rem; margin: 0 0 6px; }
+  header { text-align: center; margin-bottom: 16px; }
+  h1 { font-size: 1.25rem; margin: 0 0 6px; }
   .sub { color: var(--muted); font-size: .85rem; }
   .chips { display: flex; gap: 8px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
   .chip {
@@ -27,45 +27,51 @@
   .chip.ok { color: #bbf7d0; border-color: #14532d; background: #052e16; }
   .chip.bad { color: #fecaca; border-color: #7f1d1d; background: #450a0a; }
   .chip.loading { color: #fde68a; border-color: #78350f; background: #451a03; }
-  main { width: min(760px, 100%); display: flex; flex-direction: column; gap: 14px; }
+  main { width: min(820px, 100%); display: flex; flex-direction: column; gap: 14px; }
   .panel {
     background: var(--panel); border: 1px solid #334155; border-radius: var(--radius);
     padding: 14px;
   }
-  .panel h2 { margin: 0 0 10px; font-size: .95rem; color: var(--muted); font-weight: 600; }
+  .panel h2 { margin: 0 0 4px; font-size: .98rem; }
+  .panel .hint { color: var(--muted); font-size: .8rem; margin-bottom: 10px; line-height: 1.8; }
   .mic-row { display: flex; align-items: center; gap: 14px; }
   #mic {
-    width: 92px; height: 92px; border-radius: 50%; border: 2px solid #0ea5e9;
+    width: 86px; height: 86px; border-radius: 50%; border: 2px solid #0ea5e9;
     background: radial-gradient(circle at 30% 30%, #0ea5e9, #0369a1);
-    color: #fff; font-size: 2rem; cursor: pointer; flex: 0 0 auto;
-    box-shadow: 0 0 0 0 rgba(56,189,248,.45); transition: box-shadow .2s, transform .1s;
-    user-select: none; -webkit-user-select: none; touch-action: none;
+    color: #fff; font-size: 1.9rem; cursor: pointer; flex: 0 0 auto;
+    transition: box-shadow .2s, transform .1s; user-select: none; touch-action: none;
   }
-  #mic:active, #mic.recording {
-    transform: scale(.97); box-shadow: 0 0 0 14px rgba(239,68,68,.18);
-    border-color: #ef4444; background: radial-gradient(circle at 30% 30%, #ef4444, #991b1b);
+  #mic.recording {
+    transform: scale(.97); border-color: #ef4444;
+    background: radial-gradient(circle at 30% 30%, #ef4444, #991b1b);
+    box-shadow: 0 0 0 14px rgba(239,68,68,.18);
   }
   #mic:disabled { opacity: .45; cursor: not-allowed; }
-  .mic-hint { color: var(--muted); font-size: .85rem; line-height: 1.9; }
-  .mic-hint b { color: var(--text); }
   #recTimer { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 700; }
-  textarea, input[type="text"] {
+  textarea, input[type="text"], select {
     width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid #334155;
-    border-radius: 10px; padding: 10px 12px; font: inherit; font-size: .95rem;
-    resize: vertical; outline: none;
+    border-radius: 10px; padding: 9px 11px; font: inherit; font-size: .94rem; outline: none;
   }
-  textarea:focus, input:focus { border-color: var(--accent); }
-  textarea { min-height: 64px; }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; }
-  .row > * { flex: 1 1 220px; }
+  textarea:focus, input:focus, select:focus { border-color: var(--accent); }
+  textarea { min-height: 60px; resize: vertical; }
+  label.field { display: block; color: var(--muted); font-size: .78rem; margin: 8px 0 4px; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
   button.act {
     background: var(--accent); color: #06283d; border: 0; border-radius: 10px;
-    padding: 10px 16px; font: inherit; font-weight: 700; cursor: pointer;
+    padding: 9px 15px; font: inherit; font-weight: 700; cursor: pointer;
   }
   button.act.secondary { background: #334155; color: var(--text); }
   button.act:disabled { opacity: .5; cursor: not-allowed; }
-  .reply { white-space: pre-wrap; line-height: 2; min-height: 60px; }
-  .meta { color: var(--muted); font-size: .78rem; margin-top: 8px; direction: ltr; text-align: right; }
+  button.act.small { padding: 6px 10px; font-size: .82rem; }
+  .out {
+    background: #0b1220; border: 1px dashed #334155; border-radius: 10px;
+    padding: 10px 12px; min-height: 42px; white-space: pre-wrap; line-height: 1.9;
+    margin-top: 10px; font-size: .92rem;
+  }
+  .meta { color: var(--muted); font-size: .76rem; margin-top: 8px; direction: ltr; text-align: right; }
+  .stats { color: var(--muted); font-size: .78rem; margin-top: 6px; }
+  .stats.warn { color: #fca5a5; }
   #error { color: #fecaca; background: #450a0a; border: 1px solid #7f1d1d; border-radius: 10px; padding: 10px 12px; display: none; }
   .spinner {
     display: inline-block; width: 14px; height: 14px; border: 2px solid #64748b;
@@ -74,78 +80,92 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   #busy { color: var(--muted); font-size: .85rem; display: none; }
-  dialog {
-    background: var(--panel); color: var(--text); border: 1px solid #334155;
-    border-radius: var(--radius); padding: 16px; width: min(360px, 92vw);
-  }
-  dialog::backdrop { background: rgba(2,6,23,.7); }
-  dialog input { width: 100%; margin: 10px 0 14px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>دستیار صوتی فارسی — محیط تست</h1>
-  <div class="sub">یک نوبت: صحبت کن → رونویسی → پاسخ → بشنو. همه‌چیز محلی است.</div>
+  <h1>دستیار صوتی فارسی — تست مرحله‌به‌مرحله</h1>
+  <div class="sub">هر مرحله مستقل است: ۱) رونویسی بدون مدل ۲) تنظیم مجدد ASR ۳) مدل بدون صدا ۴) صدا بدون مدل</div>
   <div class="chips">
     <span class="chip" id="chipAsr">ASR: …</span>
     <span class="chip" id="chipTts">TTS: …</span>
-    <span class="chip" id="chipMsgs">پیام‌ها: 0</span>
+    <span class="chip" id="chipMsgs">تاریخچهٔ مدل: 0</span>
   </div>
 </header>
 
 <main>
   <section class="panel">
-    <h2>۱) صحبت کن (Push-to-Talk)</h2>
+    <h2>۱) ضبط و رونویسی — بدون LLM</h2>
+    <div class="hint">دکمه را نگه دار، جمله را بگو و رها کن. فقط Whisper اجرا می‌شود؛ نه مدلی و نه صدایی.</div>
     <div class="mic-row">
       <button id="mic" disabled title="نگه دار و صحبت کن">🎤</button>
-      <div class="mic-hint">
-        دکمه را <b>نگه دار</b>، جمله را بگو و رها کن.<br />
+      <div class="hint">
         وضعیت: <span id="recState">آماده نیست</span> — مدت: <span id="recTimer">۰٫۰s</span><br />
-        <span class="sub">پس از رهاکردن، رونویسی ممکن است تا حدود یک دقیقه طول بکشد.</span>
+        <span id="audioStats" class="stats">هنوز ضبطی نیست.</span>
       </div>
     </div>
+    <label class="field" for="transcript">رونویسی (قابل ویرایش)</label>
+    <textarea id="transcript" placeholder="متن شنیده‌شده اینجا می‌آید."></textarea>
+    <div class="meta" id="asrMeta"></div>
   </section>
 
   <section class="panel">
-    <h2>۲) رونویسی (قابل ویرایش)</h2>
-    <textarea id="transcript" placeholder="متن شنیده‌شده اینجا می‌آید؛ اگر غلط بود اصلاحش کن و دوباره بفرست."></textarea>
-    <div class="row" style="margin-top:10px">
-      <button class="act" id="sendTranscript">ارسال رونویسی</button>
-      <button class="act secondary" id="resetBtn">شروع تازه</button>
+    <h2>۲) تنظیمات ASR و رونویسی دوبارهٔ همان ضبط</h2>
+    <div class="hint">همان فایل آخرین ضبط دوباره رونویسی می‌شود؛ برای پیدا کردن بهترین تنظیمات Whisper. <a href="/api/last.wav" style="color:#7dd3fc">دانلود آخرین ضبط (WAV)</a></div>
+    <div class="grid3">
+      <div>
+        <label class="field" for="beam">beam_size</label>
+        <select id="beam"><option value="1">۱ — سریع</option><option value="3">۳</option><option value="5">۵ — دقیق‌تر</option></select>
+      </div>
+      <div>
+        <label class="field" for="lang">زبان</label>
+        <select id="lang"><option value="fa">fa — فارسی ثابت</option><option value="auto">auto — تشخیص خودکار</option></select>
+      </div>
+      <div>
+        <label class="field" for="prompt">initial_prompt</label>
+        <input type="text" id="prompt" placeholder="مثلاً: این یک گفتگوی فارسی است." />
+      </div>
     </div>
+    <div class="row">
+      <button class="act" id="retranscribe">رونویسی دوباره با این تنظیمات</button>
+      <button class="act secondary small" id="applyRetrans" disabled>استفاده از این رونویسی</button>
+    </div>
+    <div class="meta" id="retransMeta"></div>
   </section>
 
   <section class="panel">
-    <h2>۳) یا مستقیم تایپ کن (بدون میکروفون)</h2>
-    <input type="text" id="typed" placeholder="مثلاً: سلام! خودت را معرفی کن." />
-    <div class="row" style="margin-top:10px">
-      <button class="act" id="sendTyped">ارسال متن</button>
+    <h2>۳) مدل — متن به پاسخ، بدون صدا</h2>
+    <div class="hint">متن را می‌فرستد به llama.cpp و فقط پاسخ متنی را برمی‌گرداند.</div>
+    <textarea id="chatInput" placeholder="مثلاً: سلام! خودت را معرفی کن."></textarea>
+    <div class="row">
+      <button class="act" id="sendChat">ارسال به مدل</button>
+      <button class="act secondary small" id="fillFromTranscript">پر کردن از رونویسی</button>
     </div>
+    <div class="out" id="chatReply">هنوز پاسخی نیست.</div>
+    <div class="meta" id="chatMeta"></div>
   </section>
 
   <section class="panel">
-    <h2>پاسخ دستیار</h2>
-    <div class="reply" id="reply">هنوز پاسخی نیست.</div>
-    <div class="row" style="margin-top:10px">
-      <button class="act secondary" id="replay" disabled>🔊 پخش دوباره</button>
+    <h2>۴) صدا — متن به صدا، بدون مدل</h2>
+    <div class="hint">هر متنی را به Piper می‌دهد و همان‌جا پخش می‌کند؛ هیچ درخواستی به llama نمی‌رود.</div>
+    <textarea id="ttsInput" placeholder="مثلاً: سلام، این یک آزمایش صدا است."></textarea>
+    <div class="row">
+      <button class="act" id="playTts">پخش صدا</button>
+      <button class="act secondary small" id="fillFromReply">پر کردن از پاسخ مدل</button>
+      <button class="act secondary small" id="resetBtn">شروع تازه</button>
     </div>
-    <div class="meta" id="meta"></div>
-    <div id="busy"></div>
+    <div class="meta" id="ttsMeta"></div>
   </section>
 
   <div id="error"></div>
+  <div id="busy"></div>
 </main>
 
 <script>
 "use strict";
 const state = {
-  asrReady: false,
-  busy: false,
-  audioCtx: null,
-  stream: null,
-  processor: null,
-  chunks: [],
-  lastWav: "",
+  asrReady: false, busy: false, stream: null, audioCtx: null, processor: null,
+  chunks: [], rate: 48000, timer: null, lastWav: "", retranscript: "",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -153,23 +173,31 @@ const mic = $("mic");
 const recState = $("recState");
 const recTimer = $("recTimer");
 const transcript = $("transcript");
-const replyBox = $("reply");
-const meta = $("meta");
-const busy = $("busy");
-const errorBox = $("error");
-const replay = $("replay");
 
 function setBusy(text) {
   state.busy = !!text;
-  busy.style.display = text ? "block" : "none";
-  busy.innerHTML = text ? `<span class="spinner"></span>${text}` : "";
-  for (const id of ["sendTranscript", "sendTyped", "replay"]) $(id).disabled = state.busy;
+  $("busy").style.display = text ? "block" : "none";
+  $("busy").innerHTML = text ? `<span class="spinner"></span>${text}` : "";
+  for (const id of ["sendChat", "playTts", "retranscribe", "resetBtn"]) $(id).disabled = state.busy;
+  $("applyRetrans").disabled = state.busy || !state.retranscript;
   mic.disabled = state.busy || !state.asrReady;
 }
 
 function showError(message) {
-  errorBox.textContent = message;
-  errorBox.style.display = message ? "block" : "none";
+  $("error").textContent = message || "";
+  $("error").style.display = message ? "block" : "none";
+}
+
+function showStats(stats) {
+  if (!stats) return;
+  const parts = [`مدت ${stats.seconds}s`, `RMS ${stats.rms_dbfs}dBFS`, `peak ${stats.peak_dbfs}dBFS`, `گفتار ${Math.round(stats.speech_ratio * 100)}٪`];
+  const lowLevel = stats.rms_dbfs < -45;
+  const clipped = stats.peak_dbfs > -0.5;
+  $("audioStats").textContent = parts.join(" · ");
+  $("audioStats").className = "stats" + (lowLevel ? " warn" : "");
+  if (lowLevel) showError("صدای ضبط خیلی ضعیف است؛ میکروفون نزدیک‌تر یا ورودی سیستم را بالا ببرید.");
+  else if (clipped) showError("صدای ضبط به سقف خورده (clip)؛ فاصله یا گین را کم کنید.");
+  else showError("");
 }
 
 function fmtMs(value) {
@@ -177,26 +205,39 @@ function fmtMs(value) {
   return value < 1000 ? `${value.toFixed(0)}ms` : `${(value / 1000).toFixed(1)}s`;
 }
 
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+  return data;
+}
+
 async function pollStatus() {
   try {
-    const response = await fetch("/api/status");
-    const data = await response.json();
-    const chip = (el, name) => {
-      el.textContent = `${name}: ${data[name] === "ready" ? "آماده" : data[name] === "failed" ? "خطا" : "در حال بارگذاری…"}`;
-      el.className = "chip " + (data[name] === "ready" ? "ok" : data[name] === "failed" ? "bad" : "loading");
+    const data = await fetch("/api/status").then((r) => r.json());
+    const setChip = (el, name, label) => {
+      const value = data[name];
+      el.textContent = `${label}: ${value === "ready" ? "آماده" : value === "failed" ? "خطا" : "بارگذاری…"}`;
+      el.className = "chip " + (value === "ready" ? "ok" : value === "failed" ? "bad" : "loading");
     };
-    chip($("chipAsr"), "asr");
-    chip($("chipTts"), "tts");
-    $("chipMsgs").textContent = `پیام‌ها: ${data.messages}`;
+    setChip($("chipAsr"), "asr", "ASR");
+    setChip($("chipTts"), "tts", "TTS");
+    $("chipMsgs").textContent = `تاریخچهٔ مدل: ${data.messages}`;
     state.asrReady = data.asr === "ready";
     if (!state.busy) mic.disabled = !state.asrReady;
-    if (!state.asrReady) recState.textContent = data.asr === "failed" ? "خطای ASR" : "در حال بارگذاری مدل…";
-    else if (!state.busy) recState.textContent = "آماده";
     if (data.error) showError(data.error);
-    return data;
-  } catch {
-    return null;
-  }
+    else if (!state.asrReady) recState.textContent = data.asr === "failed" ? "خطای ASR" : "بارگذاری مدل…";
+    else if (!state.busy && !recState.textContent.includes("ضبط")) recState.textContent = "آماده";
+  } catch { /* server restarting */ }
+}
+
+function asrPayload() {
+  const payload = { beam_size: Number($("beam").value), language: $("lang").value };
+  const prompt = $("prompt").value.trim();
+  if (prompt) payload.initial_prompt = prompt;
+  return payload;
 }
 
 // ---------------------------------------------------------------- recording
@@ -215,12 +256,27 @@ function downsampleTo16k(float32, sourceRate) {
   return output;
 }
 
-function toBase64Pcm16(float32, sourceRate) {
-  const pcm = downsampleTo16k(float32, sourceRate);
-  const bytes = new Uint8Array(pcm.length * 2);
+async function resampleTo16k(float32, sourceRate) {
+  if (sourceRate === 16000) return float32;
+  const Offline = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!Offline) return downsampleTo16k(float32, sourceRate);
+  const target = Math.max(1, Math.round((float32.length * 16000) / sourceRate));
+  const context = new Offline(1, target, 16000);
+  const buffer = context.createBuffer(1, float32.length, sourceRate);
+  buffer.copyToChannel(float32, 0);
+  const source = context.createBufferSource();
+  source.buffer = buffer;
+  source.connect(context.destination);
+  source.start();
+  const rendered = await context.startRendering();
+  return rendered.getChannelData(0);
+}
+
+function toBase64Pcm16(float32) {
+  const bytes = new Uint8Array(float32.length * 2);
   const view = new DataView(bytes.buffer);
-  for (let i = 0; i < pcm.length; i++) {
-    const sample = Math.max(-1, Math.min(1, pcm[i]));
+  for (let i = 0; i < float32.length; i++) {
+    const sample = Math.max(-1, Math.min(1, float32[i]));
     view.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
   }
   let binary = "";
@@ -235,7 +291,7 @@ async function startRecording() {
   if (state.busy || !state.asrReady || state.stream) return;
   try {
     state.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: true },
     });
   } catch (err) {
     showError("دسترسی به میکروفون رد شد: " + err.message);
@@ -270,44 +326,37 @@ async function stopRecording() {
   mic.classList.remove("recording");
   recTimer.textContent = "۰٫۰s";
   const total = state.chunks.reduce((sum, part) => sum + part.length, 0);
-  if (total < 1600) {  // < 0.1 s at 16 kHz: a click, not speech
+  if (total < 1600) {
     recState.textContent = "خیلی کوتاه بود؛ دوباره";
     return;
   }
   const joined = new Float32Array(total);
   let offset = 0;
   for (const part of state.chunks) { joined.set(part, offset); offset += part.length; }
-  const pcmB64 = toBase64Pcm16(joined, state.rate || 48000);
+  const pcmB64 = toBase64Pcm16(await resampleTo16k(joined, state.rate));
   state.chunks = [];
   recState.textContent = "ارسال برای رونویسی…";
-  await sendTurn({ pcm_b64: pcmB64 });
+  await transcribe(pcmB64, false);
 }
 
-// -------------------------------------------------------------------- turn
-async function sendTurn(body) {
-  if (state.busy) return;
-  setBusy("در حال پردازش… (تأخیر Whisper روی این CPU طبیعی است)");
-  showError("");
+async function transcribe(pcmB64, useLast) {
+  setBusy("در حال رونویسی… (Whisper روی CPU کند است)");
   try {
-    const response = await fetch("/api/turn", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "", sample_rate: 16000, ...body }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
-    transcript.value = data.transcript || "";
-    replyBox.textContent = data.reply || (data.notice || "پاسخی دریافت نشد.");
-    state.lastWav = data.tts_wav_b64 || "";
-    replay.disabled = !state.lastWav;
-    const t = data.timings || {};
-    meta.textContent =
-      `asr ${fmtMs(t.asr_ms)} · llm ${fmtMs(t.llm_ms)} · tts ${fmtMs(t.tts_ms)}` +
-      ` · prompt ${t.prompt_tokens ?? "—"} · out ${t.completion_tokens ?? "—"}`;
-    if (state.lastWav) playWav(state.lastWav);
-    if (data.notice) showError(data.notice);
+    const body = { ...asrPayload(), use_last: useLast };
+    if (!useLast) body.pcm_b64 = pcmB64;
+    const data = await postJson("/api/transcribe", body);
+    if (!useLast) transcript.value = data.transcript || "";
+    $("asrMeta").textContent = `asr ${fmtMs(data.timings.asr_ms)}` + (useLast ? " · (همان ضبط قبلی)" : "");
+    showStats(data.audio);
+    if (useLast) {
+      state.retranscript = data.transcript || "";
+      $("retransMeta").textContent = `نتیجه: ${data.transcript || "«چیزی شنیده نشد»"} · ${fmtMs(data.timings.asr_ms)}`;
+    } else {
+      state.retranscript = "";
+    }
+    $("applyRetrans").disabled = state.busy || !state.retranscript;
     recState.textContent = "آماده";
-    pollStatus();
+    if (!data.transcript) showError("Whisper چیزی نشنید؛ دوباره و واضح‌تر بگویید یا تنظیمات بخش ۲ را تغییر دهید.");
   } catch (err) {
     showError(String(err.message || err));
     recState.textContent = "آماده";
@@ -316,37 +365,67 @@ async function sendTurn(body) {
   }
 }
 
-function playWav(base64) {
-  const audio = new Audio("data:audio/wav;base64," + base64);
-  audio.play().catch(() => {});
-}
-
 // ------------------------------------------------------------------- events
 mic.addEventListener("pointerdown", (event) => { event.preventDefault(); startRecording(); });
 mic.addEventListener("pointerup", (event) => { event.preventDefault(); stopRecording(); });
 mic.addEventListener("pointerleave", () => { if (state.stream) stopRecording(); });
 mic.addEventListener("contextmenu", (event) => event.preventDefault());
 
-$("sendTranscript").addEventListener("click", () => {
-  const text = transcript.value.trim();
-  if (text) sendTurn({ text });
+$("retranscribe").addEventListener("click", () => { transcribe("", true); });
+$("applyRetrans").addEventListener("click", () => {
+  if (!state.retranscript) return;
+  transcript.value = state.retranscript;
+  $("asrMeta").textContent = "رونویسی از تنظیمات بخش ۲ پذیرفته شد.";
 });
-$("sendTyped").addEventListener("click", () => {
-  const input = $("typed");
-  const text = input.value.trim();
-  if (text) { input.value = ""; sendTurn({ text }); }
+$("fillFromTranscript").addEventListener("click", () => { $("chatInput").value = transcript.value.trim(); });
+$("fillFromReply").addEventListener("click", () => { $("ttsInput").value = $("chatReply").textContent.trim(); });
+
+$("sendChat").addEventListener("click", async () => {
+  const text = $("chatInput").value.trim();
+  if (!text) return;
+  setBusy("مدل در حال پاسخ دادن است…");
+  try {
+    const data = await postJson("/api/chat", { text });
+    $("chatReply").textContent = data.reply || "پاسخ خالی بود.";
+    $("chatMeta").textContent = `llm ${fmtMs(data.timings.llm_ms)} · prompt ${data.timings.prompt_tokens} · out ${data.timings.completion_tokens}`;
+    $("ttsInput").value = data.reply || $("ttsInput").value;
+    showError("");
+    pollStatus();
+  } catch (err) {
+    showError(String(err.message || err));
+  } finally {
+    setBusy("");
+  }
 });
-$("typed").addEventListener("keydown", (event) => {
-  if (event.key === "Enter") $("sendTyped").click();
+
+$("playTts").addEventListener("click", async () => {
+  const text = $("ttsInput").value.trim();
+  if (!text) return;
+  setBusy("در حال ساخت صدا…");
+  try {
+    const data = await postJson("/api/tts", { text });
+    state.lastWav = data.tts_wav_b64 || "";
+    if (state.lastWav) new Audio("data:audio/wav;base64," + state.lastWav).play().catch(() => {});
+    $("ttsMeta").textContent = `tts ${fmtMs(data.timings.tts_ms)}`;
+    showError("");
+  } catch (err) {
+    showError(String(err.message || err));
+  } finally {
+    setBusy("");
+  }
 });
-$("replay").addEventListener("click", () => { if (state.lastWav) playWav(state.lastWav); });
+
 $("resetBtn").addEventListener("click", async () => {
-  await fetch("/api/reset", { method: "POST" });
+  try { await fetch("/api/reset", { method: "POST" }); } catch { /* ignore */ }
   transcript.value = "";
-  replyBox.textContent = "هنوز پاسخی نیست.";
-  meta.textContent = "";
-  state.lastWav = "";
-  replay.disabled = true;
+  $("chatReply").textContent = "هنوز پاسخی نیست.";
+  $("chatMeta").textContent = "";
+  $("asrMeta").textContent = "";
+  $("ttsMeta").textContent = "";
+  $("retransMeta").textContent = "";
+  state.retranscript = "";
+  $("applyRetrans").disabled = true;
+  $("audioStats").textContent = "هنوز ضبطی نیست.";
   showError("");
   pollStatus();
 });

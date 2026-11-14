@@ -150,7 +150,7 @@ def test_piper_resamples_into_duplex_reference_transport():
     assert abs(float(np.frombuffer(output[0], dtype='<i2').mean()) - 3000) < 20
 
 
-def test_runtime_aec_precedes_pipeline_and_resources_close(monkeypatch):
+def test_runtime_aec_precedes_pipeline_and_resources_close(monkeypatch, tmp_path):
     import asyncio
     from server.streaming_voice import run_live
     order = []
@@ -207,7 +207,7 @@ def test_runtime_aec_precedes_pipeline_and_resources_close(monkeypatch):
     monkeypatch.setattr('server.streaming_voice.Pipeline', Pipeline)
     monkeypatch.setattr('server.streaming_voice.dependency', lambda name: FakeSd)
     with pytest.raises(RuntimeError, match='stop test'):
-        asyncio.run(run_live(Settings()))
+        asyncio.run(run_live(Settings(data_dir=str(tmp_path / "data"))))
     assert order == ['aec', 'vad_asr', 'stream_close', 'pipeline_close', 'aec_close']
 
 

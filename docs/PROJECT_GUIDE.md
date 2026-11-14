@@ -689,7 +689,7 @@ Model weights are not stored in this repository and retain their respective lice
 
 ## بخش 2 — docs/STATUS.md
 
-﻿# وضعیت اجرایی پروژه — PersianVoiceAI Conversation Engine
+# وضعیت اجرایی پروژه — PersianVoiceAI Conversation Engine
 
 آخرین به‌روزرسانی: ۹ نوامبر ۲۰۲۶ — رفع باگ‌های گزارش‌شده، بازبینی مدل‌فری و مستندسازی؛
 مرحلهٔ ۱ تا ۶ پیشین: رفع P0، بهبود خط لولهٔ صوتی، ماندگاری مکالمه،
@@ -731,7 +731,7 @@ commit `9654a68` و شاخهٔ `arena/31347dde-persianvoiceai` فقط سابقه
 | ارزیابی فارسی WER/CER | مجموعهٔ ۴۰ جمله + ۶ کلیپ `no_speech` + ابزار؛ اعداد واقعی **NOT MEASURED** | `benchmarks/persian_eval.py` |
 | نرخ پذیرش کاذب روی سکوت/نویز | سنجه و ورودی‌ها آماده؛ عدد واقعی **NOT MEASURED** (بدون wav) | `benchmarks/persian_eval.py`, `server/persian.py` |
 | پروتکل و **transport سمت سرور** WebSocket صوتی (`WS /ws/voice`) | پیاده‌شده + تست (fake)؛ توکن per-device، سقف اتصال، pacing، heartbeat، فریم ۲۰ms اجباری | `server/protocol.py`, `server/ws_voice.py`, `tests/test_ws_voice.py` |
-| **میز تست وب یک‌نوبتی** (صحبت/تایپ → ASR → LLM → TTS در مرورگر) | پیاده‌شده + تست (fake)؛ یک چرخهٔ واقعی mic→Whisper→llama.cpp→Piper هم روی همین لپ‌تاپ اجرا شد | `server/webui.py`, `web/index.html`, `tests/test_webui.py`, `docs/WEB_UI.md` |
+| **میز تست وب مرحله‌به‌مرحله** (هر قطعهٔ زنجیره جدا: transcribe / chat / tts + تنظیم مجدد ASR روی همان ضبط) | پیاده‌شده + تست (fake)؛ یک چرخهٔ واقعی mic→Whisper→llama.cpp→Piper هم روی همین لپ‌تاپ اجرا شد؛ اجرای زندهٔ حالت جدید NOT MEASURED | `server/webui.py`, `web/index.html`, `tests/test_webui.py`, `docs/WEB_UI.md` |
 | امنیت REST (`PVAI_API_TOKEN`، rate limit، `/health` حداقلی) | پیاده‌شده + تست | `server/security.py`, `server/main.py`, `tests/test_ws_security.py` |
 | firmware ESP32-S3، OTA، تست LAN واقعی | **پیاده‌نشده / NOT MEASURED** | — |
 | Command Broker فاز اول (schema، policy، audit، فقط `FakeDevice`) | پیاده‌شده + تست؛ **SIMULATED** (هیچ GPIO/رله واقعی وصل نیست)؛ به ASR/LLM وصل نشده | `server/broker.py`, `tests/test_broker.py` |
@@ -745,7 +745,7 @@ $ python -m pytest
 ```
 
 - آخرین اجرای کامل `pytest -q` در این مخزن: exit 0، بدون شکست (MEASURED). تست‌های `test_ws_security.py` که `reset()` را با warmup واقعی Whisper در پس‌زمینه معطل می‌کردند، با `asr_warmup=False` بی‌خطر شدند.
-- تعداد تست‌های مجموعه (pytest --collect-only): **1227** تست — این تنها عدد
+- تعداد تست‌های مجموعه (pytest --collect-only): **1236** تست — این تنها عدد
   مجاز است و `tests/test_docs_consistency.py` آن را با خروجی واقعی
   `pytest --collect-only` مقایسه می‌کند؛ عدد کهنه ⇒ تست قرمز. بقیهٔ اعداد این
   سند **تاریخی** و مربوط به همان مرحله‌اند.
@@ -1201,8 +1201,37 @@ startup **بلاک نمی‌شود**: thread جدا و daemon است، پس `/he
   پیام «ورودی صوت عقب افتاد؛ نوبت جاری حذف شد» آمد و رونویسی اولین utterance خالی بود.
   یعنی محدودیت RTF همان Whisper است، نه باگ صف.
 - **راه‌حل موقت برای تست:** یک‌نوبت در هر لحظه + رونویسی قابل‌ویرایش در میز تست وب
-  ([WEB_UI.md](WEB_UI.md)): صفحه روی loopback، push-to-talk، ارسال `POST /api/turn`،
-  نمایش متن شنیده‌شده و پخش WAV برگشتی. تست‌های fake: `tests/test_webui.py` (۸ تست).
+  ([WEB_UI.md](WEB_UI.md)): صفحه روی loopback، push-to-talk، نمایش متن شنیده‌شده و
+  پخش WAV برگشتی.
+- **گسترش همان روز — حالت مرحله‌به‌مرحله:** چون علت خرابی زنجیره مشخص نبود (گوش یا
+  مغز یا دهان)، صفحه به چهار بخش مستقل تقسیم شد: `POST /api/transcribe` (فقط Whisper،
+  با آمار ضبط `rms/peak/speech_ratio` از `pcm_stats`)، `POST /api/chat` (فقط llama.cpp،
+  فقط متن)، `POST /api/tts` (فقط Piper، WAV) و `GET /api/last.wav` + `use_last` برای
+  مقایسهٔ `beam_size`/`language`/`initial_prompt` روی **همان ضبط** بدون تکرار گوینده.
+  مسیر قدیمی `POST /api/turn` برای چرخهٔ یک‌کلیکی حفظ شد. همهٔ مسیرهای مدل‌دار زیر
+  `turn_lock` (از جمله transcribe، چون تنظیمات ASR درجا swap می‌شود).
+  تست‌های fake: `tests/test_webui.py` (۱۷ تست، شامل حفظ/بازگردانی تنظیمات ASR و
+  تفکیک مرحله‌ها در صفحه). دکمهٔ «استفاده از این رونویسی» نتیجهٔ رونویسی مجدد را به
+  جعبهٔ رونویسی می‌برد.
+
+- **اجرای زندهٔ حالت مرحله‌به‌مرحله (MEASURED، ۱۳ نوامبر، همان لپ‌تاپ):** سرور روی
+  `127.0.0.1:8100` با Whisper/Piper/llama واقعی بالا آمد و هر چهار بخش با `logs/last.wav`
+  (ضبط واقعی ۴٫۲۷ ثانیه‌ای همان روز) صدا زده شد:
+
+  | بخش | نتیجه | برچسب |
+  |---|---|---|
+  | `POST /api/transcribe` (beam=1, fa) | متن نادرست، `asr_ms` = ۵٫۷ s | MEASURED (منفی) |
+  | `use_last: true` (beam=5 + initial_prompt روی **همان** ضبط) | متن متفاوت ولی همچنان غلط، ۵٫۵ s؛ ثابت شد مقایسه روی یک فایل کار می‌کند | MEASURED |
+  | `GET /api/last.wav` | ۱۳۶٫۵۷۸ KB، دقیقاً همان بایت‌های ارسالی | MEASURED |
+  | `POST /api/chat` | «پایتخت ایران شهر تهرانه.» — درست، ۱۰ توکن، ۵٫۴ s | MEASURED |
+  | `POST /api/tts` | ۱۰۹٫۶ KB WAV، `tts_ms` = ۰٫۳۲ s | MEASURED |
+  | نگهبان‌ها | متن خالی/صوت نامعتبر ⇒ ۴۰۰ (بدون اجرای هیچ مدلی) | MEASURED |
+
+  **یافتهٔ مهم:** `pcm_stats` روی همان ضبط `peak_dbfs = -0.0` گزارش کرد، یعنی سیگنال
+  به سقف خورده است؛ با `rms_dbfs = -15.7` و `speech_ratio = 1.0`. پس برخلاف فرض قبلی
+  («فقط Whisper ضعیف است»)، بخشی از خرابی رونویسی از **clip شدن ورودی** می‌آید و
+  همین حالا در خود صفحه هشدار می‌گیرد. آزمایش بعدی باید با گین پایین‌تر تکرار شود
+  (اجرای مجدد با گین اصلاح‌شده **NOT MEASURED**).
 
 ---
 
