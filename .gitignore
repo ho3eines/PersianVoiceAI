@@ -14,6 +14,8 @@ benchmarks/results/mic-*.json
 data/conversations/
 data/feedback/
 data/knowledge/
+# Management panel state: provider profiles include API keys.
+data/manage/
 *.log
 # pytest falls back to the repository directory when no system temp dir is
 # usable, so its numbered temp tree may appear here; it is disposable.

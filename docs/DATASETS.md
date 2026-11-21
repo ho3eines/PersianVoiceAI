@@ -111,7 +111,8 @@ python tools/prepare_dataset.py --manifest manifests/train.jsonl \
 | نشت | گزارش گوینده/فایل مشترک بین splitها |
 
 خروجی: پیام خطا با مسیر manifest، شمارهٔ رکورد و مسیر فایل، و exit code `2`.
-هیچ فایلی بازنویسی نمی‌شود و هیچ صوتی تغییر نمی‌کند.
+مسیرهای `--out`، خروجی splitها و `--report` باید تازه و جدا از هم باشند؛
+هیچ فایل موجود یا فایل صوتی بازنویسی نمی‌شود.
 
 ```bash
 # تبدیل آگاهانه روی یک کپی (FFmpeg سیستمی، نه پایتون)
@@ -144,6 +145,7 @@ python tools/prepare_dataset.py --manifest /data/hf/persian-tts --split train --
 python tools/train_plan.py --config configs/training.example.yaml --check --no-require-paths
 
 # اعتبارسنجی واقعی و تحویل plan به trainer
+cp configs/training.example.yaml configs/training.yaml   # سپس مسیر manifestها را تنظیم کنید
 PVAI_CORPUS_ROOT=/data/persian-corpus python tools/train_plan.py \
   --config configs/training.yaml --write runs/whisper-small-fa/plan.json
 ```

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from array import array
 from contextlib import contextmanager
@@ -29,7 +30,7 @@ from typing import Any
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
+from voicekit import LocalTestClient as TestClient
 
 from server.config import Settings
 from server.protocol import (
@@ -630,14 +631,16 @@ def test_paced_sender_does_not_get_more_than_the_credit_ahead(tmp_path: Path) ->
         websocket=Socket(),
         settings=settings(tmp_path, ws_playback_credit_ms=100.0),
     )
+    session.sink.start_turn(1)
+    session._wire_play_turn = 1
     for _ in range(12):  # 240 ms of audio queued by the synthesiser
-        session.sink.frames.put_nowait(frame())
+        session.sink.write(frame(), threading.Event())
 
     async def drain() -> float:
         started = time.monotonic()
         for _ in range(400):  # ask repeatedly, as the sender loop does
             await session._send_playback_frame()
-            if session.sink.frames.empty():
+            if session._peek_playback() is None:
                 break
         return time.monotonic() - started
 
@@ -668,6 +671,94 @@ def test_critical_messages_are_never_dropped(tmp_path: Path) -> None:
     assert session.counters.rejected == 0
 
 
+def test_shared_token_cannot_authenticate_without_opt_in(tmp_path: Path) -> None:
+    session = VoiceWebSocket(None, settings(tmp_path, ws_token="legacy"))
+    assert session._authenticate("legacy") == (False, "")
+    assert session._authenticate("secret-token") == (True, "esp32-test")
+    opted_in = VoiceWebSocket(None, settings(
+        tmp_path, ws_tokens="", ws_token="legacy", ws_allow_shared_tokens=True,
+    ))
+    assert opted_in._authenticate("legacy") == (True, "")
+
+
+def test_each_queued_turn_sends_only_its_own_audio_between_boundaries(tmp_path: Path) -> None:
+    sent = []
+
+    class Socket:
+        async def send_text(self, payload):
+            message = json.loads(payload)
+            if "turn_id" in message:
+                sent.append((message["type"], message["turn_id"], message.get("played_ms")))
+
+        async def send_bytes(self, payload):
+            sent.append(("audio", payload[-1], None))
+
+    async def run():
+        session = VoiceWebSocket(Socket(), settings(tmp_path, ws_playback_pacing=False))
+        for _ in range(session.outgoing.maxsize - 1):
+            session._queue_control(ControlMessage(MessageType.PING, {}))
+        for turn_id in (1, 2):
+            session._on_pipeline_event({"type": "tts_start", "turn_id": turn_id})
+            session.sink.write(bytes([turn_id]) * len(frame()), threading.Event())
+            session._on_pipeline_event({"type": "response_end", "turn_id": turn_id, "status": "complete"})
+        sender = asyncio.create_task(session._sender())
+        try:
+            async with asyncio.timeout(1):
+                while not sent or sent[-1][:2] != ("play_end", 2):
+                    await asyncio.sleep(.001)
+        finally:
+            sender.cancel()
+            await asyncio.gather(sender, return_exceptions=True)
+
+    asyncio.run(run())
+    assert sent == [
+        ("play_start", 1, None), ("audio", 1, None), ("play_end", 1, 20),
+        ("play_start", 2, None), ("audio", 2, None), ("play_end", 2, 20),
+    ]
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_interruption_does_not_charge_the_previous_turn_to_play_end(tmp_path: Path, failure: bool) -> None:
+    sent = []
+
+    class Socket:
+        async def send_text(self, payload):
+            sent.append(json.loads(payload))
+
+        async def send_bytes(self, payload):
+            sent.append(payload)
+
+    async def run():
+        session = VoiceWebSocket(Socket(), settings(tmp_path, ws_playback_pacing=False))
+        session._on_pipeline_event({"type": "tts_start", "turn_id": 1})
+        session.sink.write(frame(), threading.Event())
+        sender = asyncio.create_task(session._sender())
+        try:
+            async with asyncio.timeout(1):
+                while not any(isinstance(item, bytes) for item in sent):
+                    await asyncio.sleep(.001)
+                session.sink.write(frame(), threading.Event())
+                event = {"type": "response_end", "turn_id": 1, "status": "failed"} if failure else {
+                    "type": "interrupted", "turn_id": 1, "reason": "barge_in",
+                }
+                session._on_pipeline_event(event)
+                session._on_pipeline_event({"type": "tts_start", "turn_id": 2})
+                session.sink.write(frame() * 2, threading.Event())
+                session._on_pipeline_event({"type": "response_end", "turn_id": 2, "status": "complete"})
+                while not isinstance(sent[-1], dict) or sent[-1]["type"] != "play_end":
+                    await asyncio.sleep(.001)
+        finally:
+            sender.cancel()
+            await asyncio.gather(sender, return_exceptions=True)
+
+    asyncio.run(run())
+    assert [item["type"] if isinstance(item, dict) else "audio" for item in sent] == [
+        "play_start", "audio", "play_stop", "play_start", "audio", "audio", "play_end",
+    ]
+    assert sent[-1]["played_ms"] == 40
+    assert sent[2]["reason"] == ("error" if failure else "barge_in")
+
+
 def test_play_stop_survives_a_completely_full_queue_of_criticals(tmp_path: Path) -> None:
     session = VoiceWebSocket(websocket=None, settings=settings(tmp_path))
     for index in range(70):
@@ -691,6 +782,24 @@ def test_play_stop_survives_a_completely_full_queue_of_criticals(tmp_path: Path)
     assert "_overflow" in inspect.getsource(__import__(
         "server.ws_voice", fromlist=["VoiceWebSocket"]
     ).VoiceWebSocket._sender)
+
+
+def test_critical_overflow_exhaustion_closes_instead_of_evicting(tmp_path: Path) -> None:
+    session = VoiceWebSocket(websocket=None, settings=settings(tmp_path))
+    for index in range(session.outgoing.maxsize + session._overflow.maxlen):
+        session._queue_control(
+            ControlMessage(MessageType.ASR_FINAL, {"utterance_id": index, "text": "x"})
+        )
+    queued_before = list(session._overflow)
+
+    session._queue_control(
+        ControlMessage(MessageType.PLAY_STOP, {"turn_id": 1, "reason": "barge_in"})
+    )
+
+    assert list(session._overflow) == queued_before
+    assert session._closing_reason == "critical_overflow_exhausted"
+    assert session.counters.critical_overflow_exhausted == 1
+    assert session.counters.snapshot()["critical_overflow_exhausted"] == 1
 
 
 # ------------------------------------------------- 8. logging, heartbeat
@@ -1246,10 +1355,11 @@ def test_overflow_play_end_waits_for_frames_and_strips_private_fields(tmp_path: 
         async def send_bytes(self, payload):
             sent.append(('audio', payload))
     session = VoiceWebSocket(websocket=Socket(), settings=settings(tmp_path, ws_playback_pacing=False))
-    for _ in range(session.outgoing.maxsize):
+    session._on_pipeline_event({"type": "tts_start", "turn_id": 7})
+    for _ in range(session.outgoing.maxsize - 1):
         session.outgoing.put_nowait(ControlMessage(MessageType.PING, {}).encode())
     for _ in range(3):
-        session.sink.frames.put_nowait(frame())
+        session.sink.write(frame(), threading.Event())
     session._queue_control(ControlMessage(MessageType.PLAY_END, {'turn_id': 7, 'played_ms': None, '_final': True}))
     assert session._overflow
     async def run():
@@ -1352,8 +1462,10 @@ def test_three_second_idle_gap_cannot_burst_hundred_frames_in_300ms(tmp_path: Pa
             sent.append(time.monotonic())
     session = VoiceWebSocket(websocket=Socket(), settings=settings(tmp_path, ws_playback_credit_ms=200))
     session._next_frame_at = time.monotonic() - 3.0
+    session.sink.start_turn(1)
+    session._wire_play_turn = 1
     for _ in range(100):
-        session.sink.frames.put_nowait(frame())
+        session.sink.write(frame(), threading.Event())
 
     async def run():
         start = time.monotonic()

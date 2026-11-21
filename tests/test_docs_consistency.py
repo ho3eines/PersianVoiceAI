@@ -16,9 +16,6 @@ from __future__ import annotations
 
 import re
 import ast
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -134,85 +131,16 @@ def test_the_repository_map_lists_every_server_module() -> None:
 
 
 # --------------------------------------------------------------- claims/numbers
-#: The one line in ``docs/STATUS.md`` that carries the suite total.  It exists
-#: because a hard-coded number rots: the count is read from pytest itself, so a
-#: stale total is a failing test instead of a wrong claim.
-_TOTAL_MARK = re.compile(
-    r"تعداد تست‌های مجموعه \(pytest --collect-only\): \*\*(\d+)\*\*"
-)
-
-
-def _live_collected_tests() -> int | None:
-    """Total tests pytest collects right now; ``None`` if collection fails.
-
-    Collection only — nothing is executed — so this stays cheap and skips do not
-    change the number.  ``addopts`` is cleared so a caller's ``-k``/``-q``
-    options cannot alter what is counted.
-    """
-    completed = subprocess.run(
-        [
-            sys.executable, "-m", "pytest", "--collect-only", "-q",
-            "-p", "no:cacheprovider", "-o", "addopts=",
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=900,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+def test_current_entry_points_use_pytest_as_the_source_of_suite_counts() -> None:
+    pattern = re.compile(
+        r"\d+\s+passed|تعداد تست‌های مجموعه\s*\(pytest --collect-only\):\s*\**\d"
     )
-    if completed.returncode != 0:
-        return None
-    match = re.search(r"^(\d+) tests? collected", completed.stdout, re.M)
-    return int(match.group(1)) if match else None
-
-
-def test_the_documented_suite_total_is_the_live_collected_count() -> None:
-    """The number in STATUS.md is compared with ``pytest --collect-only``.
-
-    Once collection is clean, the assertion is exact: add a test and this fails
-    until the documented number is updated.  When the suite cannot even be
-    collected (an optional dependency is missing in this environment) the total
-    is NOT MEASURED and the check says so instead of guessing.
-    """
-    live = _live_collected_tests()
-    if live is None:
-        pytest.skip(
-            "the suite does not collect cleanly here; the suite total is NOT MEASURED"
-        )
-    text = (ROOT / "docs" / "STATUS.md").read_text(encoding="utf-8")
-    match = _TOTAL_MARK.search(text)
-    assert match, (
-        "docs/STATUS.md must carry the suite total on the marked line "
-        "(see _TOTAL_MARK in tests/test_docs_consistency.py)"
-    )
-    assert int(match.group(1)) == live, (
-        f"docs/STATUS.md claims {match.group(1)} tests, "
-        f"pytest --collect-only collected {live}"
-    )
-
-
-def test_no_second_document_contradicts_the_collected_total() -> None:
-    """One authoritative number; other files must not claim a different one."""
-    live = _live_collected_tests()
-    if live is None:
-        pytest.skip("the suite does not collect cleanly here")
-    pattern = re.compile(r"(?:مجموع|کل)\s*(?:تست‌ها|تست‌های مجموعه)?\D{0,12}(\d{2,5})\s*تست")
-    for name in ("README.md", "AGENTS.md", "docs/ISSUE_REGISTER.md", "docs/STATUS.md"):
-        text = (ROOT / name).read_text(encoding="utf-8").translate(
-            str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
-        )
-        for match in pattern.finditer(text):
-            assert int(match.group(1)) == live, (
-                f"{name} states a suite total of {match.group(1)}, collected {live}"
-            )
-
-
-def test_no_current_document_pins_a_fixed_pass_count() -> None:
-    """Run pytest to learn the live total; stale hard-coded totals are forbidden."""
-    for name in ("README.md", "AGENTS.md", "docs/STATUS.md", "docs/ISSUE_REGISTER.md"):
-        text = (ROOT / name).read_text(encoding="utf-8").translate(
-            str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
-        assert not re.search(r"\d+\s+passed", text), name
+    for name in ("README.md", "AGENTS.md", "docs/STATUS.md"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        assert not pattern.search(text), name
+    status = (ROOT / "docs/STATUS.md").read_text(encoding="utf-8")
+    assert "python -m pytest --collect-only -q" in status
+    assert "python -m pytest -rs" in status
 
 
 @pytest.mark.parametrize("name", ["README.md", "AGENTS.md", "LICENSE", "THIRD_PARTY.md"])
@@ -243,17 +171,44 @@ def test_every_relative_documentation_link_resolves() -> None:
     assert not broken, broken
 
 
-def test_current_docs_do_not_pin_a_stale_pytest_pass_count() -> None:
-    """A changing parametrized suite must not advertise a hard-coded count."""
-    for name in ('README.md', 'AGENTS.md', 'docs/STATUS.md', 'docs/ISSUE_REGISTER.md'):
-        text = (ROOT / name).read_text(encoding='utf-8').translate(
-            str.maketrans('۰۱۲۳۴۵۶۷۸۹', '0123456789'))
-        assert not re.search(r'\d+\s+passed', text), name
-
-
 def test_unified_guide_is_up_to_date() -> None:
     from tools.build_docs import OUTPUT, render
     assert OUTPUT.read_text(encoding='utf-8') == render(), 'Run python tools/build_docs.py'
+
+
+def test_unified_guide_covers_current_docs_and_links_archives_separately() -> None:
+    from tools.build_docs import ARCHIVES, OUTPUT, SOURCES, render
+
+    archived_paths = {ROOT / "docs" / name for name in ARCHIVES}
+    assert {ROOT / name for name in SOURCES} == set(DOCS) - archived_paths - {OUTPUT}
+    guide = render()
+    for name in ARCHIVES:
+        assert f"[{name}]({name})" in guide
+
+
+def test_default_llm_model_matches_examples_and_setup_guides() -> None:
+    from server.config import Settings
+
+    expected = Path(Settings().model_path).relative_to(ROOT).as_posix()
+    example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    assert re.findall(r"^PVAI_MODEL_PATH=(\S+)", example, re.M) == [expected]
+    for name in ("README.md", "THIRD_PARTY.md", "docs/CONFIGURATION.md", "docs/PC_VOICE.md", "docs/SPEC.md"):
+        document = (ROOT / name).read_text(encoding="utf-8")
+        assert re.search(r"models/[^\s`]+\.gguf", document), name
+        assert set(re.findall(r"models/[^\s`]+\.gguf", document)) == {expected}, name
+
+
+def test_protocol_message_table_matches_required_wire_fields() -> None:
+    from server.protocol import REQUIRED_FIELDS
+
+    document = (ROOT / "docs/PROTOCOL.md").read_text(encoding="utf-8")
+    table = document.split("## ۳. پیام‌های کنترلی (JSON)", 1)[1].split("### قواعد رفتاری", 1)[0]
+    rows = {}
+    for names, fields in re.findall(r"^\| (`\w+`(?: / `\w+`)?) \| [^|]+ \| ([^|]+) \|", table, re.M):
+        for name in re.findall(r"`(\w+)`", names):
+            rows[name] = set(re.findall(r"`(\w+)`", fields.split("(", 1)[0]))
+    expected = {kind.value: set(fields) for kind, fields in REQUIRED_FIELDS.items()}
+    assert rows == expected
 
 
 def test_numeric_configuration_defaults_match_code() -> None:

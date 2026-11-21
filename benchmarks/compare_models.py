@@ -173,7 +173,7 @@ def _command_output(command: list[str]) -> str | None:
 
 def _wait_for_server(process: subprocess.Popen[bytes], base_url: str, timeout_s: float) -> None:
     deadline = time.monotonic() + timeout_s
-    with httpx.Client(timeout=httpx.Timeout(3.0, connect=1.0)) as client:
+    with httpx.Client(timeout=httpx.Timeout(3.0, connect=1.0), trust_env=False) as client:
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 raise RuntimeError("llama-server exited before becoming ready")
@@ -317,6 +317,7 @@ def _run_model(
             _wait_for_server(process, base_url, timeout_s)
             with httpx.Client(
                 timeout=httpx.Timeout(timeout_s, connect=5.0),
+                trust_env=False,
                 headers={"Accept": "text/event-stream"},
             ) as client:
                 warmup = _stream_completion(

@@ -11,7 +11,6 @@ Every test here is model-free and offline; nothing is downloaded.
 from __future__ import annotations
 
 import json
-import os
 import wave
 from pathlib import Path
 
@@ -590,7 +589,7 @@ def test_benchmark_report_directory_is_env_overridable(tmp_path, monkeypatch) ->
     assert module.results_dir() == tmp_path / "reports"
 
 
-def test_eval_set_path_is_env_overridable(monkeypatch) -> None:
+def test_eval_set_path_is_env_overridable(tmp_path, monkeypatch, capsys) -> None:
     import importlib.util
     import sys
 
@@ -602,12 +601,20 @@ def test_eval_set_path_is_env_overridable(monkeypatch) -> None:
     sys.modules["pvai_persian_eval_env"] = module
     spec.loader.exec_module(module)
 
-    monkeypatch.setenv("PVAI_EVAL_SET", "/data/eval/fa.json")
-    args = module.main  # CLI builds its own parser; assert the env default reachable
-    assert callable(args)
-    monkeypatch.delenv("PVAI_EVAL_SET")
-    assert module.DEFAULT_SET.is_file()
-    assert os.path.exists(module.DEFAULT_SET)
+    override = tmp_path / "eval-set.json"
+    override.write_text(
+        json.dumps(
+            {"sentences": [{"id": "override-001", "text": "متن مخصوص override"}]},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PVAI_EVAL_SET", str(override))
+
+    assert module.main(["--list"]) == 0
+    output = capsys.readouterr().out
+    assert "override-001" in output
+    assert "متن مخصوص override" in output
 
 
 # --------------------------------------------------- shipped example, end to end

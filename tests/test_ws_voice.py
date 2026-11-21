@@ -20,7 +20,7 @@ from typing import Any
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
+from voicekit import LocalTestClient as TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from server.config import Settings
@@ -139,6 +139,7 @@ def settings(tmp_path: Path, *, token: str = "secret-token", voice: str = "femal
     return Settings(
         ws_enabled=True,
         ws_token=token,
+        ws_allow_shared_tokens=True,
         data_dir=str(tmp_path),
         history_persist=False,
         tts_voice=voice,
@@ -265,14 +266,15 @@ def test_hello_ok_declares_session_and_audio_format(tmp_path: Path) -> None:
             assert message["protocol"] == 1
 
 
-def test_ping_is_answered_with_the_same_nonce(tmp_path: Path) -> None:
+def test_ping_is_answered_and_pong_does_not_trigger_an_error(tmp_path: Path) -> None:
     with app_client(tmp_path) as client:
         with device_session(client) as ws:
             ws.send_text(hello())
             wait_for(ws, "hello_ok")
+            ws.send_text(ControlMessage(MessageType.PONG, {"nonce": "heartbeat"}).encode())
             ws.send_text(ControlMessage(MessageType.PING, {"nonce": "abc"}).encode())
-            pong = wait_for(ws, "pong")
-            assert pong["nonce"] == "abc"
+            pong = ws.receive_json()
+            assert (pong["type"], pong["nonce"]) == ("pong", "abc")
 
 
 # ----------------------------------------------------------------- audio path
@@ -410,6 +412,27 @@ def test_session_isolation_between_two_devices(tmp_path: Path) -> None:
     assert session_a and session_b and session_a != session_b
 
 
+def test_ws_pipeline_always_uses_transport_block_size(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from server.main import create_app
+
+    received = []
+    fake_bundle = bundle_factory()
+
+    def factory(settings, sink, metrics):
+        received.append(settings.audio_block_ms)
+        return fake_bundle(settings, sink, metrics)
+
+    configured = replace(settings(tmp_path), audio_block_ms=40, asr_warmup=False)
+    app = create_app(settings=configured, llm=NullLlm(), voice_bundle=factory)
+    with TestClient(app) as client, device_session(client) as ws:
+        ws.send_text(hello())
+        assert wait_for(ws, "hello_ok")["type"] == "hello_ok"
+    assert received == [20]
+    assert configured.audio_block_ms == 40
+
+
 def test_invalid_session_id_is_rejected(tmp_path: Path) -> None:
     with app_client(tmp_path) as client:
         with device_session(client) as ws:
@@ -442,6 +465,7 @@ def test_cancelled_playback_frames_are_dropped_before_play_stop(tmp_path: Path) 
     from server.ws_voice import VoiceWebSocket
 
     sink = PlaybackSink()
+    sink.start_turn(7)
     token = threading.Event()
     for _ in range(5):
         sink.write(frame(900), token)
@@ -455,6 +479,7 @@ def test_cancelled_playback_frames_are_dropped_before_play_stop(tmp_path: Path) 
     session.sink = sink
     session._on_pipeline_event({"type": "interrupted", "reason": "manual", "turn_id": 7})
 
+    assert session._peek_playback() is None
     assert sink.frames.empty(), "cancelled frames were left in the playback queue"
     assert sink.dropped == 5
     stop = json.loads(session.outgoing.get_nowait())
@@ -477,23 +502,21 @@ def test_one_play_end_per_turn_not_per_sentence(tmp_path: Path) -> None:
     # for synthesis, and with pacing the frames of the turn are still going out
     # when ``response_end`` arrives.  The sender therefore fills the count in at
     # send time; here the turn boundary itself is what is being asserted.
-    session.frames_sent = 7  # seven 20 ms frames already reached this device
     session._on_pipeline_event({"type": "response_end", "turn_id": 4, "status": "complete"})
     assert session.outgoing.qsize() == 1
     end = json.loads(session.outgoing.get_nowait())
     assert end["type"] == "play_end" and end["turn_id"] == 4
     assert "played_ms" in end
 
-    # The sender resolves it against frames delivered since the last boundary.
-    session._frames_sent_at_turn_start = 0
-    session.frames_sent = 7
+    session._wire_play_turn = 4
+    session._wire_play_frames = 7
     finalized = json.loads(session._finalize_play_end(ControlMessage(
         MessageType.PLAY_END, {"turn_id": 4, "played_ms": None, "_final": True}
     ).encode()))
     assert finalized["played_ms"] == 140.0
     assert "_final" not in finalized
-    # The boundary has moved: the next turn counts from here.
-    session.frames_sent = 9
+    session._wire_play_turn = 5
+    session._wire_play_frames = 2
     again = json.loads(session._finalize_play_end(ControlMessage(
         MessageType.PLAY_END, {"turn_id": 5, "played_ms": None, "_final": True}
     ).encode()))
@@ -512,6 +535,7 @@ def persisted_app_client(tmp_path: Path, *, asr: Any = None, speaker: Any = None
     configured = Settings(
         ws_enabled=True,
         ws_token="secret-token",
+        ws_allow_shared_tokens=True,
         data_dir=str(tmp_path),
         history_persist=True,
         tts_voice="female",
@@ -637,6 +661,7 @@ def test_resumed_device_session_context_reaches_the_model(tmp_path: Path) -> Non
     configured = Settings(
         ws_enabled=True,
         ws_token="secret-token",
+        ws_allow_shared_tokens=True,
         data_dir=str(tmp_path),
         history_persist=True,
         voice_asr_interval_s=10.0,
@@ -680,6 +705,7 @@ def test_device_without_a_session_id_never_joins_the_last_local_session(
     configured = Settings(
         ws_enabled=True,
         ws_token="secret-token",
+        ws_allow_shared_tokens=True,
         data_dir=str(tmp_path),
         history_persist=True,
         voice_asr_interval_s=10.0,

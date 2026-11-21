@@ -61,7 +61,7 @@ class Command:
         if unknown:
             raise BrokerError("invalid_schema", f"فیلد ناشناخته در فرمان: {sorted(unknown)}")
         action = raw.get("action")
-        if action not in ACTIONS:
+        if not isinstance(action, str) or action not in ACTIONS:
             raise BrokerError("unknown_action", f"عمل ناشناخته: {action!r}")
         device_id = raw.get("device_id")
         if not isinstance(device_id, str) or not device_id.strip():
@@ -71,7 +71,7 @@ class Command:
             raise BrokerError("invalid_schema", "کانال باید عدد صحیح نامنفی باشد.")
         value = raw.get("value")
         if action == "relay.set":
-            if value not in RELAY_STATES:
+            if not isinstance(value, str) or value not in RELAY_STATES:
                 raise BrokerError("invalid_schema", "مقدار رله باید on یا off باشد.")
         elif value is not None:
             raise BrokerError("invalid_schema", "عمل sensor.read مقدار نمی‌گیرد.")

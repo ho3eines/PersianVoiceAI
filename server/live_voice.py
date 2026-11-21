@@ -11,9 +11,8 @@ moments that used to be conflated:
 * ``on_first_frame`` — the first 20 ms block was handed to the output device
   (this is the closest local proxy for "first audible sound"; DAC latency is
   not measurable from Python);
-* ``on_complete`` — the last block was accepted by the device, with the played
-  duration.  "Playback finished" is therefore not confused with "synthesis
-  finished" or "queued into an unbounded buffer".
+* ``on_complete`` — the output call finished, with the duration of PCM passed
+  through the sink. It does not confirm that the sound reached a listener.
 """
 
 from __future__ import annotations
@@ -260,7 +259,8 @@ class Speaker:
             if on_complete is not None:
                 on_complete(time.perf_counter(), 0.0)
             return
-        played_blocks = 0
+        submitted_samples = 0
+        output_rate = self._output_rate()
         first_frame: float | None = None
         self._output = None
         chunks = None
@@ -290,7 +290,7 @@ class Speaker:
                         first_frame = time.perf_counter()
                         if on_first_frame is not None:
                             on_first_frame(first_frame)
-                    played_blocks += len(piece) // sample_width
+                    submitted_samples += len(piece) // sample_width
                 if stopped:
                     break
         finally:
@@ -310,7 +310,7 @@ class Speaker:
                     pass
                 self._output = None
             if on_complete is not None:
-                on_complete(time.perf_counter(), played_blocks * OUTPUT_BLOCK_SECONDS * 1000)
+                on_complete(time.perf_counter(), submitted_samples * 1000 / output_rate)
 
     def synthesize_pcm(self, text: str) -> tuple[bytes, int]:
         """Synthesize ``text`` to mono PCM16 without opening a speaker device.

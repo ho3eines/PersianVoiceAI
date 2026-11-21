@@ -335,11 +335,11 @@ def describe() -> dict[str, Any]:
         "implemented": True,
         "transport_implemented": True,
         "firmware_implemented": False,
-        "endpoint": "/ws/voice (PVAI_WS_ENABLED=true + PVAI_WS_TOKEN)",
+        "endpoint": "/ws/voice (PVAI_WS_ENABLED=true + PVAI_WS_TOKENS)",
         "notes": [
             "Wire format, validation and the server-side WebSocket transport are implemented.",
             "Device firmware, a persistent device registry and OTA remain unimplemented.",
-            "Without PVAI_WS_TOKEN every connection is refused by design.",
+            "A legacy PVAI_WS_TOKEN is only valid with PVAI_WS_ALLOW_SHARED_TOKENS=true.",
         ],
     }
 

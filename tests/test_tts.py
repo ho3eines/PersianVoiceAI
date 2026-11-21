@@ -142,7 +142,20 @@ def test_duplex_path_resamples_to_16k_mono_and_reports_frames() -> None:
     assert writes and len(writes[0]) == 640  # 20 ms at 16 kHz mono
     assert abs(float(np.frombuffer(writes[0], dtype="<i2").mean()) - 3000) < 30
     assert len(chunk_times) == 1 and len(frame_times) == 1
-    assert completed and completed[0][1] > 0  # played duration in milliseconds
+    assert [duration for _, duration in completed] == [40.0]
+
+
+def test_playback_duration_counts_samples_including_a_short_final_block() -> None:
+    writes: list[bytes] = []
+    completed: list[float] = []
+    speaker = Speaker.__new__(Speaker)
+    speaker.duplex = SimpleNamespace(write=lambda pcm, token: writes.append(pcm))
+    speaker.model = SimpleNamespace(synthesize=lambda text: iter([chunk(samples=400)]))
+
+    speaker.speak("سلام", threading.Event(), on_complete=lambda at, duration: completed.append(duration))
+
+    assert [len(piece) for piece in writes] == [640, 160]
+    assert completed == [25.0]
 
 
 def test_empty_text_does_not_touch_the_model() -> None:

@@ -19,7 +19,7 @@ import time
 from typing import Any
 
 import httpx
-from .config import Settings
+from .config import Settings, require_local_http_url
 from .voice import local_client_headers, local_api_url
 
 MAX_SESSION_TURNS = 6  # 6 user + 6 assistant messages sent as context
@@ -283,11 +283,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     _enable_utf8()
-    args = build_parser().parse_args(argv)
-    args.base_url = args.base_url.rstrip("/")
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        args.base_url = require_local_http_url(args.base_url.rstrip("/"), variable="--base-url")
+    except ValueError as exc:
+        parser.error(str(exc))
 
     with httpx.Client(
         timeout=httpx.Timeout(args.timeout, connect=5.0),
+        trust_env=False,
+        follow_redirects=False,
         headers={"Accept": "text/event-stream", **local_client_headers(Settings.from_env(), args.base_url)},
     ) as client:
         if args.once:

@@ -8,11 +8,16 @@ producing a fake reply.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
+import sys
+import threading
 import wave
 from typing import Any
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from server.config import Settings
@@ -36,9 +41,11 @@ class FakeAsr:
     def __init__(self, text: str = "سلام، حال شما چطور است؟") -> None:
         self.text = text
         self.calls: list[bytes] = []
+        self.rates: list[int] = []
 
     def transcribe_pcm(self, pcm: bytes, token: Any = None, job: Any = None, **_: Any) -> str:
         self.calls.append(pcm)
+        self.rates.append(_.get("sample_rate", 16000))
         return self.text
 
     def close(self) -> None:
@@ -71,11 +78,35 @@ class FakeClient:
             content=self.reply, model="fake", finish_reason="stop", timings=_timings()
         )
 
+    async def stream_chat(self, messages: Any, **_: Any):
+        """Same reply, delivered as deltas then a final result (as llama does)."""
+        from server.llm import StreamDelta, StreamDone
+
+        if self.unavailable:
+            raise LlamaServerUnavailable("به llama-server وصل نشدم.")
+        self.requests.append([dict(message) for message in messages])
+        for piece in self.reply.split():
+            yield StreamDelta(piece + " ")
+        yield StreamDone(
+            ChatResult(content=self.reply, model="fake", finish_reason="stop", timings=_timings())
+        )
+
     async def aclose(self) -> None:
         return None
 
 
 _TEST_DATA_DIR: list[str] = []
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_test_data_dirs():
+    """Remove only data directories created by this test module."""
+    yield
+    import shutil
+
+    for data_dir in _TEST_DATA_DIR:
+        shutil.rmtree(data_dir)
+    _TEST_DATA_DIR.clear()
 
 
 def make_client(
@@ -98,11 +129,42 @@ def make_client(
         preload=False,
     )
     return (
-        TestClient(app),
+        TestClient(app, base_url="http://localhost", client=("127.0.0.1", 12345)),
         app.state.webui.asr,
         app.state.webui.speaker,
         app.state.webui.client,
     )
+
+
+@pytest.mark.parametrize(("peer", "url"), [
+    ("192.168.1.42", "http://localhost"),
+    ("127.0.0.1", "http://bench.invalid"),
+])
+def test_bench_rejects_nonlocal_requests(peer: str, url: str) -> None:
+    client, asr, speaker, model = make_client()
+    with TestClient(client.app, base_url=url, client=(peer, 12345)) as remote:
+        assert remote.get("/api/history").status_code == 403
+        assert remote.post("/api/chat", json={"text": "سلام"}).status_code == 403
+    assert not (asr.calls or speaker.synthesized or model.requests)
+
+
+def test_bench_cli_rejects_a_lan_bind(monkeypatch: pytest.MonkeyPatch) -> None:
+    from server import webui
+
+    monkeypatch.setattr(sys, "argv", ["server.webui", "--host", "0.0.0.0"])
+    with pytest.raises(SystemExit) as exc:
+        webui.main()
+    assert exc.value.code == 2
+
+
+def test_bench_accepts_only_same_origin_browser_requests() -> None:
+    client, _, _, model = make_client()
+    with client:
+        rejected = client.post("/api/chat", json={"text": "سلام"}, headers={"Origin": "http://example.invalid"})
+        assert rejected.status_code == 403
+        assert not model.requests
+        accepted = client.post("/api/chat", json={"text": "سلام"}, headers={"Origin": "http://localhost"})
+    assert accepted.status_code == 200
 
 
 def test_index_page_is_served() -> None:
@@ -111,7 +173,7 @@ def test_index_page_is_served() -> None:
         response = client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "تست مرحله‌به‌مرحله" in response.text
+    assert "گفتگو و دیباگ" in response.text
 
 
 def test_the_page_keeps_the_stages_apart() -> None:
@@ -128,6 +190,77 @@ def test_the_page_keeps_the_stages_apart() -> None:
         assert f'id="{control}"' in page, f"the page lost the {control} control"
     for heading in ("ضبط و رونویسی", "تنظیمات ASR", "مدل", "صدا"):
         assert heading in page, f"the page lost the «{heading}» stage"
+
+
+def test_the_page_is_one_shell_with_the_panel() -> None:
+    """Both surfaces must share the same shell, font and local-only assets."""
+    client, *_ = make_client()
+    with client:
+        page = client.get("/").text
+    assert 'href="/assets/theme.css"' in page
+    assert 'href="/control"' in page, "the bench must link back to the panel"
+    assert 'id="menuToggle"' in page, "the sidebar needs a way back on small screens"
+    assert 'dir="rtl"' in page and 'lang="fa"' in page
+    for external in ("http://cdn", "https://cdn", "fonts.googleapis", "unpkg.com"):
+        assert external not in page, f"the page must stay offline ({external})"
+
+
+def test_shared_assets_are_served_locally() -> None:
+    client, *_ = make_client()
+    with client:
+        theme = client.get("/assets/theme.css")
+        font = client.get("/assets/fonts/Vazirmatn-var.woff2")
+        script = client.get("/assets/voice.js")
+        escape = client.get("/assets/../../server/webui.py")
+    assert theme.status_code == 200 and "text/css" in theme.headers["content-type"]
+    assert "Vazirmatn" in theme.text
+    assert font.status_code == 200 and font.headers["content-type"].startswith("font/woff2")
+    assert font.content[:4] == b"wOF2", "the bundled font must be a real woff2 file"
+    assert script.status_code == 200 and "javascript" in script.headers["content-type"]
+    assert escape.status_code == 404, "path traversal must not escape web/assets"
+
+
+def test_streamed_chat_emits_deltas_then_a_final_reply() -> None:
+    client, _asr, _speaker, llm = make_client()
+    with client:
+        response = client.post("/api/chat/stream", json={"text": "سلام!"})
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    events = [
+        line[6:]
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and line[6:] != "[DONE]"
+    ]
+    import json as _json
+
+    parsed = [_json.loads(event) for event in events]
+    deltas = [event for event in parsed if event["type"] == "delta"]
+    done = [event for event in parsed if event["type"] == "done"]
+    assert deltas, "the stream must deliver text before it finishes"
+    assert done and done[0]["reply"] == "سلام! خوبم، ممنون."
+    assert done[0]["ttft_ms"] is not None
+    assert response.text.rstrip().endswith("[DONE]")
+    assert llm.requests, "the model must receive the turn"
+
+
+def test_streamed_chat_reports_a_dead_backend_instead_of_a_fake_reply() -> None:
+    client, *_ = make_client(client=FakeClient(unavailable=True))
+    with client:
+        response = client.post("/api/chat/stream", json={"text": "سلام!"})
+    assert response.status_code == 200
+    assert '"type": "error"' in response.text
+    assert "خوبم" not in response.text
+
+
+def test_diagnostics_describes_every_component() -> None:
+    client, *_ = make_client()
+    with client:
+        data = client.get("/api/diagnostics").json()
+    for key in ("server", "asr", "tts", "llm", "conversation", "audio", "thinking"):
+        assert key in data, f"diagnostics lost {key}"
+    assert data["asr"]["status"] == "ready"
+    assert data["tts"]["status"] == "ready"
+    assert "model" in data["asr"] and "device" in data["asr"]
 
 
 def test_transcribe_overrides_the_settings_for_one_decode_only() -> None:
@@ -250,6 +383,74 @@ def test_retranscribe_reuses_the_saved_recording_with_overrides() -> None:
     assert data["transcript"] == "یک بار"
     assert asr.calls == [pcm, pcm], "the saved capture must be re-decoded, not the client's"
     assert speaker.synthesized == []
+
+
+def test_turn_and_repeat_reuse_the_native_recording_rate() -> None:
+    client, asr, *_ = make_client()
+    pcm = base64.b64encode(bytes(32000)).decode("ascii")
+    with client:
+        assert client.post("/api/turn", json={"pcm_b64": pcm, "sample_rate": 8000}).status_code == 200
+        repeated = client.post("/api/transcribe", json={"use_last": True}).json()
+        recording = client.get("/api/last.wav").content
+    assert asr.rates == [8000, 8000]
+    assert repeated["audio"]["seconds"] == 2.0
+    with wave.open(io.BytesIO(recording), "rb") as parsed:
+        assert parsed.getframerate() == 8000
+
+
+def test_asr_startup_does_not_require_piper(tmp_path, monkeypatch) -> None:
+    from server.voice import LocalAudio
+
+    (tmp_path / "model.bin").touch()
+    warmed = []
+    monkeypatch.setattr(LocalAudio, "warmup", lambda audio: warmed.append(audio))
+    settings = Settings(
+        asr_model_path=str(tmp_path), tts_model_path=str(tmp_path / "missing.onnx"),
+        data_dir=str(tmp_path), history_persist=False,
+    )
+    app = create_app(settings, client=FakeClient(), preload=False)
+    with TestClient(app):
+        audio = app.state.webui._build_asr()
+        assert warmed == [audio]
+        audio.close()
+
+
+def test_tts_waits_for_in_flight_turn_asr_even_if_request_is_cancelled(tmp_path) -> None:
+    started, release = threading.Event(), threading.Event()
+
+    class BlockingAsr(FakeAsr):
+        def transcribe_pcm(self, pcm: bytes, **options: Any) -> str:
+            started.set()
+            if not release.wait(3):
+                raise TimeoutError
+            return super().transcribe_pcm(pcm, **options)
+
+    async def run():
+        speaker = FakeSpeaker()
+        settings = Settings(data_dir=str(tmp_path), history_persist=False)
+        app = create_app(settings, asr=BlockingAsr(), speaker=speaker, client=FakeClient(), preload=False)
+        transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 12345))
+        async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+            pcm = base64.b64encode(bytes(3200)).decode("ascii")
+            turn = asyncio.create_task(client.post("/api/turn", json={"pcm_b64": pcm}))
+            speech = None
+            try:
+                assert await asyncio.to_thread(started.wait, 1)
+                turn.cancel()
+                speech = asyncio.create_task(client.post("/api/tts", json={"text": "تست"}))
+                await asyncio.sleep(0)
+                assert app.state.webui.turn_lock.locked()
+                assert not turn.done()
+                assert not speech.done()
+            finally:
+                release.set()
+                await asyncio.gather(turn, return_exceptions=True)
+                if speech is not None:
+                    assert (await speech).status_code == 200
+            assert speaker.synthesized == ["تست"]
+        await app.state.webui.aclose()
+
+    asyncio.run(run())
 
 
 def test_chat_endpoint_returns_text_without_synthesizing_audio() -> None:

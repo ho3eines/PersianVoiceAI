@@ -10,13 +10,15 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / 'docs/PROJECT_GUIDE.md'
 SOURCES = [
-    'README.md', 'docs/STATUS.md', 'docs/PC_VOICE.md', 'docs/CONFIGURATION.md',
+    'README.md', 'docs/STATUS.md', 'docs/PC_VOICE.md', 'docs/WEB_UI.md', 'docs/CONFIGURATION.md',
+    'docs/CONTROL_PANEL.md',
     'docs/STREAMING_ARCHITECTURE.md', 'docs/AEC.md', 'docs/PROTOCOL.md',
     'docs/WSS_TLS.md', 'docs/RAG.md',
     'docs/DATASETS.md', 'docs/PLATFORMS.md', 'docs/TROUBLESHOOTING.md',
     'docs/BENCHMARKS.md', 'docs/HARDWARE_VALIDATION.md', 'THIRD_PARTY.md',
-    'AGENTS.md', 'docs/SPEC.md', 'docs/ISSUE_REGISTER.md', 'docs/AUDIT_REPORT.md',
+    'AGENTS.md', 'docs/SPEC.md',
 ]
+ARCHIVES = ('ISSUE_REGISTER.md', 'AUDIT_REPORT.md')
 
 
 def render() -> str:
@@ -25,8 +27,8 @@ def render() -> str:
         '> این فایل خروجی خودکار `tools/build_docs.py` است؛ مستقیم ویرایش نکنید.\n'
         '> اسناد منبع را اصلاح و سپس `python tools/build_docs.py` را اجرا کنید.\n\n'
         'مرجع واحد مطالعهٔ پروژه: راه‌اندازی، وضعیت فعلی، تنظیمات، معماری، داده،\n'
-        'امنیت و تست. SPEC شامل اهداف آینده است؛ گزارش‌های audit و issue سابقه‌اند،\n'
-        'نه اثبات قابلیت فعلی. در تعارض تاریخی، کد و STATUS فعلی ملاک‌اند.\n\n'
+        'امنیت و تست. برای وضعیت جاری به STATUS، برای رفتار و تنظیمات به کد و راهنمای همان بخش،\n'
+        'و برای تصمیم‌ها و اهداف آینده به SPEC مراجعه کنید.\n\n'
         '## فهرست بخش‌ها\n'
     ]
     for index, source in enumerate(SOURCES, 1):
@@ -47,6 +49,8 @@ def render() -> str:
         text = re.sub(r'\]\(([^)]+)\)', link, text)
         parts.append(f'\n---\n\n<a id="section-{index}"></a>\n\n'
                      f'## بخش {index} — {source}\n\n{text.rstrip()}\n')
+    parts.append('\n---\n\n## سوابق بازبینی (تاریخی)\n\n')
+    parts.extend(f'- [{source}]({source})\n' for source in ARCHIVES)
     return ''.join(parts)
 
 

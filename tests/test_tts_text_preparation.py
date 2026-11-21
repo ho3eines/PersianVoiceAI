@@ -535,6 +535,19 @@ def test_an_empty_initial_prompt_is_not_sent() -> None:
     assert "initial_prompt" not in audio._transcribe_options()
 
 
+def test_hotwords_are_normalized_and_sent_only_when_configured() -> None:
+    from server.config import Settings
+
+    audio = LocalAudio.__new__(LocalAudio)
+    audio.settings = Settings(asr_hotwords=" رله ، سنسور,   نام دستگاه , , ")
+    options = audio._transcribe_options()
+    assert options["hotwords"] == "رله سنسور نام دستگاه"
+    assert "initial_prompt" not in options
+
+    audio.settings = Settings(asr_hotwords="  ")
+    assert "hotwords" not in audio._transcribe_options()
+
+
 # ---------------------------------------------------------- false-accept rate
 def test_false_accept_rate_counts_only_real_transcripts() -> None:
     report = false_accept_rate(["", "   ", ".", "زیرنویس", "ممنون"])

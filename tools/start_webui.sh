@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Local one-turn test bench: mic/text → Whisper → llama-server → Piper in the browser.
-# Loopback only by default; see docs/WEB_UI.md.
+# Loopback only; see docs/WEB_UI.md.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

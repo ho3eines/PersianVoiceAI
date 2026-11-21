@@ -10,6 +10,13 @@ model is downloaded by the operator, and the operator is bound by the licence of
 whatever they download. The table records the default and the licence verified
 for it, plus the trap cases.
 
+## Bundled front-end assets
+
+| Asset | Where | Licence | Notes |
+|---|---|---|---|
+| Vazirmatn variable font (`Vazirmatn[wght].woff2`, v33.003) | `web/assets/fonts/Vazirmatn-var.woff2` | **SIL Open Font License 1.1** | Self-hosted so the UI stays offline; no CDN request. Upstream: `rastikerdar/vazirmatn`. |
+| `web/assets/theme.css`, `web/assets/voice.js` | `web/assets/` | GPL-3.0-or-later (this project) | Written for this repository; no third-party CSS/JS framework. |
+
 ## Python dependencies
 
 Verified from PyPI package metadata and the upstream repositories.
@@ -44,7 +51,7 @@ shipping a binary that links it.
 
 | Model | Default path | Licence | SHA-256 of exact weight | Notes |
 |---|---|---|---|---|
-| Qwen3-4B (GGUF) | `models/Qwen3-4B-Q4_K_M.gguf` | Apache-2.0 | NOT VERIFIED (revision-dependent) | Apache-2.0 is GPLv3-compatible; safe to ship alongside this code. Quantised re-uploads inherit the base licence. |
+| Qwen3.5-4B (GGUF) | `models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf` | Verify the exact release | NOT VERIFIED (revision-dependent) | The default path does not identify a verified publisher, revision, or checksum. Record those and review the model card and licence before redistributing the weight. |
 | Whisper `small` weights | `models/whisper-small` | MIT | NOT VERIFIED (conversion-dependent) | OpenAI releases both code and weights under MIT; `faster-whisper` conversions keep it. |
 | Piper Persian voice | `models/piper/fa_IR.onnx` | **varies per voice — check** | NOT VERIFIED (voice-dependent) | The voice file is a separate work from the Piper engine. See below. |
 

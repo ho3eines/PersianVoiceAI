@@ -7,10 +7,18 @@ import threading
 from array import array
 from typing import Any, Callable
 
+from fastapi.testclient import TestClient
+
 from server.config import Settings
 
 LOUD = 2000
 FRAME_SAMPLES = 320
+
+
+class LocalTestClient(TestClient):
+    def __init__(self, app: Any, **options: Any) -> None:
+        options.setdefault("client", ("127.0.0.1", 50000))
+        super().__init__(app, **options)
 
 
 def frame(level: int = LOUD, samples: int = FRAME_SAMPLES) -> bytes:

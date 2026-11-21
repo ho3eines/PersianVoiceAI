@@ -4,14 +4,15 @@
 > **transport سمت سرور** در `server/ws_voice.py` (تست: `tests/test_ws_voice.py`) پیاده شده است.
 > `GET /api/protocol` این وضعیت را با `"implemented": true`, `"transport_implemented": true` و
 > `"firmware_implemented": false` برمی‌گرداند.
-> **هیچ firmware، رجیستری دستگاه یا OTA در این مخزن وجود ندارد** و هیچ تست سخت‌افزاری/شبکهٔ واقعی
-> اجرا نشده است (به `docs/HARDWARE_VALIDATION.md` نگاه کنید). اولویت PC-first است: تا وقتی موتور
+> **هیچ firmware، رجیستری پویا یا OTA در این مخزن وجود ندارد**؛ فهرست هویت دستگاه‌ها از
+> پیکربندی ثابت خوانده می‌شود. تست ESP32 روی LAN واقعی انجام نشده است
+> (به [HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md) نگاه کنید). اولویت PC-first است: تا وقتی موتور
 > مکالمهٔ PC تست پذیرش را پاس نکرده، firmware شروع نمی‌شود.
 
 ## ۱. اصول
 
 - انتقال: **WebSocket روی LAN خصوصی**؛ فریم‌های باینری برای صدا و متن JSON برای کنترل.
-- فقط IPv4/IPv6 خصوصی یا loopback؛ هیچ relay ابری، هیچ STUN/TURN عمومی.
+- برای استقرار در IPv4/IPv6 خصوصی یا loopback؛ هیچ relay ابری یا STUN/TURN در transport وجود ندارد.
 - صدا **PCM16 تک‌کاناله 16kHz** (32 KB/s) در هر دو جهت. خروجی TTS روی PC به 16kHz نرمال می‌شود.
 - بلوک مرجع ۲۰ms = ۳۲۰ نمونه = ۶۴۰ بایت.
 - هر دستگاه `device_id`، هر مکالمه `session_id`، هر پاسخ دستیار `turn_id` و هر گفتار کاربر
@@ -32,7 +33,7 @@
 | `timestamp_ms` | uint32 | زمان تولید نسبت به شروع session |
 
 سپس `samples * 2` بایت PCM16 little-endian. پیاده‌سازی: `encode_audio` / `decode_audio`.
-هر نقض قرارداد (`kind` ناشناخته، طول نامنطبق، نمونهٔ فرد، نسخهٔ دیگر) `ProtocolError` می‌دهد؛
+نقض قرارداد (مثل `kind` ناشناخته، طول نامنطبق یا نسخهٔ دیگر) `ProtocolError` می‌دهد؛
 گزارش آن به دستگاه با پیام `error` انجام می‌شود، نه با بستن بی‌صدا.
 
 ## ۳. پیام‌های کنترلی (JSON)
@@ -44,28 +45,31 @@
 |---|---|---|---|
 | `hello` | دستگاه→سرور | `device_id`, `token` | احراز هویت و شناسایی دستگاه |
 | `hello_ok` | سرور→دستگاه | `session_id` | پذیرش، اعلام قالب صدا و نسخه |
-| `session_start` | دستگاه→سرور | `session_id` | آغاز مکالمهٔ جدید (پاک‌شدن context قبلی) |
-| `session_ack` | سرور→دستگاه | `session_id` | تأیید آغاز نشست |
-| `speech_start` | دستگاه→سرور | `utterance_id` | VAD سمت دستگاه: شروع گفتار |
-| `speech_end` | دستگاه→سرور | `utterance_id`, `reason` | پایان گفتار (`endpoint`/`max_segment`/`forced`/`overflow`/`device`) |
+| `session_start` | دستگاه→سرور | `session_id` | درخواست تأیید نشست جاری؛ انتخاب نشست فقط در `hello` |
+| `session_ack` | سرور→دستگاه | `session_id` | تأیید شناسهٔ جاری، بدون پاک‌کردن context |
+| `speech_start` | هر دو | `utterance_id` | اعلان شروع گفتار؛ پیام دستگاه صرفاً اطلاع‌رسانی است |
+| `speech_end` | هر دو | `utterance_id`, `reason` | اعلان پایان گفتار؛ پیام دستگاه صرفاً اطلاع‌رسانی است |
 | `interrupt` | دستگاه→سرور | `reason` | barge-in (`user_speech`/`manual`/`timeout`/`shutdown`/`superseded`) |
 | `play_start` | سرور→دستگاه | `turn_id`, `sample_rate` | آغاز ارسال صدای پاسخ |
-| `play_end` | سرور→دستگاه | `turn_id`, `played_ms` | پایان پخش واقعی روی دستگاه |
+| `play_end` | سرور→دستگاه | `turn_id`, `played_ms` | پایان ارسال صوت همان نوبت؛ تأیید پخش فیزیکی نیست |
 | `play_stop` | سرور→دستگاه | `turn_id`, `reason` | قطع پخش (`barge_in`/`new_turn`/`shutdown`/`error`) |
 | `set_voice` | هر دو | `voice` (`male`/`female`) | انتخاب صدا؛ سرور و دستگاه هم‌گام می‌شوند |
 | `asr_partial` | سرور→دستگاه | `utterance_id`, `text` | متن نهایی‌نشده برای نمایش/ردیابی |
 | `asr_final` | سرور→دستگاه | `utterance_id`, `text` | متن نهایی همان utterance |
 | `ping` / `pong` | هر دو | `nonce` | اندازه‌گیری RTT و تشخیص قطعی |
-| `error` | هر دو | `code`, `detail` | خطای قابل‌فهم (فارسی برای انسان، `code` انگلیسی) |
+| `error` | سرور→دستگاه | `code`, `detail` | خطای قابل‌فهم (فارسی برای انسان، `code` انگلیسی) |
 
 ### قواعد رفتاری
 
-1. **`asr_partial` هرگز فرمان نیست.** فقط `asr_final` به LLM می‌رود و می‌تواند به `Command Broker` منتهی شود.
-2. `speech_start` سمت سرور، پاسخ در حال پخش را قطع می‌کند (barge-in) اما **ریال‌های ASR نهایی قبلی را
-   هرگز باطل نمی‌کند** — همان قاعدهٔ `docs/STREAMING_ARCHITECTURE.md`.
+1. **`asr_partial` هرگز فرمان نیست.** فقط متن نهایی به LLM می‌رود؛ اتصال مسیر گفتار به
+   `Command Broker` هنوز پیاده نشده است.
+2. شروع گفتار که VAD سرور تشخیص دهد می‌تواند پاسخ جاری را قطع کند (barge-in)، اما **کارهای ASR
+   نهایی قبلی را باطل نمی‌کند**؛ `speech_start` دریافتی از دستگاه به‌خودی‌خود پاسخ را قطع نمی‌کند.
 3. `play_stop` باید در دستگاه هم اجرا شود: بافر پخش پاک و صدای قدیمی خاموش؛ بایت‌های در راه نباید
    بعد از `play_stop` پخش شوند (شمارهٔ `sequence` برای تشخیص).
-4. `ping` بدون `pong` در چند دوره = قطع اتصال؛ دستگاه باید reconnect کند و `session_id` تازه بگیرد.
+4. دستگاه به `ping` با `pong` و همان `nonce` پاسخ می‌دهد. سرور هر پیام ورودی را نشانهٔ فعالیت
+   می‌داند و بستن اتصال تابع timeout بیکاری است، نه تعداد ping بی‌پاسخ. دستگاه هنگام reconnect
+   می‌تواند در `hello` همان `session_id` قبلی را درخواست کند.
 5. خطای احراز هویت → `error` با کد `auth_failed` و بستن اتصال.
 6. NaN/`inf` در صدا پذیرفته نمی‌شود؛ PCM16 دقیقاً ۲ بایت هر نمونه.
 
@@ -75,13 +79,13 @@
 device            server(PC)                llama-server      piper
   | hello(token) -->|
   |<- hello_ok ------|
-  | session_start ->|
+  | session_start ->|  optional: same session_id as hello_ok
   |<- session_ack ---|
   | capture seq=1 -->|  (20ms blocks, continuous)
-  | speech_start --->|  VAD onset
+  |<- speech_start --|  server VAD onset
   | capture ... ---->|  partial ASR windows every 0.8s
   |<- asr_partial ---|
-  | speech_end ----->|  endpoint
+  |<- speech_end ----|  server endpoint
   |<- asr_final -----|
   |                  |--- POST /v1/chat/completions (SSE) -->|
   |                  |<-- sentence streams ------------------|
@@ -96,11 +100,15 @@ device            server(PC)                llama-server      piper
 ## ۵. بازپخش، reconnect و شناسه‌ها
 
 - `sequence` هر جهت مستقل و ۱۶ بیتی است؛ سرریز → `sequence = 0` و ادامه.
-- پس از reconnect، دستگاه `hello` می‌فرستد؛ اگر `session_id` قبلی را بخواهد، با `session_start`
-  همان شناسه را اعلام می‌کند و سرور context محلی را از `data/conversations/<session_id>.jsonl`
-  بازیابی می‌کند (فقط اگر `PVAI_HISTORY_PERSIST=true`).
-- سرور در `hello_ok` نسخهٔ پروتکل و قالب صدا را اعلام می‌کند؛ دستگاه ناسازگار باید صریحاً
-  `error` بدهد، نه اینکه با نرخ اشتباه ادامه دهد.
+- پس از reconnect، دستگاه `hello` می‌فرستد و **اگر `session_id` قبلی را می‌خواهد، باید همان
+  شناسه را در payload همان `hello` بفرستد**. سرور هنگام بالا آوردن pipeline برای همین اتصال،
+  نشست را با آن شناسه باز می‌کند و context محلی را از
+  `data/conversations/<session_id>.jsonl` بازیابی می‌کند (فقط اگر `PVAI_HISTORY_PERSIST=true`).
+  ارسال `session_start` پس از برپاشدن pipeline نشست جدید نمی‌سازد: اگر شناسه با شناسهٔ جاری
+  یکی باشد فقط `session_ack` برمی‌گردد، و اگر متفاوت باشد سرور `error` با کد `session_locked`
+  می‌دهد و شناسه تغییر نمی‌کند؛ برای نشست دیگر باید اتصال تازه باز شود.
+- سرور در `hello_ok` نسخهٔ پروتکل و قالب صدا را اعلام می‌کند؛ دستگاه ناسازگار باید خطا را
+  در سمت خودش ثبت کند و اتصال را ببندد، نه اینکه با نرخ اشتباه ادامه دهد.
 
 ## ۶. transport سمت سرور (`WS /ws/voice`)
 
@@ -117,13 +125,12 @@ device            server(PC)                llama-server      piper
   و لاگ نمی‌تواند بگوید کدام دستگاه بوده.
 - نخستین پیام باید `hello` باشد؛ پیام دیگر → `error` کد `handshake_required`. مهلت `hello` ده ثانیه
   است (`handshake_timeout`). پیام خطا **قبل از** بستن اتصال فرستاده می‌شود تا دستگاه دلیل را لاگ کند.
-- هر اتصال **Pipeline و Conversation مستقل** دارد؛ ASR، TTS و صف پخش بین دستگاه‌ها مشترک نیست.
+- هر اتصال **Pipeline، Conversation و صف‌های مستقل** دارد؛ وزن‌های ASR/TTS در فرایند مشترک‌اند.
 - capture باینری به همان `Pipeline` مسیر میکروفن داده می‌شود؛ event‌های آن یک‌به‌یک به پیام‌های
   `speech_start`/`speech_end`/`asr_partial`/`asr_final`/`play_start`/`play_end`/`play_stop` تبدیل می‌شوند.
-- **فریم ورودی دقیقاً ۲۰ms.** capture باینری باید مضربی از ۳۲۰ نمونه باشد؛ بلوک‌های بزرگ‌تر
-  به همان ۳۲۰ نمونه‌ای تقسیم می‌شوند و اندازهٔ نامعتبر `error` کد `protocol_error` می‌گیرد.
-  دلیل: endpointing ناشی از VAD فریم‌ها را ۲۰ms فرض می‌کند، پس یک فریم ۱۰۰ms زمان سکوت را
-  ۵ برابر اشتباه می‌شمارد.
+- **واحد پردازش ورودی ۲۰ms است.** پیام capture باینری می‌تواند یک یا چند بلوک کامل ۳۲۰ نمونه‌ای
+  داشته باشد. سرور آن را به همان بلوک‌ها تقسیم می‌کند و اندازهٔ نامعتبر `protocol_error` می‌گیرد.
+  `PVAI_AUDIO_BLOCK_MS` فقط تنظیم صوت PC است و زمان‌بندی Pipeline وب‌سوکت را عوض نمی‌کند.
 - `seq` در capture بررسی می‌شود: پرش و تکرار در `ws_capture_gap_frames` و
   `ws_capture_out_of_order` ثبت می‌شود (WiFi بسته گم می‌کند؛ پیش‌تر هیچ اثری نمی‌ماند).
   نرخ فریم هم سقف دارد (`PVAI_WS_FRAME_RATE`، پیش‌فرض ۲۰۰/s = ۴ برابر نرخ اسمی): دستگاه معیوب
@@ -136,15 +143,15 @@ device            server(PC)                llama-server      piper
   همان بافر تا رسیدن `play_stop` پخش می‌شد. اعتبار اولیهٔ بافر
   `PVAI_WS_PLAYBACK_CREDIT_MS` (پیش‌فرض ۲۰۰ms) است تا بین برست‌های سنتز underrun نشود؛
   با `PVAI_WS_PLAYBACK_PACING=false` می‌توان خاموشش کرد (فقط برای اشکال‌زدایی).
-  از این رو `played_ms` یعنی «صدایی که واقعاً به دستگاه رسید»، نه «صدایی که در صف بود».
-- `play_start` و `play_end` هر دو مرز **نوبت** هستند، نه جمله: `tts_start` برای هر جمله می‌آید،
-  ولی سرور یک `play_start` در آغاز نوبت و یک `play_end` پس از ارسال همهٔ فریم‌های آن می‌فرستد
-  (نوبت چندجمله‌ای دقیقاً یک جفت دارد).
-- **پیام‌های حیاتی هرگز دور ریخته نمی‌شوند.** صف کنترل کران‌دار است (۶۴)؛ پیش‌تر هر چه جا
-  نمی‌شد حذف می‌شد — از جمله `play_stop`. اکنون فقط `asr_partial` قابل‌حذف است (شمارندهٔ
-  `ws_control_dropped`، چون partial تازه‌تر جایش را می‌گیرد)؛ `play_stop`/`play_end`/`asr_final`/
-  `error` در صف سرریز می‌مانند و **پیش از** بقیهٔ صف فرستاده می‌شوند. شمارندهٔ `rejected` فقط
-  برای رد handshake/ظرفیت است.
+  `played_ms` مدت بلوک‌هایی است که سرور برای همان نوبت روی سوکت ارسال کرده، نه بلوک‌های صف‌شده
+  و نه تأیید دریافت یا پخش فیزیکی دستگاه.
+- `play_start` و `play_end` مرز **نوبت** هستند. برای یک نوبت موفق دارای صدا، همهٔ فریم‌های همان
+  نوبت بین این دو پیام می‌آیند، حتی اگر چند پاسخ هم‌زمان در صف باشند. لغو یا شکست در حین پخش با
+  `play_stop` اعلام می‌شود و فریم‌های ارسال‌نشدهٔ نوبت لغوشده کنار گذاشته می‌شوند.
+- **صف کنترل کران‌دار و مرتب است.** پیام‌های حیاتی، شامل `play_start` و `play_end`، در صورت پر
+  بودن صف اصلی در صف سرریز می‌مانند و ترتیب ارسال حفظ می‌شود. پیام‌های غیرحیاتی ممکن است حذف شوند
+  (`ws_control_dropped`). اگر هر دو صف پر شوند اتصال بسته می‌شود و
+  `ws_critical_overflow_exhausted` ثبت می‌شود.
 - **heartbeat و idle timeout.** سرور هر `PVAI_WS_HEARTBEAT` (پیش‌فرض ۱۵s) یک `ping` می‌فرستد و
   اتصالی که `PVAI_WS_IDLE_TIMEOUT` (پیش‌فرض ۶۰s) هیچ پیامی نفرستد بسته می‌شود؛ پیش از این
   دستگاه مرده فقط با timeout چنددقیقه‌ای TCP آزاد می‌شد و مدل‌ها اشغال می‌ماند. دستگاه باید
@@ -157,8 +164,8 @@ device            server(PC)                llama-server      piper
   ولی مدل مشترک هم‌زمان پیش برده نمی‌شود.
 - یک `session_id` در هر لحظه یک نویسنده دارد؛ دستگاه دوم `error` کد `session_in_use` می‌گیرد
   (دو نویسنده روی یک JSONL رکوردها را درهم می‌کردند).
-- `interrupt` از دستگاه: `Pipeline.barge_in` اجرا می‌شود، صف پخش همان لحظه خالی می‌شود و سپس
-  `play_stop` می‌رود؛ هیچ فریمی از نوبت لغوشده بعد از `play_stop` ارسال نمی‌شود.
+- `interrupt` از دستگاه: `Pipeline.barge_in` اجرا می‌شود، فریم‌های ارسال‌نشدهٔ نوبت لغوشده
+  نامعتبر می‌شوند و برای پخش در جریان `play_stop` فرستاده می‌شود.
 - `speech_start`/`speech_end` از دستگاه فقط **اطلاعی** هستند؛ endpointing مال سرور است.
 - `set_voice` صدای جمله‌های بعدی را عوض می‌کند؛ اگر مدل آن صدا نباشد `error` کد `voice_unavailable`.
 - متریک‌ها: `ws_connections`, `ws_frames_in`, `ws_frames_out`, `ws_auth_failures`,
@@ -169,8 +176,8 @@ device            server(PC)                llama-server      piper
 
 ## ۷. امنیت LAN
 
-- **هر مسیر REST توکن می‌خواهد.** `PVAI_API_TOKEN` به‌صورت
-  `Authorization: Bearer <token>` (یا `X-API-Key`) روی همهٔ مسیرها جز `/health` بررسی می‌شود.
+- **REST روی LAN توکن می‌خواهد.** وقتی `PVAI_API_TOKEN` تنظیم شده، روی مسیرهای REST جز
+  `/health` و درخواست‌های `OPTIONS`، `Authorization: Bearer <token>` (یا `X-API-Key`) بررسی می‌شود.
   پیش از این `GET /api/sessions/{id}` متن کامل گفتگو را بی‌احراز هویت برمی‌گرداند و
   `/v1/chat/completions` هم آزاد بود — با `PVAI_HOST=0.0.0.0`، که برای دستگاه LAN لازم است،
   هر کسی در شبکه این‌ها را می‌دید. `/health` فقط `{"status": "ok"}` است: بدون نام مدل، بدون
@@ -184,8 +191,8 @@ device            server(PC)                llama-server      piper
   می‌رود؛ در شبکهٔ مشترک (WiFi عمومی، خوابگاه، مهمان) هر کسی می‌تواند آن را بخواند.
   دو راه مستند در `docs/WSS_TLS.md`: TLS مستقیم روی uvicorn با `PVAI_SSL_CERTFILE` +
   `PVAI_SSL_KEYFILE`، یا reverse proxy با `wss://`/`https://` (Caddy یا nginx) جلوی سرور.
-  هر دو مسیر تست خودکار دارند؛ اجرای واقعی Caddy/nginx و firmware روی دستگاه
-  **NOT MEASURED** است.
+  TLS مستقیم با HTTPS روی loopback تست خودکار دارد؛ اجرای Caddy/nginx و handshake
+  WSS با firmware روی دستگاه **NOT MEASURED** است.
 - این وضعیت **هشدار** است نه خطا: در لاگ startup و در `/ready` (کلید
   `checks.configuration.warnings`) دیده می‌شود. `config_errors` عمداً چیزی نمی‌گوید، چون آن
   یکی سخت‌گیر است (`run_live` را متوقف می‌کند و `/ready` را ناآماده می‌کند) و نباید راه‌اندازی
@@ -196,8 +203,8 @@ device            server(PC)                llama-server      piper
 ## ۸. آنچه هنوز لازم است (به ترتیب)
 
 1. firmware ESP-IDF: I2S capture/playback، VAD سبک سمت دستگاه، reconnect (شروع نشده).
-2. رجیستری دستگاه، توکن per-device، rate limit و لاگ اتصال — **پیاده شد** (بخش ۶ و ۷)؛
-   تنها حلقهٔ باقی‌مانده `pong` در firmware است.
+2. رجیستری پویای دستگاه و مدیریت توکن‌ها — **پیاده‌نشده**. فهرست ثابت توکن per-device،
+   rate limit و لاگ اتصال در سرور پیاده‌اند (بخش ۶ و ۷).
 3. OTA و مدیریت نسخهٔ firmware (شروع نشده).
 4. سنجش RTT/LAN jitter واقعی با `ping/pong` روی سخت‌افزار — **NOT MEASURED**.
 

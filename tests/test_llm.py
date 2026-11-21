@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
+
+import httpx
+import pytest
 
 from server.config import Settings
-from server.llm import LlamaServerClient
+from server.llm import GenerationError, LlamaServerClient, StreamDelta
 
 
 def _client() -> LlamaServerClient:
@@ -92,6 +96,8 @@ def test_reasoning_is_not_a_spoken_reply() -> None:
     try:
         result = client._result({'choices': [{'message': {'reasoning_content': 'internal'}}]}, 1)
         assert result.content == ''
+        inline = client._result({"choices": [{"message": {"content": "<think>hidden</think>visible"}}]}, 1)
+        assert inline.content == "visible"
         payload = client._payload([], model=None, temperature=None, max_tokens=None,
                                   stream=True, system_prompt=None)
         assert payload['chat_template_kwargs'] == {'enable_thinking': False}
@@ -116,3 +122,45 @@ def test_thinking_filter_strips_inline_blocks_across_chunks() -> None:
     assert _strip_thinking_blocks("ab") == "ab"
     assert _strip_thinking_blocks("plain answer") == "plain answer"
     assert _strip_thinking_blocks("<think>only reasoning") == ""
+
+
+def test_llm_transport_refuses_public_url_and_does_not_use_proxies_or_redirects(monkeypatch) -> None:
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.test:8080")
+    with pytest.raises(ValueError, match="PVAI_LLAMA_SERVER_URL"):
+        LlamaServerClient(Settings(llama_server_url="http://outside.test:8080"))
+    client = LlamaServerClient(Settings(llama_server_url="http://192.168.0.2:8080"))
+    try:
+        assert client._client.trust_env is False
+        assert client._client.follow_redirects is False
+    finally:
+        asyncio.run(client.aclose())
+
+
+@pytest.mark.parametrize("finish", [True, False])
+def test_stream_only_yields_visible_text_and_requires_finish_reason(finish: bool) -> None:
+    async def run() -> None:
+        client = _client()
+        await client.aclose()
+        choices = [{"delta": {"content": chunk}} for chunk in ("<thi", "nk>hidden", "</think>visible")]
+        if finish:
+            choices.append({"delta": {}, "finish_reason": "stop"})
+        body = "".join(f"data: {json.dumps({'choices': [choice]})}\n\n" for choice in choices)
+        client._client = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, text=body)),
+            base_url="http://localhost",
+        )
+        events = []
+        try:
+            if finish:
+                async for event in client.stream_chat([]):
+                    events.append(event)
+                assert events[-1].result.content == "visible"
+            else:
+                with pytest.raises(GenerationError):
+                    async for event in client.stream_chat([]):
+                        events.append(event)
+            assert [event.content for event in events if isinstance(event, StreamDelta)] == ["visible"]
+        finally:
+            await client.aclose()
+
+    asyncio.run(run())

@@ -18,18 +18,19 @@
 
 | بخش | وضعیت |
 |---|---|
-| هستهٔ متنی محلی: FastAPI + llama.cpp (GGUF) + CLI فارسی | **پیاده‌شده و تست‌شده** (درس ۱) |
-| بنچمارک فارسی (TTFT، tok/s، زمان کل) | اجراشده روی MiniCPM؛ جزئیات در STATUS |
+| هستهٔ متنی محلی: FastAPI + llama.cpp (GGUF) + CLI فارسی | **پیاده‌شده و تست‌شده**؛ مدل پیش‌فرض در CONFIGURATION |
+| بنچمارک فارسی (TTFT، tok/s، زمان کل) | نمونه‌های محدود روی لپ‌تاپ توسعه برای MiniCPM، Qwen و مدل‌های دیگر؛ جزئیات در BENCHMARKS |
 | ESP32-S3 (I2S، پخش، RMS) | کد V1-A **در این مخزن نیست** (خارج از مخزن نگه داشته می‌شود) و روی سخت‌افزار واقعی build/تست نشده |
 | صوت PC | ورودی پیوسته، VAD با هیسترزیس/پیش‌رول، صف final بدون‌افت، partial هم‌پوشان، async SSE، Piper تدریجی؛ تست خودکار سبز، تست واقعی لازم |
 | AEC روی PC | SpeexDSP با مرجع duplex؛ مصنوعی و **اتاق واقعی روی همین لپ‌تاپ MEASURED** (۱۳ نوامبر، `docs/AEC.md`)؛ double-talk انسان و ESP32 NOT TESTED |
 | ماشین حالت و barge-in | صریح و تست‌شده (`tests/test_state_machine.py`, `tests/test_utterance_lifecycle.py`) |
 | حافظهٔ مکالمه | محلی/JSONL، برش توکنی، پنجرهٔ RAM محدود، وضعیت interrupted |
 | readiness / سنجه‌ها | `/ready` کامل + `server/metrics.py` با تست |
-| بنچمارک و ارزیابی فارسی | `tools/benchmark_voice.py` و `benchmarks/persian_eval.py`؛ اعداد واقعی هدف NOT MEASURED |
+| بنچمارک و ارزیابی فارسی | اجزای منفرد و اجرای تک‌نوبتی محدود ثبت شده‌اند؛ تأخیر صوت پیوسته، barge-in و WER/CER پیکرهٔ هدف NOT MEASURED |
 | ضبط واقعی میکروفون | `tools/mic_probe.py` (VAD+Whisper واقعی، MEASURED)؛ یک اجرای تک‌جهته در بخش ۹.۳ `docs/HARDWARE_VALIDATION.md` |
 | Wi-Fi/WebSocket صوتی ESP32 | transport سرور پیاده‌شده (`server/ws_voice.py`)؛ firmware پیاده‌نشده |
-| IoT Command Broker، احراز هویت دستگاه، OTA | پیاده‌نشده |
+| پنل مدیریت وب (`/control` + `/api/manage/*`): تنظیمات، مدل‌ها، ارائه‌دهنده‌ها و سرویس‌ها | **پیاده‌شده + تست خودکار**؛ فقط loopback؛ آفلاین می‌ماند مگر اپراتور خودش provider ابری را فعال کند |
+| IoT Command Broker | فاز اول (schema، policy، audit و فقط `FakeDevice`) پیاده و تست شده؛ به مسیر گفتار/LLM وصل نیست و سخت‌افزار واقعی ندارد. IoT واقعی، firmware دستگاه و OTA پیاده‌نشده‌اند |
 
 جزئیات و فهرست فایل‌ها: [`docs/STATUS.md`](docs/STATUS.md).
 
@@ -68,7 +69,7 @@ PersianVoiceAI/
 │  ├─ PROJECT_GUIDE.md    ← راهنمای یکپارچه؛ تولید با tools/build_docs.py
 │  ├─ DATASETS.md         ← دادهٔ سفارشی، پیکربندی JSON/YAML، قرارداد trainer خارجی
 │  ├─ SPEC.md             ← مستند جامع v1.0 (مرجع تصمیم‌ها)
-│  ├─ STATUS.md           ← وضعیت اجرایی، تست‌ها، نگاشت ۲۰ الزام به تست
+│  ├─ STATUS.md           ← وضعیت اجرایی، شواهد و نگاشت الزام‌ها به تست
 │  ├─ ISSUE_REGISTER.md   ← دفترچهٔ ایرادها: ریشه، رفع، تست، وضعیت
 │  ├─ STREAMING_ARCHITECTURE.md ← utterance/generation، صف‌ها، ماشین حالت، لغو
 │  ├─ CONFIGURATION.md    ← مرجع کامل متغیرهای PVAI_*
@@ -80,11 +81,17 @@ PersianVoiceAI/
 │  ├─ TROUBLESHOOTING.md  ← پیام‌های خطا و راه‌حل
 │  ├─ PC_VOICE.md         ← نصب و اجرای صوت PC
 │  ├─ WEB_UI.md           ← میز تست وب یک‌نوبتی (صحبت/تایپ → رونویسی → پاسخ → صدا)
+│  ├─ CONTROL_PANEL.md    ← قرارداد و معماری پنل مدیریت وب (/control و /api/manage/*)
 │  ├─ PLATFORMS.md        ← Windows/Linux، اسکریپت‌ها، تفاوت‌ها
 │  ├─ AUDIT_REPORT.md     ← گزارش بازبینی (سند تاریخی)
 │  └─ HARDWARE_VALIDATION.md ← چک‌لیست تست واقعی
 ├─ web/
-│  └─ index.html          ← صفحهٔ تک‌فایلی میز تست (RTL، push-to-talk، پخش پاسخ)
+│  ├─ index.html          ← میز گفتگو و دیباگ (RTL، گفتگوی استریمی، ارسال خودکار به مدل)
+│  ├─ assets/
+│  │  ├─ theme.css        ← تم مشترک پنل و میز گفتگو (توکن‌ها، شِل، حباب چت)
+│  │  ├─ voice.js         ← منطق گفتگو/دیباگ: ضبط، ASR، SSE، TTS، گزارش رویداد
+│  │  └─ fonts/Vazirmatn-var.woff2 ← فونت وزیر میزبانی‌شدهٔ محلی (OFL)
+│  └─ control/            ← پنل مدیریت (/control): index.html، app.js، styles.css
 ├─ server/                ← سرویس محلی پایتون (FastAPI)
 │  ├─ main.py             ← اپ FastAPI، /ready، /api/sessions، OpenAI-compatible
 │  ├─ webui.py            ← میز تست یک‌نوبتی: ضبط→ASR→LLM→TTS در مرورگر (loopback)
@@ -105,6 +112,12 @@ PersianVoiceAI/
 │  ├─ protocol.py         ← قرارداد فریم/پیام ESP32
 │  ├─ ws_voice.py         ← transport WebSocket سرور برای دستگاه LAN
 │  ├─ security.py         ← توکن REST/WS، rate limit، سقف اتصال
+│  ├─ manage_common.py    ← پنل مدیریت: نگاشت PVAI_* به Settings، ویرایش اتمیک .env، ماسک راز
+│  ├─ manage_settings.py  ← router برای /api/manage/settings (خواندن/نوشتن/بازگردانی)
+│  ├─ manage_status.py    ← router برای /api/manage/status و start/stop/restart سرویس‌ها
+│  ├─ manage_models.py    ← router برای /api/manage/models و jobs دانلود/فعال‌سازی/حذف مدل
+│  ├─ manage_providers.py ← router برای /api/manage/providers (llama_server/openai_compat/anthropic)
+│  ├─ manage_api.py       ← نصب پنل /control و routerهای مدیریت روی اپ وب
 │  ├─ broker.py           ← IoT Command Broker فاز اول (schema، policy، audit، فقط FakeDevice)
 │  ├─ rag.py              ← RAG محلی (BM25، KnowledgeBase) برای پاسخ دانش‌محور
 │  ├─ cli.py              ← کلاینت چت فارسی ترمینال
@@ -202,7 +215,7 @@ cp .env.example .env
 - ورودی: PCM، mono، **16 kHz، 16-bit** → ۳۲ KB/s.
 - خروجی: در پیاده‌سازی فعلی هم **16 kHz، 16-bit** (Piper روی PC به 16kHz نرمال می‌شود)؛
   ۲۴ kHz فقط یک گزینهٔ آیندهٔ وابسته به TTS منتخب است و پیاده نشده.
-- فریم ۲۰–۴۰ ms → ۶۴۰ یا ۱۲۸۰ بایت؛ transport فقط **۲۰ ms** را می‌پذیرد.
+- واحد پردازش transport **۲۰ ms / ۶۴۰ بایت** است؛ دستگاه می‌تواند چند بلوک کامل را در یک پیام ورودی بفرستد.
 - انتقال: **WebSocket، فریم باینری**؛ BLE فقط Pairing/تنظیمات/کنترل سبک (Bluetooth Classic پشتیبانی نمی‌شود).
 - پیام‌های کنترلی پیاده‌شده (مرجع: `server/protocol.py::MessageType` و جدول `docs/PROTOCOL.md`):
   `HELLO`, `HELLO_OK`, `SESSION_START`, `SESSION_ACK`, `SPEECH_START`, `SPEECH_END`, `INTERRUPT`,
@@ -254,8 +267,8 @@ AEC مرجع `docs/AEC.md`: مرجع فقط از PCM ارسال‌شده در ca
 5. **متن در برابر صوت:** متن مکالمه با `PVAI_HISTORY_PERSIST` روی دیسک محلی می‌ماند؛ صوت نه.
    اگر قابلیت جدیدی متن را جایی خارج از `PVAI_DATA_DIR` می‌نویسد، همان‌جا مستند و قابل حذف کنید.
 6. **firmware ESP32 هنوز وجود ندارد** (`/api/protocol` → `transport_implemented: true`,
-   `firmware_implemented: false`). تا پیاده‌سازی
-   transport، در README/STATUS «پیاده‌شده» نوشته نشود.
+   `firmware_implemented: false`). transport سمت سرور و firmware دو وضعیت مستقل‌اند؛
+   transport پیاده شده و نباید با پیاده‌سازی firmware یا تأیید روی LAN واقعی یکی شمرده شود.
 
 
 ## هم‌گام‌سازی مستندات

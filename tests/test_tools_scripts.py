@@ -177,9 +177,15 @@ def test_a_licence_file_exists_and_states_the_licence() -> None:
 
 def test_third_party_document_covers_every_model_and_piper() -> None:
     """The GPL of piper-tts is the reason for the project licence; it must be named."""
-    text = (ROOT / "THIRD_PARTY.md").read_text()
-    for name in ("piper-tts", "GPL-3.0-or-later", "Qwen3-4B", "Whisper", "Apache-2.0", "MIT"):
+    from server.config import Settings
+
+    settings = Settings()
+    text = (ROOT / "THIRD_PARTY.md").read_text(encoding="utf-8")
+    for name in ("piper-tts", "GPL-3.0-or-later", "Apache-2.0", "MIT"):
         assert name in text, name
+    for path in (settings.model_path, settings.asr_model_path, settings.tts_model_path):
+        model_path = (ROOT / path).relative_to(ROOT).as_posix()
+        assert f"`{model_path}`" in text, model_path
 
 
 def test_no_stray_api_capture_is_committed_at_the_root() -> None:
