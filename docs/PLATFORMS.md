@@ -1,9 +1,9 @@
 # Platform support
 
-The Python code is portable: it is developed and tested on Linux with no
-platform-specific imports in its core. Windows (the original target), Linux and
-macOS are intended platforms; this session only exercised the Linux sandbox. The gap was never the code — it was the tooling, which shipped only
-PowerShell. That is now fixed, with two deliberate exceptions listed below.
+Windows, Linux and macOS are intended platforms. Both PowerShell and Bash launchers
+are maintained, and the automated suite has run on Windows and Linux. See
+[STATUS](STATUS.md) and [Hardware Validation](HARDWARE_VALIDATION.md) for evidence
+and limits beyond the automated suite.
 
 ## What runs where
 
@@ -11,14 +11,15 @@ PowerShell. That is now fixed, with two deliberate exceptions listed below.
 |---|---|---|---|
 | Server, REST, WebSocket | yes | yes | `python -m server` / `uvicorn server.main:app` |
 | Chat client | yes | yes | `python -m server.cli` |
-| Test suite | yes | yes | run `python -m pytest -rs`; Windows/macOS execution not verified here |
+| Test suite | yes | yes | Run `python -m pytest -rs`; macOS execution is not recorded here |
 | llama-server launcher | `tools/start_llama.ps1` | `tools/start_llama.sh` | both read `python -m server.config --launch` |
 | Server launcher | `tools/start_server.ps1` | `tools/start_server.sh` | |
 | Chat launcher | `tools/chat.ps1` | `tools/chat.sh` | |
 | Chat benchmark | `tools/benchmark.ps1` | `tools/benchmark.sh` | |
+| Web test bench | `tools/start_webui.ps1` | `tools/start_webui.sh` | Loopback only; see [WEB_UI.md](WEB_UI.md) |
 | Large-file download | `tools/download_parallel.py` | `tools/download_parallel.py` | one Python implementation, both platforms |
 | SpeexDSP AEC | needs a built DLL | needs a built `.so` / `.dylib` | see `docs/AEC.md`; not a pip install |
-| Audio I/O | WASAPI via `sounddevice` | ALSA/PulseAudio via `sounddevice` | device names differ; check `/ready` |
+| Audio I/O | PortAudio via `sounddevice` (e.g. MME) | PortAudio via `sounddevice` | Use a device that accepts the 16 kHz live format; list with `python -m server.voice --list-devices` |
 
 Every `.ps1` in `tools/` has a `.sh` twin, and
 `tests/test_tools_scripts.py` fails if a new unmatched one appears.
@@ -48,7 +49,7 @@ Old Ollama setup, lesson-1 verification and its historic report are archived und
 
 ## What is *not* verified
 
-Real audio, real models and real microphones have not been exercised on either
-platform in this environment — see `docs/HARDWARE_VALIDATION.md`. "Runs on
-Linux" here means the test suite passes and the scripts parse and execute, not
-that a Persian conversation has been held on a Linux desktop.
+The development Windows laptop has dated measurements of microphone capture, model
+inference, and room AEC. They do not establish continuous voice acceptance, barge-in
+with human speech, or real ESP32/LAN behavior. Linux/macOS audio acceptance is not
+documented; passing the suite does not establish that real audio devices work.

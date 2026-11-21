@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
+from voicekit import LocalTestClient as TestClient
 
 from server.config import Settings
 from server.llm import (
@@ -151,6 +151,14 @@ def test_local_knowledge_api_and_rag_augmented_chat(tmp_path: Any) -> None:
         assert reply.json()["sources"][0]["title"] == "مشخصات لپ‌تاپ"
         assert "۲ گیگابایت VRAM" in llm.last_messages[0]["content"]
 
+        response = test_client.post("/v1/chat/completions", json={
+            "messages": [{"role": "user", "content": "چقدر VRAM دارد؟"}],
+            "use_rag": True,
+        })
+        assert response.status_code == 200
+        assert llm.last_messages[0]["content"].startswith(settings.system_prompt)
+        assert "۲ گیگابایت VRAM" in llm.last_messages[0]["content"]
+
         deleted = test_client.delete(f"/api/knowledge/{added.json()['id']}")
         assert deleted.status_code == 200
         assert test_client.get("/api/knowledge").json()["documents"] == []
@@ -169,6 +177,24 @@ def test_health_ok(client: TestClient) -> None:
     # /health is the one unauthenticated route, so it deliberately reveals
     # nothing sensitive: no model path, no backend address, no data directory.
     assert "model" not in body and "backend" not in body
+
+
+def test_startup_rejects_lan_bind_without_token(tmp_path: Any) -> None:
+    from server.main import create_app
+
+    app = create_app(settings=Settings(api_host="0.0.0.0", data_dir=str(tmp_path)), llm=FakeLLM())
+    with pytest.raises(RuntimeError, match="PVAI_API_TOKEN"):
+        with TestClient(app):
+            pytest.fail("an unauthenticated LAN application must not start")
+
+
+def test_tokenless_app_checks_actual_peer_not_just_configured_bind(tmp_path: Any) -> None:
+    from server.main import create_app
+
+    app = create_app(settings=Settings(data_dir=str(tmp_path)), llm=FakeLLM())
+    with TestClient(app, client=("192.168.0.2", 50000)) as remote:
+        assert remote.get("/health").status_code == 200
+        assert remote.get("/api/sessions").status_code == 403
 
 
 def test_health_degraded(settings: Settings) -> None:
@@ -372,6 +398,8 @@ def test_ready_reports_the_ws_transport_and_refuses_it_without_a_token(monkeypat
         data_dir=str(tmp_path),
         ws_enabled=True,
         ws_token="device-token",
+        ws_allow_shared_tokens=True,
+        asr_warmup=False,
     )
     with TestClient(create_app(settings=on, llm=FakeLLM())) as client:
         check = client.get("/ready").json()["checks"]["ws_voice"]
@@ -497,7 +525,7 @@ def test_sse_client_disconnect_cancels_upstream_generation(tmp_path) -> None:
                 (b"content-type", b"application/json"),
                 (b"content-length", str(len(body)).encode()),
             ],
-            "client": ("testclient", 50000),
+            "client": ("127.0.0.1", 50000),
             "server": ("testserver", 80),
         }
         request_sent = False

@@ -47,7 +47,7 @@ import queue
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 import httpx
@@ -59,6 +59,7 @@ from .metrics import Metrics
 from .protocol import (
     AUDIO_KIND_CAPTURE,
     AUDIO_KIND_PLAYBACK,
+    AUDIO_SAMPLE_RATE,
     MessageType,
     ProtocolError,
     ControlMessage,
@@ -104,6 +105,7 @@ _CONTROL_QUEUE_SIZE = 64
 _CRITICAL_TYPES = frozenset(
     {
         MessageType.PLAY_STOP.value,
+        MessageType.PLAY_START.value,
         MessageType.PLAY_END.value,
         MessageType.ASR_FINAL.value,
         MessageType.ERROR.value,
@@ -126,6 +128,7 @@ _PLAY_STOP_REASONS = {
     "superseded": "new_turn",
     "shutdown": "shutdown",
     "input_overflow": "barge_in",
+    "error": "error",
 }
 _SPEECH_END_REASONS = {"max_segment", "overflow"}
 
@@ -152,6 +155,13 @@ class VoiceBundle:
             await closer()
 
 
+@dataclass(frozen=True, slots=True)
+class PlaybackFrame:
+    turn_id: int
+    pcm: bytes
+    cancelled: threading.Event
+
+
 class PlaybackSink:
     """Duplex-compatible sink that queues Piper PCM for the WebSocket sender.
 
@@ -161,19 +171,33 @@ class PlaybackSink:
     """
 
     def __init__(self, max_frames: int = SINK_QUEUE_FRAMES) -> None:
-        self.frames: queue.Queue[bytes] = queue.Queue(maxsize=max_frames)
+        self.frames: queue.Queue[PlaybackFrame] = queue.Queue(maxsize=max_frames)
         self.closed = threading.Event()
+        self._turn: tuple[int, threading.Event] | None = None
         self.written = 0
         self.dropped = 0
 
+    def start_turn(self, turn_id: int) -> None:
+        self._turn = turn_id, threading.Event()
+
+    def cancel_turn(self, turn_id: int) -> None:
+        current = self._turn
+        if current is not None and current[0] == turn_id:
+            current[1].set()
+
     def write(self, pcm: bytes, cancel: threading.Event) -> None:
+        current = self._turn
+        if current is None:
+            return
+        turn_id, cancelled = current
         for start in range(0, len(pcm), PLAYBACK_FRAME_BYTES):
-            if cancel.is_set() or self.closed.is_set():
+            if cancel.is_set() or cancelled.is_set() or self.closed.is_set():
                 return
-            frame = pcm[start : start + PLAYBACK_FRAME_BYTES].ljust(
+            block = pcm[start : start + PLAYBACK_FRAME_BYTES].ljust(
                 PLAYBACK_FRAME_BYTES, b"\0"
             )
-            while not cancel.is_set() and not self.closed.is_set():
+            frame = PlaybackFrame(turn_id, block, cancelled)
+            while not cancel.is_set() and not cancelled.is_set() and not self.closed.is_set():
                 try:
                     self.frames.put(frame, timeout=0.05)
                     self.written += 1
@@ -356,6 +380,7 @@ class WsCounters:
         self.rejected = 0  # handshake or capacity refusal
         self.control_dropped = 0  # asr_partial dropped by a full queue
         self.critical_reordered = 0  # critical message that had to wait in _overflow
+        self.critical_overflow_exhausted = 0  # connection closed rather than evicting a critical event
         self.frames_in = 0
         self.frames_out = 0
         self.frames_out_of_order = 0  # capture sequence gaps/duplicates seen
@@ -428,6 +453,7 @@ class WsCounters:
                 "rejected": self.rejected,
                 "control_dropped": self.control_dropped,
                 "critical_reordered": self.critical_reordered,
+                "critical_overflow_exhausted": self.critical_overflow_exhausted,
                 "frames_in": self.frames_in,
                 "frames_out": self.frames_out,
                 "frames_out_of_order": self.frames_out_of_order,
@@ -450,6 +476,9 @@ class VoiceWebSocket:
     ) -> None:
         self.websocket = websocket
         self.settings = settings
+        self._pipeline_settings = replace(
+            settings, audio_block_ms=int(PLAYBACK_FRAME_MS), audio_sample_rate=AUDIO_SAMPLE_RATE
+        )
         self.bundle_factory = bundle_factory
         self.counters = counters or WsCounters()
         self.metrics = metrics or Metrics(enabled=settings.metrics_enabled)
@@ -470,8 +499,10 @@ class VoiceWebSocket:
         # Playback accounting for ``play_end``: frames actually handed to this
         # device, measured per turn (a turn starts where the previous one ended).
         self.frames_sent = 0
-        self._frames_sent_at_turn_start = 0
         self._play_start_turn: int | None = None  # last turn that got play_start
+        self._wire_play_turn: int | None = None
+        self._wire_play_frames = 0
+        self._pending_playback: PlaybackFrame | None = None
         self._frame_stamps: deque[float] = deque()  # capture arrivals, for the rate cap
         self._serve_task: asyncio.Task[Any] | None = None
         try:
@@ -506,9 +537,10 @@ class VoiceWebSocket:
         and ``error``.  A dropped ``play_stop`` means cancelled audio keeps
         playing on the device; a dropped ``play_end`` stalls its state machine.
         Now only ``asr_partial`` may be dropped (a newer partial is about to
-        replace it anyway).  Everything critical — ``play_stop``, ``play_end``,
-        ``asr_final``, ``error`` — waits in ``_overflow`` and is sent before
-        anything still queued, so it is *delayed*, never lost.
+        replace it anyway).  Critical messages wait in ``_overflow`` and are
+        sent in order after the first queue. If both bounded queues are exhausted,
+        the connection is closed and the loss is counted/logged rather than
+        silently evicting an older critical message.
 
         Thread-safe: pipeline events are not all raised on the event loop —
         ``Speaker`` runs in ``asyncio.to_thread`` and calls back from that worker
@@ -521,16 +553,39 @@ class VoiceWebSocket:
                 return
             loop.call_soon_threadsafe(self._queue_control, message)
             return
-        encoded = message.encode()
-        try:
-            self.outgoing.put_nowait(encoded)
+        if self._closing_reason == "critical_overflow_exhausted":
             return
-        except asyncio.QueueFull:
-            self.counters.bump("outgoing_full")
+        encoded = message.encode()
+        if not self._overflow:
+            try:
+                self.outgoing.put_nowait(encoded)
+                return
+            except asyncio.QueueFull:
+                pass
+        self.counters.bump("outgoing_full")
         critical = message.type.value in _CRITICAL_TYPES
         if not critical:
             self.counters.bump("control_dropped")
             self.metrics.increment("ws_control_dropped")
+            return
+        if len(self._overflow) >= self._overflow.maxlen:
+            # Never let deque(maxlen=...) evict an older critical event silently.
+            # Once both bounded queues are exhausted, the only safe bounded
+            # behavior is to terminate this connection and expose the failure.
+            self.counters.bump("critical_overflow_exhausted")
+            self.metrics.increment("ws_critical_overflow_exhausted")
+            self._closing_reason = "critical_overflow_exhausted"
+            logger.error(
+                "ws device=%s critical control overflow exhausted; closing connection",
+                self.device_id,
+            )
+            if self.websocket is not None:
+                try:
+                    asyncio.get_running_loop().create_task(
+                        self.websocket.close(code=CLOSE_TRY_AGAIN)
+                    )
+                except RuntimeError:
+                    pass
             return
         self._overflow.append(message)
         self.counters.bump("critical_reordered")
@@ -565,21 +620,6 @@ class VoiceWebSocket:
     def _reset_playback_pacing(self) -> None:
         """Let the next turn start with a full credit, not last turn's debt."""
         self._next_frame_at = None
-        self._play_start_turn = None
-
-    def _take_played_ms(self) -> float:
-        """Milliseconds of audio *sent to this device* since the last boundary.
-
-        Counted from ``frames_sent``, not from the sink: the sink is what
-        synthesis produced, which with an unpaced sender ran ahead of playback
-        by seconds, so ``played_ms`` reported audio the device had not played.
-        With pacing on, frames sent track frames heard within
-        ``PVAI_WS_PLAYBACK_CREDIT_MS``; ``play_end`` is only emitted after the
-        playback queue is empty, so every counted frame has been delivered.
-        """
-        frames = self.frames_sent - self._frames_sent_at_turn_start
-        self._frames_sent_at_turn_start = self.frames_sent
-        return max(0, frames) * PLAYBACK_FRAME_MS
 
     async def _reject(self, code: str, detail: str, close_code: int = CLOSE_UNAUTHORIZED) -> None:
         """Send a terminal error frame, then close.
@@ -643,12 +683,13 @@ class VoiceWebSocket:
             turn_id = int(event.get("turn_id") or 0)
             if turn_id != self._play_start_turn:
                 self._play_start_turn = turn_id
+                self.sink.start_turn(turn_id)
                 self._queue_control(
                     ControlMessage(
                         MessageType.PLAY_START,
                         {
                             "turn_id": turn_id,
-                            "sample_rate": self.settings.audio_sample_rate,
+                            "sample_rate": AUDIO_SAMPLE_RATE,
                         },
                     )
                 )
@@ -668,14 +709,20 @@ class VoiceWebSocket:
                         {"turn_id": turn_id, "played_ms": None, "_final": True},
                     )
                 )
+            elif event.get("status") == "failed" and event.get("turn_id") == self._play_start_turn:
+                self._on_pipeline_event({
+                    "type": "interrupted", "turn_id": event["turn_id"], "reason": "error",
+                })
         elif kind == "interrupted":
-            self.sink.drain()  # nothing from the cancelled turn may be sent later
-            self._reset_playback_pacing()  # the next turn starts with full credit
+            turn_id = int(event.get("turn_id") or 0)
+            self.sink.cancel_turn(turn_id)
+            if self._play_start_turn == turn_id:
+                self._play_start_turn = None
             self._queue_control(
                 ControlMessage(
                     MessageType.PLAY_STOP,
                     {
-                        "turn_id": int(event.get("turn_id") or 0),
+                        "turn_id": turn_id,
                         "reason": _PLAY_STOP_REASONS.get(str(event.get("reason")), "barge_in"),
                     },
                 )
@@ -690,7 +737,8 @@ class VoiceWebSocket:
         except ValueError:  # pragma: no cover - we produced it ourselves
             return pending
         body.pop("_final", None)
-        body["played_ms"] = round(self._take_played_ms(), 1)
+        frames = self._wire_play_frames if body.get("turn_id") == self._wire_play_turn else 0
+        body["played_ms"] = round(frames * PLAYBACK_FRAME_MS, 1)
         return ControlMessage(
             MessageType.PLAY_END, {k: v for k, v in body.items() if k != "type"}
         ).encode()
@@ -724,6 +772,18 @@ class VoiceWebSocket:
         base = self._next_frame_at if self._next_frame_at is not None else time.monotonic()
         self._next_frame_at = base + PLAYBACK_FRAME_MS / 1000.0
 
+    def _peek_playback(self) -> PlaybackFrame | None:
+        while True:
+            if self._pending_playback is None:
+                try:
+                    self._pending_playback = self.sink.frames.get_nowait()
+                except queue.Empty:
+                    return None
+            if not self._pending_playback.cancelled.is_set():
+                return self._pending_playback
+            self._pending_playback = None
+            self.sink.dropped += 1
+
     async def _send_playback_frame(self) -> bool:
         """Send one queued 20 ms block; ``False`` when none may go out now.
 
@@ -731,19 +791,19 @@ class VoiceWebSocket:
         playback audio has to honour the device's buffer credit, and a second
         caller that forgot to would silently reintroduce the burst.
         """
+        block = self._peek_playback()
+        if block is None or block.turn_id != self._wire_play_turn:
+            return False
         ready_at = self._playback_ready_at()
         if ready_at is not None and ready_at > time.monotonic():
             await asyncio.sleep(min(PLAYBACK_FRAME_MS / 1000.0, ready_at - time.monotonic()))
             return False
-        try:
-            pcm = self.sink.frames.get_nowait()
-        except queue.Empty:
-            return False
+        self._pending_playback = None
         frame = encode_audio(
             AUDIO_KIND_PLAYBACK,
             self.playback_sequence,
             int(time.monotonic() * 1000) & 0xFFFFFFFF,
-            pcm,
+            block.pcm,
         )
         self.playback_sequence = (self.playback_sequence + 1) & 0xFFFF
         await self.websocket.send_bytes(frame)
@@ -751,46 +811,40 @@ class VoiceWebSocket:
         self.counters.bump("frames_out")
         self.metrics.increment("ws_frames_out")
         self.frames_sent += 1
+        self._wire_play_frames += 1
         return True
 
     async def _sender(self) -> None:
         """Multiplex control messages and playback frames onto one socket.
 
-        Control frames normally win, but a queued ``play_end`` waits until the
-        playback queue is empty: the device may only be told the turn finished
-        once it has actually received every frame of that turn.
+        Control frames normally win, but ``play_end`` waits for audio of its own
+        turn only. Audio waits until its matching ``play_start`` is on the wire.
         """
         pending: str | None = None
         try:
             while True:
-                # Critical messages that overflowed the bounded queue go first:
-                # they were produced later than everything already queued, but
-                # for control frames "latest wins" is the correct order.
-                if self._overflow and pending is None:
-                    # A turn boundary may never overtake its queued play_start.
-                    # Other critical controls (especially play_stop) retain priority.
-                    if (self._overflow[0].type is MessageType.PLAY_END
-                            and not self.outgoing.empty()):
-                        pending = self.outgoing.get_nowait()
-                    else:
-                        pending = self._overflow.popleft().encode()
                 if pending is None:
                     try:
                         pending = self.outgoing.get_nowait()
                     except asyncio.QueueEmpty:
-                        pending = None
+                        pending = self._overflow.popleft().encode() if self._overflow else None
                 if pending is not None:
-                    if _message_type(pending) == MessageType.PLAY_END.value:
-                        # The turn is announced as finished only after every
-                        # frame of it has been written to the socket; the count
-                        # is taken at that moment, so it describes audio the
-                        # device actually received.
-                        if not self.sink.frames.empty():
-                            if await self._send_playback_frame():
-                                continue
-                            await asyncio.sleep(0.005)
+                    kind = _message_type(pending)
+                    if kind == MessageType.PLAY_END.value:
+                        turn_id = json.loads(pending)["turn_id"]
+                        block = self._peek_playback()
+                        if block is not None and block.turn_id == turn_id == self._wire_play_turn:
+                            await self._send_playback_frame()
                             continue
                         pending = self._finalize_play_end(pending)
+                    if kind == MessageType.PLAY_START.value:
+                        self._wire_play_turn = json.loads(pending)["turn_id"]
+                        self._wire_play_frames = 0
+                    elif kind in {MessageType.PLAY_END.value, MessageType.PLAY_STOP.value}:
+                        if json.loads(pending)["turn_id"] == self._wire_play_turn:
+                            self._wire_play_turn = None
+                            if kind == MessageType.PLAY_STOP.value:
+                                self._reset_playback_pacing()
                     await self.websocket.send_text(pending)
                     pending = None
                     continue
@@ -816,13 +870,13 @@ class VoiceWebSocket:
             for token, device_id in device_tokens.items():
                 if provided and check_token(provided, token):
                     return True, device_id
-        shared = getattr(self.settings, "ws_token", "") or ""
+        shared = self.settings.shared_device_token()
         if shared and check_token(provided, shared):
             return True, ""
         return False, ""
 
     async def _handshake(self) -> bool:
-        expected = getattr(self.settings, "ws_token", "") or ""
+        expected = self.settings.shared_device_token()
         per_device = bool(self.settings.device_tokens())
         try:
             raw = await asyncio.wait_for(self.websocket.receive_text(), HANDSHAKE_TIMEOUT_S)
@@ -981,7 +1035,7 @@ class VoiceWebSocket:
             # that inline froze the event loop — every other connection *and*
             # the REST API stalled for seconds.
             self.bundle = await asyncio.to_thread(
-                self.bundle_factory, self.settings, self.sink, self.metrics
+                self.bundle_factory, self._pipeline_settings, self.sink, self.metrics
             )
             speaker = await asyncio.to_thread(self.bundle.speaker_for, self.voice)
             if self.bundle_factory is default_bundle:
@@ -998,7 +1052,7 @@ class VoiceWebSocket:
             )
             return False
         self.pipeline = Pipeline(
-            self.settings,
+            self._pipeline_settings,
             self.bundle.audio,
             speaker,
             self.bundle.client,
@@ -1029,6 +1083,8 @@ class VoiceWebSocket:
             self._queue_control(
                 ControlMessage(MessageType.PONG, {"nonce": message.payload.get("nonce")})
             )
+        elif kind is MessageType.PONG:
+            return True
         elif kind is MessageType.SESSION_START:
             requested = str(message.payload.get("session_id"))
             if self.session_id and requested != self.session_id:
@@ -1043,8 +1099,6 @@ class VoiceWebSocket:
                 )
         elif kind is MessageType.INTERRUPT:
             if self.pipeline is not None:
-                # The pipeline cancels the turn; the sink drain happens in the
-                # interrupted event so cancelled audio is never sent afterwards.
                 self.pipeline.barge_in(reason=str(message.payload.get("reason") or "manual"))
         elif kind is MessageType.SET_VOICE:
             if self.bundle is not None and self.pipeline is not None:
@@ -1328,6 +1382,7 @@ class VoiceWebSocket:
         self._release_claims()
         try:
             self.sink.close()
+            self._pending_playback = None
             self._frame_stamps.clear()
             self._overflow.clear()
         except Exception:  # cleanup must not stop the rest of cleanup

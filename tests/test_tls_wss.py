@@ -202,7 +202,7 @@ def test_the_wss_guide_exists_and_is_linked_from_the_protocol_document() -> None
         "Upgrade",
         "proxy_read_timeout",
         "PVAI_SSL_CERTFILE",
-        "PVAI_WS_IDLE_TIMEOUT_S",
+        "PVAI_WS_IDLE_TIMEOUT",
     ],
 )
 def test_the_guide_covers_the_pieces_a_deployment_needs(needle: str) -> None:

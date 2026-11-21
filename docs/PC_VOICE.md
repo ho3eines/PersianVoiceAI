@@ -42,9 +42,10 @@ Copy-Item .env.example .env
 
 ### فایل‌های مدل (خارج از Git)
 
-1. **LLM پیش‌فرض جدید:** `models/Qwen3-4B-Q4_K_M.gguf`.
+1. **LLM پیش‌فرض:** `models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf`.
    فایل را از توزیع معتبر GGUF خانوادهٔ Qwen تهیه کنید و مجوز و نام واقعی فایل را بررسی کنید.
-   این جایگزینی تنظیمات است؛ وزن مدل خودکار دانلود نشده و کیفیت/سرعتش روی PC هنوز سنجیده نشده.
+   وزن مدل خودکار دانلود نمی‌شود. سرعت و نمونه‌های محدود کیفیت روی لپ‌تاپ توسعه در
+   [BENCHMARKS.md](BENCHMARKS.md) ثبت شده‌اند؛ این نتایج آزمون پذیرش صوت پیوسته نیستند.
    MiniCPM قبلی فقط سابقهٔ بنچمارک زیرساخت است و دیگر انتخاب پیش‌فرض نیست.
 2. **ASR:** پوشهٔ کامل Whisper Small چندزبانه با قالب CTranslate2/faster-whisper در
    `models/whisper-small/`، شامل `model.bin`، config، tokenizer و vocabulary.
@@ -54,18 +55,17 @@ Copy-Item .env.example .env
    مجوز وزن/گوینده و کیفیت تلفظ را قبل از استفاده بررسی کنید؛ انتخاب تجاری نهایی نشده است.
 
 ```dotenv
-PVAI_MODEL_PATH=models/Qwen3-4B-Q4_K_M.gguf
+PVAI_MODEL_PATH=models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf
 PVAI_LLAMA_SERVER_URL=http://127.0.0.1:8080
 PVAI_LLM_ENABLE_THINKING=false
 PVAI_ASR_MODEL_PATH=models/whisper-small
 PVAI_ASR_THREADS=2
 PVAI_TTS_VOICE=female   # male | female
-PVAI_TTS_MODEL_FEMALE=models/piper/fa_IR_female.onnx
-PVAI_TTS_MODEL_MALE=models/piper/fa_IR_male.onnx
+# PVAI_TTS_MODEL_FEMALE=models/piper/fa_IR_female.onnx
+# PVAI_TTS_MODEL_MALE=models/piper/fa_IR_male.onnx
 PVAI_AUDIO_INPUT_DEVICE=Microphone
 PVAI_AUDIO_OUTPUT_DEVICE=Speakers
-# توضیح را در خط جدا بنویسید: کامنت هم‌خط حالا حذف می‌شود،
-# ولی نام دستگاه با فاصله داخلی («Realtek Microphone») قربانی می‌شد
+# فاصلهٔ داخلی نام دستگاه حفظ می‌شود؛ برای نام/مقدار دارای # از کوتیشن استفاده کنید.
 PVAI_VOICE_VAD_THRESHOLD=0.015
 PVAI_VOICE_ASR_INTERVAL=0.8
 PVAI_HISTORY_PERSIST=true
@@ -90,9 +90,9 @@ Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama
 برای خروج Ctrl+C بزنید. **تاریخچهٔ مکالمه با خروج پاک نمی‌شود و اجرای بعدی همان نشست را ادامه
 می‌دهد**: با `PVAI_HISTORY_PERSIST=true` در `data/conversations/<session_id>.jsonl` می‌ماند و
 `PVAI_HISTORY_RESUME=on` (پیش‌فرض) هنگام شروع، آخرین نشست محلی دارای پیشوند `pc-` را می‌خواند؛ پیام‌ها در startup چاپ
-می‌شوند (`ادامهٔ نشست «…» با N پیام قبلی`). برای شروع تازه `PVAI_HISTORY_RESUME=off` بگذارید یا
-`python -m server.sessions delete-all` را اجرا کنید. با `PVAI_VOICE_SESSION_ID` می‌توانید یک
-شناسهٔ ثابت انتخاب کنید. بازبینی/حذف: `python -m server.sessions list|show|delete|delete-all`.
+می‌شوند (`ادامهٔ نشست «…» با N پیام قبلی`). برای شروع تازه بدون حذف فایل‌ها
+`PVAI_HISTORY_RESUME=off` بگذارید. با resume فعال، `PVAI_VOICE_SESSION_ID` نشست ثابتی انتخاب
+می‌کند. بازبینی/حذف عمدی: `python -m server.sessions list|show|delete|delete-all`.
 پنجرهٔ RAM با `PVAI_HISTORY_MAX_STORED` محدود است، فایل دیسک کامل می‌ماند؛ برای جلوگیری از
 نگه‌داشتن بی‌پایان متن گفتار، `PVAI_HISTORY_RETENTION_DAYS` (پیش‌فرض `30` روز؛ `0` = همه) و
 `python -m server.sessions purge` را ببینید.
@@ -131,10 +131,17 @@ Thinking برای Qwen در `chat_template_kwargs` غیرفعال است؛ llama
 3. **پردازش صوتی ویندوز:** در Properties میکروفون، «Noise Suppression»،
    «Acoustic Echo Cancellation» و «Automatic Gain Control» را برای تست خاموش کنید.
    این‌ها برای تماس انسانی تنظیم شده‌اند، نه برای ASR.
-4. **درایور:** ورودی پیش‌فرض را از MME به WASAPI تغییر دهید
-   (`PVAI_AUDIO_INPUT_DEVICE` = نام یا index دستگاه WASAPI). در اندازه‌گیری بالا
-   تفاوت روشنی نداشت، ولی WASAPI نرخ بومی را بدون تبدیل اضافی می‌دهد.
-5. **مدل:** `whisper-small` روی گفتار میکروفون ضعیف بود. مدل بزرگ‌تر فارسی
+4. **درایور:** WASAPI را ابتدا با `mic_probe.py --device-rate 48000` جداگانه بسنجید.
+   مسیر زنده فقط ورودی ۱۶kHz می‌پذیرد؛ اگر دستگاه WASAPI این نرخ را قبول نمی‌کند،
+   دستگاه سازگار مثل MME را برای مسیر زنده انتخاب کنید. در اندازه‌گیری بالا تغییر
+   درایور به‌تنهایی کیفیت رونویسی را به‌طور روشن بهتر نکرد.
+5. **واژگان دامنه:** اگر خطا در نام دستگاه‌ها، «رله»، «سنسور» یا نام‌های خاص است،
+   `PVAI_ASR_HOTWORDS` را با همان واژه‌ها (جداشده با کاما یا `،`) پر کنید. این پارامتر
+   بدون پاس decode اضافه، decoder را به آن واژه‌ها بایاس می‌کند و با
+   `PVAI_ASR_INITIAL_PROMPT` یکی نیست: پرامپت متن آغازین است و در تست ثبت‌شده خودش را
+   بازتولید کرد. اثر این پارامتر روی WER این پروژه **NOT MEASURED** است؛ روی همان
+   ضبط، قبل و بعد را با هم مقایسه کنید.
+6. **مدل:** `whisper-small` روی گفتار میکروفون ضعیف بود. مدل بزرگ‌تر فارسی
    (`large-v3` یا مدل fine-tune‌شدهٔ فارسی) را در `PVAI_ASR_MODEL_PATH` امتحان کنید —
    با آگاهی از هزینهٔ RAM و زمان decode روی CPU دو هسته‌ای.
 
@@ -172,8 +179,9 @@ $env:PYTHONIOENCODING = "utf-8"
    برای اعداد کامل: `python tools/benchmark_voice.py` (روش در [BENCHMARKS.md](BENCHMARKS.md)).
 8. چک‌لیست کامل و قابل ثبت: [HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md).
 
-تست خودکار از fake استفاده می‌کند. میکروفون واقعی، وزن‌های Whisper/Piper/Qwen و عملکرد
-روی Windows هدف در sandbox تأیید نشده‌اند. Linux ممکن است PortAudio سیستمی لازم داشته باشد.
+تست خودکار کیفیت صوت واقعی را تأیید نمی‌کند. اجرای تک‌نوبتی و تست اتاق AEC روی لپ‌تاپ
+ویندوزی توسعه ثبت شده‌اند، اما پذیرش صوت پیوسته و barge-in با گفتار انسان هنوز انجام نشده است.
+Linux ممکن است PortAudio سیستمی لازم داشته باشد.
 
 ## ایمنی inference و ورودی فایل
 

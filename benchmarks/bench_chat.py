@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from server.config import Settings  # noqa: E402
+from server.config import Settings, require_local_http_url  # noqa: E402
 from server.voice import local_client_headers, local_api_url  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -159,10 +159,15 @@ def main(argv: list[str] | None = None) -> int:
         pass
 
     prompts = json.loads(args.prompts.read_text(encoding="utf-8"))
-    base_url = args.base_url.rstrip("/")
+    try:
+        base_url = require_local_http_url(args.base_url.rstrip("/"), variable="--base-url")
+    except ValueError as exc:
+        parser.error(str(exc))
 
     with httpx.Client(
         timeout=httpx.Timeout(args.timeout, connect=5.0),
+        trust_env=False,
+        follow_redirects=False,
         headers={"Accept": "text/event-stream", **local_client_headers(Settings.from_env(), base_url)},
     ) as client:
         health_response = client.get(f"{base_url}/health", timeout=10.0)

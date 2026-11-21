@@ -8,8 +8,8 @@ loop floods its final-ASR queue; this bench gives a clean "record → transcribe
 → answer → hear" cycle for testing, with editable transcripts when the ASR
 mishears.
 
-It binds to loopback by default and has no authentication: it is a developer
-test bench, not a product surface.  Do not expose it on the LAN as-is.
+It is a loopback-only developer test bench, not an authenticated product
+surface.
 """
 
 from __future__ import annotations
@@ -19,28 +19,32 @@ import base64
 import binascii
 import dataclasses
 import io
+import json
 import logging
 import math
+import platform
 import time
 import wave
 from array import array
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator, Callable
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from .config import Settings
+from .config import Settings, is_loopback_host
 from .conversation import create_conversation
 from .live_voice import Speaker
-from .llm import LlamaServerClient, LlamaServerError
+from .llm import LlamaServerClient, LlamaServerError, StreamDelta, StreamDone
+from .manage_api import install_management
 from .voice import LocalAudio, VoiceError
 
 logger = logging.getLogger("persian_voice_ai.webui")
 
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
+ASSETS_DIR = WEB_DIR / "assets"
 
 
 class TurnRequest(BaseModel):
@@ -54,6 +58,7 @@ class TranscribeRequest(BaseModel):
 
     pcm_b64: str = ""
     use_last: bool = False
+    sample_rate: int = Field(default=16000, ge=8000, le=48000)
     """Re-run ASR on the last recording with different settings."""
     beam_size: int | None = Field(default=None, ge=1, le=5)
     language: str | None = None
@@ -68,7 +73,7 @@ class TtsRequest(BaseModel):
     text: str
 
 
-def pcm_stats(pcm: bytes) -> dict[str, float]:
+def pcm_stats(pcm: bytes, sample_rate: int = 16000) -> dict[str, float]:
     """Loudness facts about a capture: a quiet or clipped clip is a capture bug.
 
     Pure Python on purpose: the web bench may run without numpy (it is part of
@@ -81,17 +86,17 @@ def pcm_stats(pcm: bytes) -> dict[str, float]:
     peak = max(max(samples), -min(samples)) / 32768.0
     mean_square = sum(float(value) * float(value) for value in samples) / len(samples)
     rms = math.sqrt(mean_square) / 32768.0
-    window = 320  # 20 ms at 16 kHz
+    window = max(1, sample_rate // 50)
     loud_windows = 0
     windows = 0
-    for start in range(0, len(samples) - window, window):
+    for start in range(0, len(samples) - window + 1, window):
         chunk = samples[start:start + window]
         level = math.sqrt(sum(float(value) * float(value) for value in chunk) / window) / 32768.0
         windows += 1
         if level > 0.01:
             loud_windows += 1
     return {
-        "seconds": round(len(samples) / 16000, 2),
+        "seconds": round(len(samples) / sample_rate, 2),
         "rms_dbfs": round(20 * math.log10(rms + 1e-9), 1),
         "peak_dbfs": round(20 * math.log10(peak + 1e-9), 1),
         "speech_ratio": round(loud_windows / max(1, windows), 2),
@@ -178,6 +183,50 @@ class WebUIState:
         conversation.finish_assistant(reply, turn_id=turn_id)
         return reply, timings
 
+    async def stream_turn(self, text: str) -> AsyncIterator[dict[str, Any]]:
+        """One streamed model turn, reported as events for the browser.
+
+        The user line is stored before the request (a failed call still leaves
+        the question on disk) and the reply only after the stream finished, so
+        an aborted turn never becomes a fake answer in the history.
+        Caller must hold ``turn_lock``.
+        """
+        conversation = self.conversation
+        turn_id = conversation.new_turn_id()
+        conversation.add_user(text, turn_id=turn_id)
+        messages = self.model_context()
+        started = time.perf_counter()
+        first_ms: float | None = None
+        pieces: list[str] = []
+        result = None
+        try:
+            async for event in self.client.stream_chat(messages):
+                if isinstance(event, StreamDelta):
+                    if first_ms is None:
+                        first_ms = round((time.perf_counter() - started) * 1000, 1)
+                    pieces.append(event.content)
+                    yield {"type": "delta", "text": event.content}
+                elif isinstance(event, StreamDone):
+                    result = event.result
+        except LlamaServerError as exc:
+            yield {"type": "error", "detail": str(exc)}
+            return
+        reply = "".join(pieces).strip()
+        timings = {
+            "llm_ms": round((time.perf_counter() - started) * 1000, 1),
+            "prompt_tokens": float(getattr(result.timings, "prompt_tokens", 0) if result else 0),
+            "completion_tokens": float(
+                getattr(result.timings, "completion_tokens", 0) if result else len(pieces)
+            ),
+        }
+        conversation.finish_assistant(reply, turn_id=turn_id)
+        yield {
+            "type": "done",
+            "reply": reply,
+            "timings": timings,
+            "ttft_ms": first_ms,
+        }
+
     # ----------------------------------------------------------- lifecycle
     def start_loading(self) -> None:
         """Load Whisper and Piper in the background; the server stays responsive."""
@@ -205,14 +254,16 @@ class WebUIState:
     def _build_asr(self) -> LocalAudio:
         audio = LocalAudio(self.settings)
         try:
-            audio.validate()
+            audio.validate_asr()
             audio.warmup()
         except Exception:
             audio.close()
             raise
         return audio
 
-    def transcribe_with(self, pcm: bytes, overrides: dict[str, Any] | None = None) -> str:
+    def transcribe_with(
+        self, pcm: bytes, overrides: dict[str, Any] | None = None, *, sample_rate: int = 16000,
+    ) -> str:
         """Transcribe one clip, optionally overriding the ASR settings for it.
 
         The model stays loaded; only the per-decode options change, so the same
@@ -221,14 +272,36 @@ class WebUIState:
         """
         if self.asr is None:
             raise VoiceError("رونویسی هنوز آماده نیست.")
+        rate_options = {"sample_rate": sample_rate} if sample_rate != 16000 else {}
         if not overrides or not hasattr(self.asr, "settings"):
-            return self.asr.transcribe_pcm(pcm)
+            return self.asr.transcribe_pcm(pcm, **rate_options)
         previous = self.asr.settings
         self.asr.settings = dataclasses.replace(previous, **overrides)
         try:
-            return self.asr.transcribe_pcm(pcm)
+            return self.asr.transcribe_pcm(pcm, **rate_options)
         finally:
             self.asr.settings = previous
+
+    async def run_model_worker(self, worker: Callable[..., Any], *args: Any, **options: Any) -> Any:
+        """Keep the caller's turn lock until a cancelled worker has actually stopped."""
+        task = asyncio.create_task(asyncio.to_thread(worker, *args, **options))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await asyncio.gather(task, return_exceptions=True)
+            raise
+
+    async def transcribe_recording(
+        self, pcm: bytes, sample_rate: int, overrides: dict[str, Any] | None = None,
+    ) -> str:
+        """Run just ASR; the caller owns the turn lock and recording selection."""
+        try:
+            text = await self.run_model_worker(
+                self.transcribe_with, pcm, overrides, sample_rate=sample_rate
+            )
+        except (VoiceError, ValueError) as exc:
+            raise HTTPException(status_code=500, detail=f"رونویسی ناموفق بود: {exc}") from exc
+        return (text or "").strip()
 
     async def aclose(self) -> None:
         self.conversation.close()
@@ -256,6 +329,8 @@ def create_app(
     speaker: Any = None,
     client: Any = None,
     preload: bool = True,
+    panel_host: str = "127.0.0.1",
+    panel_port: int = 8100,
 ) -> FastAPI:
     """Build the bench app; tests inject fakes through the keyword arguments."""
     resolved = settings or Settings.from_env()
@@ -269,16 +344,60 @@ def create_app(
             yield
         finally:
             await state.aclose()
+            # Only children the panel started; a llama-server launched outside
+            # the panel is deliberately left running.
+            await asyncio.to_thread(panel_manager.shutdown)
 
     app = FastAPI(title="Persian Voice AI — Test Bench", lifespan=lifespan)
+    app.state.started_at = time.time()
     app.state.webui = WebUIState(resolved, asr=asr, speaker=speaker, client=client)
+    panel_manager = install_management(app, resolved, host=panel_host, port=panel_port)
+
+    @app.middleware("http")
+    async def restrict_to_loopback(request: Request, call_next: Callable[..., Any]) -> Response:
+        peer = request.client.host if request.client else None
+        try:
+            host = request.url.hostname
+        except ValueError:
+            host = None
+        origin = request.headers.get("origin")
+        expected_origin = f"{request.url.scheme}://{request.url.netloc}"
+        if (
+            not peer or not is_loopback_host(peer)
+            or not host or not is_loopback_host(host)
+            or (origin is not None and origin != expected_origin)
+        ):
+            return JSONResponse(
+                status_code=403, content={"detail": "میز تست فقط از همین رایانه در دسترس است."}
+            )
+        return await call_next(request)
 
     @app.get("/")
     async def index() -> FileResponse:
         page = WEB_DIR / "index.html"
         if not page.is_file():
             raise HTTPException(status_code=500, detail="web/index.html missing")
-        return FileResponse(page, media_type="text/html; charset=utf-8")
+        return FileResponse(
+            page, media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-cache"}
+        )
+
+    @app.get("/assets/{asset_path:path}")
+    async def asset(asset_path: str) -> FileResponse:
+        """Self-hosted CSS/JS/font.  Nothing here is fetched from a CDN."""
+        target = (ASSETS_DIR / asset_path).resolve()
+        try:
+            target.relative_to(ASSETS_DIR.resolve())
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="فایل پیدا نشد.") from exc
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="فایل پیدا نشد.")
+        media = {
+            ".css": "text/css; charset=utf-8",
+            ".js": "text/javascript; charset=utf-8",
+            ".woff2": "font/woff2",
+            ".svg": "image/svg+xml",
+        }.get(target.suffix.lower(), "application/octet-stream")
+        return FileResponse(target, media_type=media, headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/status")
     async def status() -> dict[str, Any]:
@@ -295,7 +414,8 @@ def create_app(
     async def reset() -> dict[str, str]:
         """Clear the in-memory window only; the JSONL log on disk is kept."""
         state: WebUIState = app.state.webui
-        state.conversation.clear()
+        async with state.turn_lock:
+            state.conversation.clear()
         return {"status": "ok"}
 
     @app.get("/api/history")
@@ -325,14 +445,6 @@ def create_app(
         state: WebUIState = app.state.webui
         if state.asr is None:
             raise HTTPException(status_code=503, detail="رونویسی هنوز آماده نیست؛ چند لحظه صبر کنید.")
-        if payload.use_last:
-            if not state.last_pcm:
-                raise HTTPException(status_code=404, detail="هنوز ضبطی وجود ندارد.")
-            pcm = state.last_pcm
-        else:
-            pcm = decode_pcm(payload.pcm_b64)
-            state.last_pcm = pcm
-            state.last_rate = 16000
         overrides: dict[str, Any] = {}
         if payload.beam_size is not None:
             overrides["asr_beam_size"] = payload.beam_size
@@ -341,17 +453,19 @@ def create_app(
         if payload.initial_prompt is not None:
             overrides["asr_initial_prompt"] = payload.initial_prompt.strip()
         started = time.perf_counter()
-        try:
-            # transcribe_with swaps the ASR settings in place, so two concurrent
-            # decodes would corrupt each other; the bench is one-turn-at-a-time.
-            async with state.turn_lock:
-                text = await asyncio.to_thread(state.transcribe_with, pcm, overrides)
-        except (VoiceError, ValueError) as exc:
-            raise HTTPException(status_code=500, detail=f"رونویسی ناموفق بود: {exc}") from exc
+        async with state.turn_lock:
+            if payload.use_last:
+                if not state.last_pcm:
+                    raise HTTPException(status_code=404, detail="هنوز ضبطی وجود ندارد.")
+                pcm, rate = state.last_pcm, state.last_rate
+            else:
+                pcm, rate = decode_pcm(payload.pcm_b64), payload.sample_rate
+                state.last_pcm, state.last_rate = pcm, rate
+            text = await state.transcribe_recording(pcm, rate, overrides)
         return {
-            "transcript": (text or "").strip(),
+            "transcript": text,
             "timings": {"asr_ms": round((time.perf_counter() - started) * 1000, 1)},
-            "audio": pcm_stats(pcm),
+            "audio": pcm_stats(pcm, rate),
         }
 
     @app.post("/api/chat")
@@ -365,6 +479,74 @@ def create_app(
             reply, timings = await state.run_turn(text)
         return {"reply": reply, "timings": timings}
 
+    @app.post("/api/chat/stream")
+    async def chat_stream(payload: ChatRequest) -> StreamingResponse:
+        """Same turn as ``/api/chat``, streamed as Server-Sent Events.
+
+        Events: ``delta`` (text piece), ``done`` (full reply + timings) and
+        ``error`` (Persian detail).  The stream always ends with ``[DONE]``.
+        """
+        state: WebUIState = app.state.webui
+        text = payload.text.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="متن ورودی خالی است.")
+
+        async def events() -> AsyncIterator[str]:
+            try:
+                async with state.turn_lock:
+                    async for event in state.stream_turn(text):
+                        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - reported to the page
+                logger.warning("web UI stream failed: %s", exc)
+                detail = f"خطا در پاسخ مدل: {exc}"
+                yield "data: " + json.dumps({"type": "error", "detail": detail}, ensure_ascii=False) + "\n\n"
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.get("/api/diagnostics")
+    async def diagnostics() -> dict[str, Any]:
+        """Everything the debug tab needs, in one read-only call."""
+        state: WebUIState = app.state.webui
+        try:
+            backend = await state.client.health()
+        except Exception as exc:  # noqa: BLE001 - diagnostics must never raise
+            backend = {"reachable": False, "detail": f"بررسی مدل ناموفق بود: {exc}"}
+        return {
+            "server": {
+                "python": platform.python_version(),
+                "platform": platform.platform(),
+                "uptime_s": round(time.time() - app.state.started_at, 1),
+            },
+            "asr": {
+                "status": state.status["asr"],
+                "model": str(resolved.asr_model_path),
+                "device": resolved.asr_device or "auto",
+                "compute_type": resolved.asr_compute_type,
+                "threads": resolved.asr_threads,
+                "beam_size": resolved.asr_beam_size,
+                "language": resolved.asr_language,
+            },
+            "tts": {"status": state.status["tts"], "model": str(resolved.tts_model_path)},
+            "llm": backend,
+            "conversation": {
+                "messages": len(state.conversation.messages),
+                "persisted": bool(state.conversation.store.enabled),
+                "store_error": getattr(state.conversation.store, "error", None),
+            },
+            "audio": {
+                "last_seconds": round(len(state.last_pcm) / 2 / max(1, state.last_rate), 2),
+                "last_rate": state.last_rate,
+            },
+            "thinking": bool(getattr(resolved, "llm_enable_thinking", False)),
+        }
+
     @app.post("/api/tts")
     async def tts(payload: TtsRequest) -> dict[str, Any]:
         """Only the voice: text in, playable WAV out, no model call."""
@@ -376,7 +558,8 @@ def create_app(
             raise HTTPException(status_code=503, detail="صدا هنوز آماده نیست؛ چند لحظه صبر کنید.")
         started = time.perf_counter()
         try:
-            pcm, rate = await asyncio.to_thread(state.speaker.synthesize_pcm, text)
+            async with state.turn_lock:
+                pcm, rate = await state.run_model_worker(state.speaker.synthesize_pcm, text)
         except VoiceError as exc:
             raise HTTPException(status_code=500, detail=f"تولید صدا ناموفق بود: {exc}") from exc
         return {
@@ -390,30 +573,25 @@ def create_app(
         timings: dict[str, float] = {}
         transcript = payload.text.strip()
 
-        if payload.pcm_b64:
-            if state.asr is None:
-                raise HTTPException(status_code=503, detail="رونویسی هنوز آماده نیست؛ چند لحظه صبر کنید.")
-            pcm = decode_pcm(payload.pcm_b64)
-            state.last_pcm = pcm
-            state.last_rate = payload.sample_rate
-            started = time.perf_counter()
-            try:
-                transcript = await asyncio.to_thread(state.asr.transcribe_pcm, pcm)
-            except (VoiceError, ValueError) as exc:
-                raise HTTPException(status_code=500, detail=f"رونویسی ناموفق بود: {exc}") from exc
-            transcript = (transcript or "").strip()
-            timings["asr_ms"] = round((time.perf_counter() - started) * 1000, 1)
-
-        if not transcript:
-            return {
-                "transcript": "",
-                "reply": "",
-                "tts_wav_b64": "",
-                "timings": timings,
-                "notice": "چیزی شنیده نشد؛ دوباره و واضح‌تر صحبت کنید.",
-            }
-
         async with state.turn_lock:
+            if payload.pcm_b64:
+                if state.asr is None:
+                    raise HTTPException(status_code=503, detail="رونویسی هنوز آماده نیست؛ چند لحظه صبر کنید.")
+                pcm = decode_pcm(payload.pcm_b64)
+                state.last_pcm, state.last_rate = pcm, payload.sample_rate
+                started = time.perf_counter()
+                transcript = await state.transcribe_recording(pcm, payload.sample_rate)
+                timings["asr_ms"] = round((time.perf_counter() - started) * 1000, 1)
+
+            if not transcript:
+                return {
+                    "transcript": "",
+                    "reply": "",
+                    "tts_wav_b64": "",
+                    "timings": timings,
+                    "notice": "چیزی شنیده نشد؛ دوباره و واضح‌تر صحبت کنید.",
+                }
+
             reply, model_timings = await state.run_turn(transcript)
             timings.update(model_timings)
 
@@ -421,7 +599,7 @@ def create_app(
             if reply and state.speaker is not None:
                 started = time.perf_counter()
                 try:
-                    pcm, rate = await asyncio.to_thread(state.speaker.synthesize_pcm, reply)
+                    pcm, rate = await state.run_model_worker(state.speaker.synthesize_pcm, reply)
                     if pcm:
                         audio_b64 = base64.b64encode(wav_bytes(pcm, rate)).decode("ascii")
                 except VoiceError as exc:
@@ -448,9 +626,15 @@ def main() -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8100)
     args = parser.parse_args()
-    if args.host not in {"127.0.0.1", "localhost"}:
-        print("هشدار: این محیط احراز هویت ندارد؛ فقط روی localhost اجرا کنید.")
-    uvicorn.run(create_app(), host=args.host, port=args.port, log_level="info")
+    if not args.host or not is_loopback_host(args.host):
+        parser.error("میز تست فقط روی نشانی loopback اجرا می‌شود.")
+    uvicorn.run(
+        create_app(panel_host=args.host, panel_port=args.port),
+        host=args.host,
+        port=args.port,
+        log_level="info",
+        proxy_headers=False,
+    )
     return 0
 
 

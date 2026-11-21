@@ -55,6 +55,20 @@ def test_errors_and_overwrite_protection(tmp_path, capsys):
     assert 'error:' in capsys.readouterr().err
 
 
+def test_report_cannot_replace_inputs_or_collide_with_an_export(tmp_path):
+    manifest, _ = fixture_manifest(tmp_path)
+    recording = tmp_path / "sample.wav"
+    original_manifest, original_recording = manifest.read_bytes(), recording.read_bytes()
+    export = tmp_path / "dataset.jsonl"
+    for report in (manifest, recording, export):
+        assert main([
+            "--manifest", str(manifest), "--out", str(export), "--report", str(report),
+        ]) == 2
+        assert not export.exists()
+    assert manifest.read_bytes() == original_manifest
+    assert recording.read_bytes() == original_recording
+
+
 @pytest.mark.parametrize('row', [None, {'id': '../escape', 'text': 'سلام'},
     {'id': 'x', 'text': 42}, {'id': 'x', 'text': 'speech', 'kind': 'no_speech'}])
 def test_eval_schema(tmp_path, row):

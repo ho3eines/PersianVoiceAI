@@ -32,7 +32,8 @@
 | متغیر | پیش‌فرض | معنا |
 |---|---|---|
 | `PVAI_MODEL_PATH` | `models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf` | مدل منتخب پس از ارزیابی محلی لپ‌تاپ؛ مسیر GGUF باید محلی باشد |
-| `PVAI_LLAMA_SERVER_URL` | `http://127.0.0.1:8080` | آدرس محلی llama-server؛ باید private/loopback باشد |
+| `PVAI_LLAMA_SERVER_URL` | `http://127.0.0.1:8080` | فقط HTTP(S) روی localhost، IP حلقهٔ محلی یا IP خصوصی LAN؛ بدون استفاده از پروکسی محیط یا تغییرمسیر |
+| `PVAI_LLAMA_SERVER_EXE` | `llama-server` | مسیر کامل یا نام اجراپذیر llama-server که پنل مدیریت برای «شروع» استفاده می‌کند؛ نام ساده در PATH جست‌وجو می‌شود |
 | `PVAI_N_CTX` | `4096` | پنجرهٔ context (۵۱۲–۳۲۷۶۸)؛ به `llama-server -c` داده می‌شود |
 | `PVAI_N_THREADS` | `0` | thread سمت llama-server؛ `0` = خودکار (پرچم `-t` ارسال نمی‌شود). مستقل از threadهای Whisper است؛ `.env.example` مقدار پیشنهادی `4` را تنظیم می‌کند، نه پیش‌فرض `0` |
 | `PVAI_N_GPU_LAYERS` | `0` | تعداد لایه روی GPU (`-ngl`)؛ روی GeForce 940MX (۲GB) پیش‌فرض CPU حفظ می‌شود |
@@ -74,13 +75,14 @@
 | `PVAI_ASR_THREADS` | `2` | بودجهٔ thread مخصوص Whisper، جدا از `PVAI_N_THREADS` (هدف: ۲ هستهٔ فیزیکی) |
 | `PVAI_ASR_BEAM_SIZE` | `1` | beam search؛ ۱ سریع‌ترین، بیشتر = دقیق‌تر و کندتر |
 | `PVAI_ASR_VAD_FILTER` | `false` | VAD داخلی Whisper؛ مرجع پایان‌گفتار ما نیست (VAD خودمان تصمیم می‌گیرد) |
-| `PVAI_ASR_LANGUAGE` | `fa` | زبان Whisper. پیش‌تر در کد **سخت‌کد** بود. `auto` = انتخاب خود Whisper (برای گویندهٔ دوزبانه) |
+| `PVAI_ASR_LANGUAGE` | `fa` | اگر متغیر تنظیم نشده باشد، فارسی؛ مقدار `auto` یا مقدار صریحاً خالی یعنی تشخیص زبان با Whisper |
 | `PVAI_ASR_INITIAL_PROMPT` | خالی | متن آغازین؛ املا/واژگان را جهت می‌دهد (بدون آن Whisper گاهی پاسخ فارسی را با حروف عربی می‌نویسد) |
+| `PVAI_ASR_HOTWORDS` | خالی | واژگان دامنه (نام دستگاه، «رله»، «سنسور»، نام خاص)، جداشده با کاما یا `،`. tokenها به‌عنوان hint به decoder داده می‌شوند تا در کلیپ آکوستیک مبهم همان واژه ترجیح داده شود. **پاس decode اضافه ندارد.** با `PVAI_ASR_INITIAL_PROMPT` یکی نیست: پرامپت متن آغازین است و در اندازه‌گیری ثبت‌شده خودش را تکرار کرد؛ hotwords فقط احتمال واژه‌های نام‌برده را جابه‌جا می‌کند. در عوض، روی سکوت/نویز ممکن است واژه‌ها را تولید کند، که همان فیلتر توهم پایین می‌گیرد |
 | `PVAI_ASR_NO_SPEECH_THRESHOLD` | `0.6` | آستانهٔ `no_speech_prob` خود Whisper |
 | `PVAI_ASR_LOG_PROB_THRESHOLD` | `-1.0` | آستانهٔ `avg_logprob`؛ سگمنت فقط وقتی دور ریخته می‌شود که **همین** مقدار کمتر از آستانه باشد **و** `no_speech_prob` هم از `PVAI_ASR_MAX_NO_SPEECH_PROB` بیشتر باشد (یک سیگنال تنها کافی نیست) |
 | `PVAI_ASR_COMPRESSION_RATIO` | `2.4` | بالاتر از این = حلقهٔ تکرار، دور ریخته می‌شود |
 | `PVAI_ASR_MAX_NO_SPEECH_PROB` | `0.75` | آستانهٔ `no_speech_prob`؛ سگمنت فقط با ترکیب آن با `avg_logprob` کمتر از `PVAI_ASR_LOG_PROB_THRESHOLD` حذف می‌شود؛ `no_speech_prob` بالا به‌تنهایی چیزی را رد نمی‌کند |
-| `PVAI_ASR_HALLUCINATION_PHRASES` | فهرست فارسی/انگلیسی | عبارت‌های توهمی روی سکوت/نویز، جداشده با ویرگول. خالی = فیلتر خاموش (توصیه نمی‌شود) |
+| `PVAI_ASR_HALLUCINATION_PHRASES` | فهرست فارسی/انگلیسی | عبارت‌های توهمی روی سکوت/نویز، جداشده با ویرگول. مقدار خالی فقط فیلتر عبارت‌ها را خاموش می‌کند؛ آستانه‌های سگمنت برقرارند |
 | `PVAI_ASR_PARTIAL_WINDOW_S` | `3.0` | طول پنجرهٔ هم‌پوشان برای partial؛ cost هر decode را ثابت نگه می‌دارد. باید ≥ ۲× `PVAI_VOICE_ASR_INTERVAL` باشد |
 | `PVAI_ASR_MAX_FINAL_JOBS` | `16` | آستانهٔ هشدار عمق صف final؛ **هیچ final حذف نمی‌شود** |
 | `PVAI_ASR_WARMUP` | `true` | لود و warmup مدل در startup به‌جای اولین utterance. با `PVAI_WS_ENABLED=true` مدل مشترک `MODEL_POOL` در یک thread daemon از پیش بارگذاری و با ۲۰۰ms سکوت warm می‌شود، پس اولین اتصال ESP32 هزینهٔ لود را نمی‌پردازد؛ بدون transport صوتی هیچ مدلی بار نمی‌شود. شکست لود فقط در لاگ هشدار می‌دهد و `/ready` را خراب نمی‌کند |
@@ -103,6 +105,10 @@ Whisper روی سکوت و نویز «هیچ» برنمی‌گرداند؛ یک 
 حذف آن یعنی پاک‌کردن نوبت کاربر. هر سه آستانه از `PVAI_*` خوانده می‌شوند. فیلتر عمداً محافظه‌کار است: فقط عبارت‌های کوتاه
 (`WHOLE_TRANSCRIPT_ONLY` در `server/voice.py`) باید **کل متن** باشند، وگرنه
 «به مادرم گفتم خداحافظ و رفتم» هم دور ریخته می‌شد — بدتر از رد نکردن یک توهم.
+
+`PVAI_ASR_HOTWORDS` (بخش ۳) واژگان دامنه را به decoder ترجیح می‌دهد؛ روی سکوت/نویز
+همین بایاس می‌تواند خودِ واژه‌ها را تولید کند. همان فیلتر بالا جلوی تبدیل‌شدن آن به
+نوبت را می‌گیرد، پس این دو با هم استفاده می‌شوند، نه به‌جای هم.
 شمارندهٔ `asr_segments_rejected` در متریک‌ها ثبت می‌شود.
 
 `benchmarks/persian_eval.py` نرخ **پذیرش کاذب** را جدا گزارش می‌کند: ورودی‌های
@@ -193,7 +199,7 @@ system prompt پیش‌فرض هم صریح می‌گوید پاسخ با صدا
 | `PVAI_AUDIO_INPUT_DEVICE` | خالی | نام (زیررشته) یا index میکروفون؛ خالی = پیش‌فرض سیستم. نام مبهم خطا می‌دهد |
 | `PVAI_AUDIO_OUTPUT_DEVICE` | خالی | همان قاعده برای خروجی |
 | `PVAI_AUDIO_SAMPLE_RATE` | `16000` | **باید ۱۶۰۰۰ باشد**؛ قرارداد PCM16 mono 16k برای VAD/ASR/AEC. مقدار دیگر خطای پیکربندی است |
-| `PVAI_AUDIO_BLOCK_MS` | `20` | طول بلوک (۱۰/۲۰/۴۰) |
+| `PVAI_AUDIO_BLOCK_MS` | `20` | طول بلوک PC (۱۰/۲۰/۴۰)؛ با AEC فعال فقط ۲۰. بلوک WebSocket همیشه ۲۰ms است |
 | `PVAI_AUDIO_STALL_S` | `2.0` | اگر بیش از این مدت فریمی نرسد، دستگاه قطع‌شده فرض می‌شود. مبدأ شمارش، آخرین فریم است و اگر هیچ فریمی نرسیده باشد، لحظهٔ باز شدن stream |
 | `PVAI_AUDIO_REOPEN_ATTEMPTS` | `3` | تعداد تلاش بازگشایی stream پیش از خطای نهایی |
 | `PVAI_AUDIO_REOPEN_STABLE_FRAMES` | `50` | حداقل فریم واقعی که یک stream بازگشایی‌شده باید تحویل دهد تا «سالم» شمرده شود و سهمیهٔ تلاش‌ها ریست شود (۱ ثانیه با بلوک ۲۰ms). کمتر از این یعنی دستگاه باز می‌شود ولی صدا نمی‌دهد (mute/exclusive/Bluetooth) و باید سهمیه را مصرف کند |
@@ -219,9 +225,9 @@ AEC فقط با ۱۶kHz و بلوک ۲۰ms معنا دارد؛ `GET /ready` ای
 | `PVAI_HISTORY_TOKEN_BUDGET` | `1536` | بودجهٔ تخمینی توکن context (حداقل ۱۲۸) |
 | `PVAI_HISTORY_MAX_STORED` | `500` | پنجرهٔ RAM؛ فایل روی دیسک کامل می‌ماند (جلوگیری از رشد نامحدود حافظه) |
 | `PVAI_HISTORY_INCLUDE_INTERRUPTED` | `false` | آیا پاسخ قطع‌شده در context مدل بیاید (برای بازبینی همیشه ذخیره می‌شود) |
-| `PVAI_HISTORY_RESUME` | `on` | `on`: مسیر زندهٔ محلی در هر اجرا نشستِ قبلی را ادامه می‌دهد (الزام ۱۷). `off`: هر اجرا نشست تازه؛ `session_id` صریح همیشه resume می‌شود |
-| `PVAI_VOICE_SESSION_ID` | (خالی) | اگر تنظیم شود، نشستِ ثابتی است که مسیر زندهٔ محلی همیشه در آن می‌نویسد (فقط `[A-Za-z0-9_-]`) |
-| `PVAI_HISTORY_RETENTION_DAYS` | `30` | `0` = نگه‌داشتن همه. با مقدار مثبت، نشست‌هایی که این تعداد روز دست‌نخورده مانده‌اند در startup و هر ۲۴ ساعت و با `python -m server.sessions purge` پاک می‌شوند |
+| `PVAI_HISTORY_RESUME` | `on` | با ماندگاری فعال، صوت زنده و میز وب آخرین نشست `pc-` را ادامه می‌دهند. `off`: نشست محلی تازه؛ `session_id` صریح در مسیرهای REST/WS همچنان قابل انتخاب است |
+| `PVAI_VOICE_SESSION_ID` | (خالی) | با resume فعال، شناسهٔ نشست ثابت در صوت زنده و میز وب (فقط `[A-Za-z0-9_-]`؛ پیشوند `pc-` در صورت نیاز اضافه می‌شود) |
+| `PVAI_HISTORY_RETENTION_DAYS` | `30` | `0` = نگه‌داشتن همه. مقدار مثبت برای پاک‌سازی نشست منقضی در startup API و صوت زنده، هر ۲۴ ساعت در API، یا با `python -m server.sessions purge` است. میز وب پاک‌سازی خودکار ندارد |
 
 ## ۱۰. انتقال صوتی WebSocket (LAN)
 
@@ -277,13 +283,13 @@ AEC فقط با ۱۶kHz و بلوک ۲۰ms معنا دارد؛ `GET /ready` ای
 ## نمونهٔ `.env` حداقلی برای هدف (i7-6500U)
 
 ```dotenv
-PVAI_MODEL_PATH=models/Qwen3-4B-Q4_K_M.gguf
+PVAI_MODEL_PATH=models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf
 PVAI_N_THREADS=2
 PVAI_ASR_THREADS=2
 PVAI_ASR_PARTIAL_WINDOW_S=3
 PVAI_TTS_VOICE=female
-PVAI_TTS_MODEL_FEMALE=models/piper/fa_IR_female.onnx
-PVAI_TTS_MODEL_MALE=models/piper/fa_IR_male.onnx
+# PVAI_TTS_MODEL_FEMALE=models/piper/fa_IR_female.onnx
+# PVAI_TTS_MODEL_MALE=models/piper/fa_IR_male.onnx
 PVAI_AUDIO_INPUT_DEVICE=Microphone
 PVAI_AUDIO_OUTPUT_DEVICE=Speakers
 PVAI_AEC_ENABLED=true

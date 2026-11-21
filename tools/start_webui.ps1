@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 # Local one-turn test bench: mic/text → Whisper → llama-server → Piper in the browser.
-# Loopback only by default; see docs/WEB_UI.md.
+# Loopback only; see docs/WEB_UI.md.
 
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root

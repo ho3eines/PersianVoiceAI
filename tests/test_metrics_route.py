@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
+from voicekit import LocalTestClient as TestClient
 
 from server.config import Settings
 from server.main import create_app

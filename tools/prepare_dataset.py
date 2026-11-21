@@ -423,20 +423,25 @@ def export_rows(rows: list[dict[str, Any]], output: Path) -> Path:
         entry = dict(row)
         entry["audio"] = Path(os.path.relpath(audio, output.parent)).as_posix()
         portable.append(entry)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(
-        "".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in portable),
-        encoding="utf-8",
-    )
+    _write_output(output, "".join(json.dumps(entry, ensure_ascii=False) + "\n" for entry in portable))
     return output
 
 
-def _guard_output(output: Path, rows: list[dict[str, Any]], manifest: Path) -> Path:
+def _write_output(output: Path, content: str) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with output.open("x", encoding="utf-8") as stream:
+        stream.write(content)
+
+
+def _guard_output(output: Path, planned: set[Path]) -> Path:
     resolved = output.resolve()
-    if resolved == manifest.resolve():
-        raise DatasetValidationError("output must not overwrite the manifest")
-    if any(resolved == Path(row["audio"]).resolve() for row in rows):
-        raise DatasetValidationError("output must not overwrite a recording")
+    if resolved.exists():
+        raise DatasetValidationError(f"output must not overwrite an existing path: {resolved}")
+    if resolved in planned or any(
+        resolved in target.parents or target in resolved.parents for target in planned
+    ):
+        raise DatasetValidationError(f"output paths conflict: {resolved}")
+    planned.add(resolved)
     return resolved
 
 
@@ -563,7 +568,8 @@ def _run(argv: list[str] | None = None) -> int:
         config = load_dataset_config(config_path)
 
     results: dict[str, list[dict[str, Any]]] = {}
-    exported: dict[str, str] = {}
+    destinations: dict[str, Path] = {}
+    planned: set[Path] = set()
     if config is not None and args.manifest is None:
         splits = list(config.splits)
         if args.split:
@@ -574,7 +580,7 @@ def _run(argv: list[str] | None = None) -> int:
                     f"(available: {[item.name for item in config.splits]})"
                 )
             splits = [chosen]
-        if args.out is not None:
+        if args.out is not None and len(splits) != 1:
             raise DatasetValidationError(
                 "--out needs --split when --config describes several splits"
             )
@@ -593,9 +599,11 @@ def _run(argv: list[str] | None = None) -> int:
         manifests[resolved] = str(split.manifest)
         destination = args.out if len(splits) == 1 and args.out is not None else split.out
         if destination is not None:
-            target = destination if destination.is_absolute() else Path.cwd() / destination
-            target = _guard_output(target, rows, split.manifest)
-            exported[resolved] = str(export_rows(rows, target))
+            destinations[resolved] = _guard_output(destination, planned)
+
+    report_target = _guard_output(args.report, planned) if args.report is not None else None
+    for name, destination in destinations.items():
+        export_rows(results[name], destination)
 
     report = {
         "schema_version": 1,
@@ -604,7 +612,7 @@ def _run(argv: list[str] | None = None) -> int:
             name: {
                 "manifest": manifests[name],
                 "records": len(rows),
-                "exported_to": exported.get(name),
+                "exported_to": str(destinations[name]) if name in destinations else None,
                 "speakers": sorted(
                     {str(row.get("speaker", "")).strip() for row in rows} - {""}
                 ),
@@ -614,12 +622,8 @@ def _run(argv: list[str] | None = None) -> int:
         "leakage": _leak_report(results),
         "note": "validation only; no audio was modified and no training was performed",
     }
-    if args.report is not None:
-        target = args.report if args.report.is_absolute() else Path.cwd() / args.report
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-        )
+    if report_target is not None:
+        _write_output(report_target, json.dumps(report, ensure_ascii=False, indent=2) + "\n")
 
     for name, rows in results.items():
         print(f"{name}: validated {len(rows)} recordings (no training performed).")

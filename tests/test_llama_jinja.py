@@ -171,7 +171,7 @@ def test_health_reads_the_served_chat_template_from_props() -> None:
 
 
 def test_ready_surfaces_the_thinking_warning(tmp_path: Path) -> None:
-    from fastapi.testclient import TestClient
+    from voicekit import LocalTestClient as TestClient
 
     from server.main import create_app
 

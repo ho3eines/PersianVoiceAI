@@ -298,11 +298,14 @@ class LocalAudio:
         self.loaded_at: float | None = None
         self.last_options: dict[str, Any] = {}
 
-    def validate(self) -> None:
+    def validate_asr(self) -> None:
         raw_asr = (self.settings.asr_model_path or "").strip()
         path = Path(raw_asr) if raw_asr else Path("")
         if not raw_asr or not path.is_dir() or not (path / "model.bin").is_file():
             raise ModelLoadError(f"مدل Whisper محلی موجود نیست؛ PVAI_ASR_MODEL_PATH را تنظیم کنید: {path}")
+
+    def validate(self) -> None:
+        self.validate_asr()
         raw_tts = (self.settings.tts_model_for(self.settings.tts_voice) or "").strip()
         tts_path = Path(raw_tts) if raw_tts else Path("")
         if not raw_tts or not tts_path.is_file():
@@ -500,6 +503,25 @@ class LocalAudio:
         finally:
             del samples, mono, resampled
 
+    def _hotwords(self) -> str:
+        """``PVAI_ASR_HOTWORDS`` as one decoder hint (``""`` = disabled).
+
+        This is ASCII-level *vocabulary biasing*, the cheapest accuracy knob
+        this project has: faster-whisper prepends the tokens to the decoder
+        prompt, so an acoustically ambiguous clip prefers the project's own
+        words (device names, "رله", "سنسور") instead of a near-homophone.  It
+        deliberately differs from ``PVAI_ASR_INITIAL_PROMPT``, which is seeded
+        *text*: the initial prompt has been recorded reproducing itself
+        verbatim (``docs/HARDWARE_VALIDATION.md`` §۹٫۳), while hotwords only
+        shift the probability of the words they name.
+
+        Commas separate entries (the Persian ``،`` too) so ``.env`` stays
+        readable; the decoder itself wants one space-joined phrase list.
+        """
+        raw = self.settings.asr_hotwords or ""
+        entries = (part.strip() for part in raw.replace("،", ",").split(","))
+        return " ".join(part for part in entries if part)
+
     def _transcribe_options(self) -> dict[str, Any]:
         """The ``transcribe`` keyword arguments, built from settings.
 
@@ -522,6 +544,11 @@ class LocalAudio:
             # Seeded text biases the *script* and the vocabulary: without it
             # Whisper sometimes answers a Persian clip in Arabic letters.
             options["initial_prompt"] = prompt
+        hotwords = self._hotwords()
+        if hotwords:
+            # Hotwords add only domain-specific vocabulary bias. Unlike
+            # initial_prompt, they are not treated as an expected transcript.
+            options["hotwords"] = hotwords
         return options
 
     def _accepted_segments(self, segments: Iterable[Any], token: threading.Event | None = None) -> list[Any]:

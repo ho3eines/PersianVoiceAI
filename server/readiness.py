@@ -140,7 +140,7 @@ def check_ws(settings: Any) -> dict[str, Any]:
             "detail": "انتقال WebSocket صوتی خاموش است (PVAI_WS_ENABLED).",
         }
     tokens = settings.device_tokens() if hasattr(settings, "device_tokens") else {}
-    if not (getattr(settings, "ws_token", "") or tokens):
+    if not (settings.shared_device_token() or tokens):
         # ``PVAI_WS_TOKENS`` alone is a complete, documented configuration: the
         # handshake accepts per-device tokens first and only then the shared
         # one.  Checking ``ws_token`` alone reported a correctly configured

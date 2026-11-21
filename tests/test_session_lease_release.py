@@ -49,6 +49,7 @@ def lease_settings(tmp_path: Path) -> Settings:
         data_dir=str(tmp_path),
         history_persist=True,
         ws_token="secret-token",
+        ws_allow_shared_tokens=True,
         tts_voice="female",
     )
 

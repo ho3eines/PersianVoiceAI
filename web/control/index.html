@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f7f4">
+  <title>خانه‌یار | پنل مدیریت</title>
+<link rel="stylesheet" href="/assets/theme.css?v=1">
+<link rel="stylesheet" href="/control/styles.css?v=2">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#dashboard" aria-label="خانه‌یار، پیشخوان"><span class="brand-icon">✿</span><span><b>خانه‌یار</b><small>مدیریت دستیار صوتی</small></span></a>
+      <p class="nav-caption">فضای کار</p>
+      <nav class="nav" aria-label="بخش‌های پنل">
+        <button class="nav-link active" data-tab="dashboard"><span>⌂</span> پیشخوان</button>
+        <button class="nav-link" data-tab="settings"><span>⚙</span> تنظیمات</button>
+        <button class="nav-link" data-tab="providers"><span>⇄</span> ارائه‌دهنده‌ها</button>
+        <button class="nav-link" data-tab="models"><span>▤</span> مدل‌ها</button>
+        <button class="nav-link" data-tab="services"><span>◉</span> سرویس‌ها</button>
+        <a class="nav-link" href="/"><span>💬</span> گفتگو و دیباگ</a>
+        <button class="nav-link" data-tab="help"><span>؟</span> راهنما</button>
+      </nav>
+      <div class="sidebar-note"><b>🔒 محلی و خصوصی</b><p>حالت پیش‌فرض پردازش روی همین رایانه است. اتصال بیرونی اختیاری است و تنها با انتخاب آگاهانهٔ شما فعال می‌شود.</p></div>
+      <div class="sidebar-foot">خانه‌یار · مدیریت محلی</div>
+    </aside>
+    <div class="scrim" id="scrim"></div>
+    <main class="main">
+      <header class="topbar">
+        <div class="title-wrap"><button class="menu-toggle" id="menuToggle" aria-label="بازکردن منو">☰</button><div><h1 id="pageTitle">پیشخوان</h1><p id="pageSubtitle">وضعیت دستیار محلی شما، یک‌جا</p></div></div>
+        <div class="top-actions"><span class="connection"><i id="connectionDot" class="dot"></i><span id="connectionLabel">در حال بررسی اتصال…</span></span><button class="button quiet small" id="refreshButton">↻ <span>تازه‌سازی</span></button></div>
+      </header>
+      <div class="global-message" id="globalMessage" role="status" aria-live="polite"></div>
+      <section class="tab-view active" id="tab-dashboard" data-title="پیشخوان" data-subtitle="وضعیت دستیار محلی شما، یک‌جا">
+        <div class="welcome"><div><span class="eyebrow">فضای کار شما</span><h2>سلام، خوش آمدید 🌱</h2><p>وضعیت را ببینید و کارهای مهم را با چند کلیک انجام دهید.</p></div><span class="welcome-bloom">✿</span></div>
+        <div class="stat-grid" id="statusCards"><article class="card stat"><small>سرور برنامه</small><b class="skeleton">در حال بررسی</b><span class="muted">وضعیت سرویس محلی</span></article><article class="card stat"><small>مدل زبانی</small><b class="skeleton">در حال بررسی</b><span class="muted">llama.cpp محلی</span></article><article class="card stat"><small>تشخیص گفتار · ASR</small><b class="skeleton">در حال بررسی</b><span class="muted">پردازش روی همین رایانه</span></article><article class="card stat"><small>تولید صدا · TTS</small><b class="skeleton">در حال بررسی</b><span class="muted">وضعیت گزارش‌شده توسط سرویس</span></article></div>
+        <div class="columns dashboard-columns">
+          <article class="card"><div class="card-heading"><div><h3>وضعیت سرویس‌ها</h3><p>اطلاعات زنده از API مدیریت</p></div><button class="button quiet small" data-go="services">نمایش همه</button></div><div id="dashboardServices" class="service-list"><div class="placeholder">در حال دریافت وضعیت…</div></div></article>
+          <article class="card"><div class="card-heading"><div><h3>دسترسی سریع</h3><p>گزینه‌های پرکاربرد</p></div></div><div class="quick-links"><button data-go="settings">⚙️ <span><b>تنظیمات</b><small>ASR، مدل، صدا و شبکه</small></span><i>←</i></button><button data-go="models">📦 <span><b>مدل‌ها</b><small>نصب‌شده و کاتالوگ</small></span><i>←</i></button><a href="/">🎙️ <span><b>میز آزمایش</b><small>ضبط، رونویسی، چت و صدا</small></span><i>←</i></a></div><div id="offlineNotice" class="notice success">در حال بررسی تضمین محلی…</div></article>
+        </div>
+        <div class="help-inline"><b>راهنمای این صفحه</b><span>پنل وضعیت را از سرور می‌خواند. اگر قابلیتی به API مدیریت متصل نباشد، به‌جای حدس‌زدن وضعیت، پیام خطا نشان داده می‌شود.</span><button class="text-button" data-go="help">بیشتر بدانید</button></div>
+      </section>
+      <section class="tab-view" id="tab-settings" data-title="تنظیمات" data-subtitle="پیکربندی سرویس محلی بر اساس گزینه‌های پشتیبانی‌شده">
+        <div class="section-heading"><div><span class="eyebrow">پیکربندی</span><h2>تنظیمات سامانه</h2><p>فیلدها و توضیحات از خود سرویس دریافت می‌شوند؛ تغییرات فقط پس از تأیید ذخیره خواهند شد.</p></div><button class="button quiet" id="reloadSettings">↻ بازخوانی</button></div>
+        <div class="notice warning">تغییر برخی موارد با برچسب «نیازمند راه‌اندازی مجدد» بلافاصله اعمال نمی‌شود. تنظیمات محرمانه هرگز بازخوانی یا نمایش داده نمی‌شوند.</div>
+        <div id="envIssues" class="issue-list"></div><form id="settingsForm"><div id="settingsGroups" class="settings-groups"><div class="card placeholder">در حال دریافت تنظیمات…</div></div><div class="sticky-actions"><span id="settingsResult" class="muted"></span><button class="button primary" type="submit" id="saveSettings">ذخیرهٔ تغییرات</button></div></form>
+        <div class="help-inline"><b>راهنمای این صفحه</b><span>برای هر گزینه، روی «راهنما» بزنید تا توضیح همان گزینه را ببینید. «بازنشانی» یک کلید، مقدار آن را به پیش‌فرض پروژه برمی‌گرداند.</span><button class="text-button" data-go="help">راهنمای کامل</button></div>
+      </section>
+      <section class="tab-view" id="tab-providers" data-title="ارائه‌دهنده‌ها" data-subtitle="انتخاب محلی یا اتصال سازگار با سرویس‌های دیگر">
+        <div class="section-heading"><div><span class="eyebrow">اتصال مدل</span><h2>ارائه‌دهنده‌ها</h2><p>مدل محلی گزینهٔ امن و پیش‌فرض است. سرویس ابری فقط با انتخاب صریح شما فعال می‌شود.</p></div><button class="button quiet" id="reloadProviders">↻ بازخوانی</button></div>
+        <div class="notice danger"><b>پیش از فعال‌سازی سرویس بیرونی:</b> متن گفتگو و در مسیر صوتی رونویسی ممکن است از رایانه خارج شود و به آن سرویس برسد. کلید API هرگز از سرور خوانده یا در رابط نمایش داده نمی‌شود.</div>
+        <div id="providersList" class="card provider-list"><div class="placeholder">در حال دریافت فهرست ارائه‌دهنده‌ها…</div></div>
+        <div class="card provider-editor"><div class="card-heading"><div><h3 id="providerFormTitle">تنظیم ارائه‌دهنده</h3><p>کلید خالی یا واردنشده، کلید قبلی را حفظ می‌کند.</p></div></div><form id="providerForm"><input type="hidden" id="providerId"><div class="form-grid"><label class="field"><span>نوع ارائه‌دهنده</span><select id="providerKind" required><option value="llama_server">llama-server محلی</option><option value="openai_compat">سازگار با OpenAI</option><option value="anthropic">Anthropic</option></select></label><label class="field"><span>نام نمایشی</span><input id="providerLabel" type="text" placeholder="مثلاً مدل محلی" required></label><label class="field"><span>نشانی پایه</span><input id="providerUrl" type="url" placeholder="نشانی محلی سرویس، مانند 127.0.0.1:8080" required></label><label class="field"><span>شناسهٔ مدل</span><input id="providerModel" type="text" placeholder="شناسهٔ مدل نزد سرویس" required></label><label class="field full"><span>کلید API <small>(ذخیره‌شده نشان داده نمی‌شود)</small></span><input id="providerKey" type="password" autocomplete="new-password" placeholder="برای حفظ کلید فعلی خالی بگذارید"></label></div><label class="check-row"><input id="providerEnabled" type="checkbox"><span>این ارائه‌دهنده فعال باشد</span></label><label class="check-row external-consent" id="externalConsentRow"><input id="externalConsent" type="checkbox"><span><b>می‌دانم استفاده از این سرویس ممکن است متن گفتگو یا رونویسی را از این رایانه خارج کند.</b></span></label><div class="form-actions"><button class="button primary" id="saveProvider" type="submit">ذخیرهٔ ارائه‌دهنده</button><button class="button quiet" id="cancelProvider" type="button">پاک‌کردن فرم</button><span id="providerResult" class="muted"></span></div></form></div>
+        <div class="help-inline"><b>راهنمای این صفحه</b><span>ثبت تنظیم اتصال به‌تنهایی به معنی ارسال داده نیست؛ برای تغییر ارائه‌دهندهٔ فعال، دکمهٔ «فعال‌سازی» را بزنید و هشدار را تأیید کنید.</span><button class="text-button" data-go="help">راهنمای کامل</button></div>
+      </section>
+      <section class="tab-view" id="tab-models" data-title="مدل‌ها" data-subtitle="بررسی مدل‌های نصب‌شده و کاتالوگ‌های موجود">
+        <div class="section-heading"><div><span class="eyebrow">مدیریت مدل</span><h2>مدل‌ها</h2><p>فهرست واقعی از سرور خوانده می‌شود؛ دریافت مدل فقط با تأیید شما شروع می‌شود.</p></div><button class="button quiet" id="reloadModels">↻ بازخوانی</button></div>
+        <div class="filter-row" id="modelKinds"><button class="filter active" data-kind="llm">مدل زبانی</button><button class="filter" data-kind="asr">تشخیص گفتار</button><button class="filter" data-kind="tts">تولید صدا</button></div>
+        <div class="model-columns"><article class="card"><div class="card-heading"><div><h3>مدل‌های نصب‌شده</h3><p id="modelsDir">مسیر پوشه از سرور</p></div></div><div id="installedModels" class="model-list"><div class="placeholder">در حال دریافت…</div></div></article><article class="card"><div class="card-heading"><div><h3>کاتالوگ مدل‌ها</h3><p>فقط گزینه‌هایی که API سرور فهرست می‌کند</p></div></div><div id="catalogModels" class="model-list"><div class="placeholder">در حال دریافت…</div></div></article></div>
+        <div class="card custom-download"><div class="card-heading"><div><h3>مدیریت دریافت</h3><p>مدل کاتالوگ یا فایل‌های دلخواه را دریافت کنید.</p></div></div><div class="notice warning">دریافت فایل از اینترنت می‌تواند حجیم باشد و به فضای دیسک نیاز دارد. نشانی فایل‌ها به سرور محلی فرستاده می‌شود. کاتالوگ پیشنهادی راه امن‌تر و ساده‌تری است.</div><div class="download-tabs"><button class="filter active" data-download="catalog">دریافت از کاتالوگ</button><button class="filter" data-download="custom">نشانی فایل دلخواه</button></div><form id="catalogDownloadForm"><label class="field"><span>مدل کاتالوگ</span><select id="catalogSelect"><option value="">ابتدا یک گزینه انتخاب کنید</option></select></label><button class="button primary" type="submit">دریافت مدل انتخاب‌شده</button></form><form id="customDownloadForm" class="hidden"><div class="form-grid"><label class="field"><span>نام مدل</span><input id="customName" required placeholder="my-model"></label><label class="field"><span>نوع مدل</span><select id="customKind"><option value="llm">مدل زبانی</option><option value="asr">تشخیص گفتار</option><option value="tts">تولید صدا</option></select></label><label class="field full"><span>نشانی HTTPS فایل (هر فایل در یک سطر)</span><textarea id="customUrls" required placeholder="نشانی امن فایل مدل"></textarea></label></div><button class="button primary" type="submit">درخواست دریافت فایل‌ها</button></form><div class="job-box hidden" id="jobBox"><div class="card-heading"><b id="jobTitle">دریافت در حال انجام</b><span id="jobPercent">۰٪</span></div><div class="progress"><i id="jobProgress"></i></div><p id="jobDetail" class="muted"></p></div></div>
+        <div class="help-inline"><b>راهنمای این صفحه</b><span>پس از دریافت، مدل را از فهرست نصب‌شده فعال کنید. مدل فعال قابل حذف نیست. تغییر مدل فعال ممکن است نیازمند راه‌اندازی مجدد باشد.</span><button class="text-button" data-go="help">راهنمای کامل</button></div>
+      </section>
+      <section class="tab-view" id="tab-services" data-title="سرویس‌ها" data-subtitle="وضعیت و کنترل سرویس‌های مدیریت‌پذیر">
+        <div class="section-heading"><div><span class="eyebrow">مدیریت سرویس</span><h2>سرویس‌ها</h2><p>فقط سرویس‌هایی که همین سرور اجازهٔ مدیریتشان را دارد، دکمهٔ عملیات خواهند داشت.</p></div><button class="button quiet" id="reloadServices">↻ بازخوانی</button></div>
+        <div class="notice warning">توقف یا راه‌اندازی دوباره می‌تواند گفتگوی جاری را قطع کند. پیش از عملیات مخرب، تأیید گرفته می‌شود.</div><div class="service-cards" id="servicesList"><article class="card placeholder">در حال دریافت وضعیت…</article></div>
+        <div class="help-inline"><b>راهنمای این صفحه</b><span>سرویس با برچسب «مدیریت‌شده» توسط همین اپ اجرا شده و قابلیت کنترل دارد. سرویس مدیریت‌نشده فقط قابل مشاهده است.</span><button class="text-button" data-go="help">راهنمای کامل</button></div>
+      </section>
+      <section class="tab-view" id="tab-help" data-title="راهنما" data-subtitle="نکات استفاده، ایمنی و عیب‌یابی">
+        <div class="section-heading"><div><span class="eyebrow">کمک و پشتیبانی</span><h2>راهنمای خانه‌یار</h2><p>پنل مدیریتی محلی است و چیزی را بدون درخواست شما به اینترنت نمی‌فرستد.</p></div></div>
+        <div class="help-grid"><article class="card"><span class="help-icon">🔐</span><h3>حریم خصوصی</h3><p>مدل محلی مسیر پیش‌فرض است. اتصال به API بیرونی فقط با ثبت و فعال‌سازی صریح شما انجام می‌شود و می‌تواند متن گفتگو یا رونویسی را خارج کند. کلید ذخیره‌شده همیشه مخفی می‌ماند.</p></article><article class="card"><span class="help-icon">🎙</span><h3>میز آزمایش صوت</h3><p>میز آزمایش مستقل شامل ضبط و رونویسی، بازآزمایی ASR، پاسخ متنی LLM، تولید صدای TTS و تاریخچه است.</p><a class="button quiet" href="/">رفتن به میز آزمایش ←</a></article><article class="card"><span class="help-icon">📦</span><h3>مدل‌ها</h3><p>اندازه و وضعیت را از پنل مدل‌ها ببینید. دریافت فایل ممکن است زمان‌بر و پرحجم باشد. فقط مدل غیرفعال را می‌توان حذف کرد.</p><button class="button quiet" data-go="models">رفتن به مدل‌ها ←</button></article><article class="card"><span class="help-icon">🛠</span><h3>عیب‌یابی</h3><p>اگر API مدیریت در دسترس نیست، سرور شما هنوز مسیرهای پنل را ارائه نمی‌کند. پیام سرویس یا خطای دریافتی را بررسی کنید؛ پنل قابلیت غیرفعال را شبیه‌سازی نمی‌کند.</p><button class="button quiet" data-go="services">بررسی سرویس‌ها ←</button></article></div>
+        <div class="help-inline"><b>راهنمای این صفحه</b><span>این بخش در خود صفحه موجود است و به اینترنت یا فونت و اسکریپت بیرونی وابستگی ندارد.</span></div>
+      </section>
+      <footer class="footer"><span>خانه‌یار · رابط محلی دستیار صوتی فارسی</span><a href="/">رفتن به میز آزمایش صوت</a></footer>
+    </main>
+  </div>
+<script src="/control/app.js?v=1" defer></script>
+</body>
+</html>

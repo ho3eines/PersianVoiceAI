@@ -32,7 +32,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
-from .config import Settings
+from .config import Settings, is_loopback_host
 from .conversation import STATUS_COMPLETE, Conversation, open_store, purge_expired, SessionInUse
 from .metrics import Metrics
 from .protocol import check_token
@@ -107,7 +107,10 @@ def _sse(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def _apply_rag(messages: list[dict[str, str]], knowledge: KnowledgeBase, query: str) -> list[dict[str, str]]:
+def _apply_rag(
+    messages: list[dict[str, str]], knowledge: KnowledgeBase, query: str, *,
+    system_prompt: str = "",
+) -> list[dict[str, str]]:
     hits = knowledge.search(query)
     if not hits:
         return []
@@ -121,7 +124,7 @@ def _apply_rag(messages: list[dict[str, str]], knowledge: KnowledgeBase, query: 
         + context
     )
     if system_index is None:
-        messages.insert(0, {"role": "system", "content": instruction})
+        messages.insert(0, {"role": "system", "content": system_prompt + instruction})
     else:
         messages[system_index] = {
             **messages[system_index],
@@ -171,6 +174,9 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        bind_error = resolved.api_bind_error()
+        if bind_error:
+            raise RuntimeError(bind_error)
         logging.basicConfig(
             level=getattr(logging, resolved.log_level, logging.INFO),
             format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -242,12 +248,14 @@ def create_app(
         path = request.url.path
         if path in PUBLIC_PATHS or request.method == "OPTIONS":
             return await call_next(request)
-        expected = resolved.api_token
+        expected = resolved.api_token.strip()
         if not expected:
-            # No token configured: loopback-only operation.  config_errors()
-            # refuses to start a non-loopback bind without a token, so reaching
-            # here unauthenticated means the caller is on this machine.
-            return await call_next(request)
+            if request.client and request.client.host and is_loopback_host(request.client.host):
+                return await call_next(request)
+            return JSONResponse(
+                status_code=403,
+                content={"error": "loopback_required", "detail": "دسترسی بدون توکن فقط از همین رایانه مجاز است."},
+            )
         provided = _bearer_token(request.headers.get("authorization"))
         if provided is None:
             provided = request.headers.get("x-api-key")
@@ -307,7 +315,7 @@ def create_app(
         # attacker would lock out everybody.  A *valid* token therefore gets its
         # own bucket; an invalid or absent one is throttled by address, so
         # varying the token does not buy an attacker more attempts.
-        expected = resolved.api_token
+        expected = resolved.api_token.strip()
         if expected:
             token = _bearer_token(request.headers.get("authorization"))
             if token is None:
@@ -410,7 +418,7 @@ def create_app(
 
     @app.get("/api/protocol", tags=["meta"])
     async def protocol(request: Request) -> dict[str, Any]:
-        """Wire protocol that the future ESP32-S3 firmware will speak (design only)."""
+        """Describe the implemented server transport and the planned ESP32-S3 firmware."""
         return describe_protocol()
 
     @app.get("/v1/models", tags=["openai"])
@@ -436,7 +444,10 @@ def create_app(
         messages = [message.model_dump() for message in payload.messages]
         if payload.use_rag:
             query = next((message.content for message in reversed(payload.messages) if message.role == "user"), "")
-            await asyncio.to_thread(_apply_rag, messages, request.app.state.knowledge, query)
+            await asyncio.to_thread(
+                _apply_rag, messages, request.app.state.knowledge, query,
+                system_prompt=resolved.system_prompt,
+            )
         model_name = payload.model or resolved.model_path.split("\\")[-1].split("/")[-1]
         completion_id = _completion_id()
         created = int(time.time())

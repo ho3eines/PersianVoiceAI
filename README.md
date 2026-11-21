@@ -68,7 +68,7 @@ Key architectural properties:
 | **LLM Runtime (`llama-server`)** | Prebuilt or compiled `llama-server` binary from [`ggml-org/llama.cpp`](https://github.com/ggml-org/llama.cpp) (not installed via `pip`). |
 | **SpeexDSP (Native AEC)** | **Required when `PVAI_AEC_ENABLED=true` (default).** Install `libspeexdsp` via your OS package manager on Linux or build/provide a 64-bit `libspeexdsp.dll` on Windows — **not installed by `pip`**. To run without SpeexDSP (headphones only), explicitly set `PVAI_AEC_ENABLED=false`. See [`docs/AEC.md`](docs/AEC.md). |
 | **PortAudio** | Required by `sounddevice` for live microphone/speaker I/O. Bundled in Windows/macOS wheels; on Debian/Ubuntu install `libportaudio2`. |
-| **CUDA / cuDNN (Optional)** | **CPU is the default** (`PVAI_ASR_DEVICE=cpu`, `PVAI_ASR_COMPUTE_TYPE=int8`, `PVAI_N_GPU_LAYERS=0`).<br>• **Optional GPU ASR (`PVAI_ASR_DEVICE=cuda` or `auto`)**: Requires an NVIDIA GPU, NVIDIA driver, and **CUDA 12.x + cuDNN 9.x** runtime libraries compatible with `ctranslate2` / `faster-whisper>=1.1`. If CUDA/cuDNN is missing or GPU loading fails, `server/voice.py` logs a warning and falls back to `cpu`/`int8`. Apple MPS is unsupported by CTranslate2 and falls back to CPU.<br>• **Optional GPU LLM**: Set `PVAI_N_GPU_LAYERS` > `0` in `.env` and use a `llama.cpp` build compiled with CUDA, Vulkan, or Metal support.<br>*(Note: Actual GPU/CUDA inference performance is **NOT MEASURED** in this repository's environment; see [`docs/SPEC.md`](docs/SPEC.md) for historical notes on 2 GB Maxwell GPUs.)* |
+| **CUDA / cuDNN (Optional)** | **CPU is the default** (`PVAI_ASR_DEVICE=cpu`, `PVAI_ASR_COMPUTE_TYPE=int8`, `PVAI_N_GPU_LAYERS=0`).<br>• **Optional GPU ASR (`PVAI_ASR_DEVICE=cuda` or `auto`)**: Use runtime libraries compatible with the installed CTranslate2 build. If CUDA/cuDNN is unavailable or GPU model loading fails, the ASR falls back to CPU/int8 with a warning. Apple MPS also falls back to CPU.<br>• **Optional GPU LLM**: Set `PVAI_N_GPU_LAYERS` > `0` and use a compatible GPU build of `llama.cpp`. Historical Vulkan LLM results are in [Benchmarks](docs/BENCHMARKS.md); CUDA ASR on the development laptop is **NOT MEASURED**. |
 | **FFmpeg (Optional)** | **Not required** for live 16 kHz PCM16 microphone/speaker streaming or 16 kHz mono PCM16 WAV evaluation (`sounddevice` and `soundfile` handle PCM16 directly, and `faster-whisper` bundles `PyAV`).<br>**Recommended** if you pass compressed formats (`.mp3`, `.m4a`, `.mp4`, `.ogg`) to `LocalAudio.transcribe()` via `librosa`, or when normalizing custom recordings to 16 kHz mono PCM16 WAV for [`tools/prepare_dataset.py`](tools/prepare_dataset.py) and [`benchmarks/persian_eval.py`](benchmarks/persian_eval.py). |
 
 ---
@@ -190,7 +190,7 @@ Copy-Item .env.example .env
 
 | Component | Default Path | Required Files | Upstream Source | License |
 |---|---|---|---|---|
-| **LLM** | `models/Qwen3-4B-Q4_K_M.gguf` | Single `.gguf` file | [Qwen on Hugging Face](https://huggingface.co/Qwen) | Apache-2.0 |
+| **LLM** | `models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf` | Single `.gguf` file | [Qwen on Hugging Face](https://huggingface.co/Qwen) | Verify the exact GGUF release before redistribution |
 | **ASR** | `models/whisper-small/` | Directory with `model.bin`, `config.json`, `tokenizer.json`, `vocabulary.txt` (CTranslate2 format, not raw PyTorch `.pt`) | [`faster-whisper`](https://github.com/SYSTRAN/faster-whisper) / `Systran/faster-whisper-small` on Hugging Face | MIT |
 | **TTS** | `models/piper/fa_IR.onnx` | Both `.onnx` and `.onnx.json` (plus optional `PVAI_TTS_MODEL_FEMALE` / `PVAI_TTS_MODEL_MALE`) | [`rhasspy/piper-voices`](https://huggingface.co/rhasspy/piper-voices) (e.g. `fa/fa_IR/amir/medium`) or [`MahtaFetrat/Mana-Persian-Piper`](https://huggingface.co/MahtaFetrat/Mana-Persian-Piper) | **Check each voice's `MODEL_CARD` / `LICENSE`** |
 
@@ -203,7 +203,7 @@ For multi-gigabyte model files (`.gguf`, `.onnx`, or Whisper `model.bin`), the r
 ```bash
 python tools/download_parallel.py \
   --url "https://huggingface.co/<org>/<repo>/resolve/main/<model-file>" \
-  --output models/Qwen3-4B-Q4_K_M.gguf \
+  --output models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf \
   --sha256 "<64-char-sha256-from-publisher>"
 ```
 
@@ -224,7 +224,7 @@ All runtime behavior is controlled via `PVAI_*` environment variables (loaded fr
 
 ```dotenv
 # LLM (llama-server)
-PVAI_MODEL_PATH=models/Qwen3-4B-Q4_K_M.gguf
+PVAI_MODEL_PATH=models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf
 PVAI_LLAMA_SERVER_URL=http://127.0.0.1:8080
 PVAI_N_CTX=4096
 PVAI_N_THREADS=4
@@ -461,13 +461,14 @@ with httpx.Client(base_url=BASE_URL, headers=HEADERS, timeout=60.0) as client:
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /health` | Minimal liveness probe (`{"status": "ok", ...}`). Always exempt from auth and intentionally omits sensitive config/paths. |
-| `GET /ready` | Full readiness checklist (`configuration`, `asr_model`, `tts_model`, `dependencies`, `aec`, `storage`, `ws_voice`, `llm_backend`, `thinking`). Returns `503` if incomplete. |
+| `GET /health` | Minimal public liveness probe (`{"status": "ok"}`); no model or config details. |
+| `GET /ready` | Full readiness checklist (`configuration`, `asr_model`, `tts_model`, `dependencies`, `aec`, `storage`, `ws_voice`, and, when the backend is queried, `thinking_template` and `llm_backend`). Returns `503` if incomplete. |
+| `GET /metrics` | In-process metrics as JSON; use `?format=flat` for flattened output. |
 | `GET /api/protocol` | ESP32-S3 WebSocket protocol descriptor (`transport_implemented: true`, `firmware_implemented: false`). |
 | `WS /ws/voice` | LAN audio terminal WebSocket transport (opt-in via `PVAI_WS_ENABLED=true` and `PVAI_WS_TOKENS`). |
 | `GET /v1/models` | Models currently loaded in `llama-server`. |
 | `POST /v1/chat/completions` | OpenAI-compatible chat completion (JSON or SSE with `stream: true`). |
-| `POST /api/chat` | Single-turn chat helper with optional persistent `session_id`. |
+| `POST /api/chat` | Chat helper with optional persistent `session_id` and [local knowledge retrieval](docs/RAG.md) enabled by default. |
 | `GET /api/sessions` / `GET\|DELETE /api/sessions/{id}` | List, inspect, or delete local JSONL conversation sessions. |
 
 **Authentication & Network Safety:**
@@ -544,7 +545,9 @@ PersianVoiceAI/
 
 ### Running Automated Tests
 
-All tests use fakes/mocks and require **no model weights, microphone, or network access**.
+Automated tests require **no model weights, microphone, or internet access**. They use fakes,
+synthetic signals, or local fixtures; optional native AEC and TLS tests exercise real libraries
+or local loopback sockets.
 
 ```bash
 # Install voice + dev requirements to run the complete suite (including audio conversion tests)
@@ -589,11 +592,12 @@ This repository is for inference and evaluation only and **does not include a tr
 cp configs/dataset.example.yaml configs/dataset.yaml
 export PVAI_CORPUS_ROOT=/data/persian-corpus
 
-# 2. Validate every split, get a split-leakage report, and export portable JSONL
+# 2. Validate every split and get a split-leakage report (no export in check mode)
 python tools/prepare_dataset.py --config configs/dataset.yaml --check   --report reports/dataset.json
 
 # 3. Validate the training hyper-parameters and hand the trainer a plan
 python tools/train_plan.py --config configs/training.example.yaml --check --no-require-paths
+cp configs/training.example.yaml configs/training.yaml   # then set the manifest paths
 PVAI_CORPUS_ROOT=/data/persian-corpus python tools/train_plan.py   --config configs/training.yaml --write runs/whisper-small-fa/plan.json
 ```
 
@@ -605,12 +609,12 @@ See [`docs/DATASETS.md`](docs/DATASETS.md) for the manifest schema, split hygien
 
 ## Honest Status & Known Limitations
 
-- **Tests use fakes**: The `pytest` suite verifies orchestration, state transitions, cancellation, security, and docs consistency without real Whisper/Piper/Qwen weights or physical audio devices. Real model/device behavior is **NOT MEASURED** in the sandbox.
-- **Native AEC requires calibration**: SpeexDSP AEC has been verified on synthetic echo/double-talk signals (`57.8 dB` echo reduction in a synthetic test), not yet in real room acoustics. When using speakers without headphones, calibrate `PVAI_AEC_DELAY_MS` on target hardware.
+- **Hardware evidence is limited**: `pytest` does not establish real audio quality. Dated measurements on the development laptop and outstanding target-hardware tests are listed in [STATUS](docs/STATUS.md) and [Hardware Validation](docs/HARDWARE_VALIDATION.md).
+- **Native AEC requires calibration**: SpeexDSP AEC was measured on synthetic signals (`57.8 dB` synthetic echo reduction) and in a real-room test on this laptop (`6.82 dB` ERLE with a calibrated 340 ms delay; `0.01 dB` at the 40 ms default). These are MEASURED results for that laptop, audio backend, and setup—not evidence of general target-hardware performance. Human double-talk and ESP32 tests remain **NOT TESTED**. When using speakers without headphones, calibrate `PVAI_AEC_DELAY_MS` on the target setup.
 - **Incremental ASR**: Overlapping-window Whisper partial transcription (`PVAI_ASR_PARTIAL_WINDOW_S`) is an adapter over `faster-whisper`, not a natively streaming ASR model.
 - **ESP32-S3 firmware not yet implemented**: The server-side WebSocket transport (`WS /ws/voice`) is implemented and tested in-process with fakes, but ESP32-S3 firmware and live LAN tests have **not** been implemented or tested (`/api/protocol` reports `transport_implemented: true`, `firmware_implemented: false`).
-- **Local conversation memory**: History persists locally in `data/conversations/*.jsonl` with a bounded RAM window and 30-day default retention (`PVAI_HISTORY_RETENTION_DAYS`).
-- **Default execution is CPU**: Historical GPU notes on `MiniCPM` do not generalize to `Qwen3-4B`; real `Qwen3-4B` / Whisper / Piper target latencies remain **NOT MEASURED**.
+- **Local conversation memory**: By default, text history persists under `PVAI_DATA_DIR/conversations` with a bounded RAM window. See [Configuration](docs/CONFIGURATION.md) for resume and the 30-day retention policy.
+- **Default execution is CPU**: Qwen3.5-4B, Whisper and Piper have been measured separately on the development laptop; complete continuous-voice and barge-in latency remain **NOT MEASURED**. See [Benchmarks](docs/BENCHMARKS.md).
 
 ---
 
@@ -621,12 +625,15 @@ See [`docs/DATASETS.md`](docs/DATASETS.md) for the manifest schema, split hygien
 | [`docs/PROJECT_GUIDE.md`](docs/PROJECT_GUIDE.md) | Auto-generated single-file Persian guide (`python tools/build_docs.py`) |
 | [`AGENTS.md`](AGENTS.md) | Engineering rules, development contract, and module map |
 | [`docs/SPEC.md`](docs/SPEC.md) | System architecture, hardware target, and design decisions |
-| [`docs/STATUS.md`](docs/STATUS.md) | Implementation status & 20-requirement test traceability matrix |
+| [`docs/STATUS.md`](docs/STATUS.md) | Implementation status, evidence, and test traceability |
 | [`docs/PC_VOICE.md`](docs/PC_VOICE.md) | PC live voice installation, sensitivity tuning, and constraints |
+| [`docs/WEB_UI.md`](docs/WEB_UI.md) | Loopback-only browser test bench for ASR, LLM, and TTS |
 | [`docs/STREAMING_ARCHITECTURE.md`](docs/STREAMING_ARCHITECTURE.md) | Utterance/turn lifecycles, queues, state machine, and cancellation |
 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | Complete reference for all `PVAI_*` environment variables |
 | [`docs/AEC.md`](docs/AEC.md) | SpeexDSP native setup, delay calibration, and speaker/mic checklist |
 | [`docs/PROTOCOL.md`](docs/PROTOCOL.md) | ESP32-S3 WebSocket binary/JSON protocol & server transport |
+| [`docs/WSS_TLS.md`](docs/WSS_TLS.md) | Direct TLS and reverse proxy deployment for the main API |
+| [`docs/RAG.md`](docs/RAG.md) | Local knowledge retrieval in the main API |
 | [`docs/DATASETS.md`](docs/DATASETS.md) | Custom dataset contract and `tools/prepare_dataset.py` guide |
 | [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | Benchmarking methodology, sandbox results, and Persian WER/CER evaluation |
 | [`docs/HARDWARE_VALIDATION.md`](docs/HARDWARE_VALIDATION.md) | Real-hardware acceptance checklist |
@@ -643,6 +650,6 @@ This repository's code is licensed under **GPL-3.0-or-later** ([`LICENSE`](LICEN
 
 Model weights are not stored in this repository and retain their respective licenses:
 
-- **Qwen3-4B**: Apache-2.0
+- **Qwen GGUF**: Verify the licence and checksum for the exact release you use; see [THIRD_PARTY.md](THIRD_PARTY.md).
 - **Whisper `small` weights**: MIT
 - **Piper Persian voices**: Varies per voice file — always verify the accompanying `MODEL_CARD` / `LICENSE` before redistribution.

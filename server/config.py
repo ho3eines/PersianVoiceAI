@@ -6,11 +6,14 @@ code runs on a workstation, in tests, and later on a small local server.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+import math
 import os
 import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from urllib.parse import urlsplit
 
 logger = logging.getLogger("persian_voice_ai.config")
 
@@ -178,9 +181,9 @@ def _record(name: str, reason: str) -> None:
     logger.warning("configuration ignored for %s: %s", name, reason)
 
 
-def _env_str(name: str, default: str) -> str:
+def _env_str(name: str, default: str, *, allow_empty: bool = False) -> str:
     value = os.getenv(name)
-    return value.strip() if value and value.strip() else default
+    return value.strip() if value is not None and (allow_empty or value.strip()) else default
 
 
 def _env_choice(name: str, default: str, allowed: set[str]) -> str:
@@ -198,7 +201,10 @@ def _env_choice(name: str, default: str, allowed: set[str]) -> str:
 def _parse_number(name: str, raw: str, default: float | int, *, cast):
     """Shared numeric parsing: invalid values are rejected *loudly*."""
     try:
-        return cast(raw)
+        value = cast(raw)
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError
+        return value
     except ValueError:
         _record(name, f"{raw!r} is not a valid number; using the default {default!r}")
         return default
@@ -283,7 +289,35 @@ def is_loopback_host(host: str | None) -> bool:
     name = (host or "").strip().lower().strip("[]")
     if name in LOOPBACK_HOSTS:
         return True
-    return name.startswith("127.")
+    try:
+        return ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        return False
+
+
+_LAN_NETWORKS = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
+)
+
+
+def require_local_http_url(url: str, *, variable: str = "PVAI_LLAMA_SERVER_URL") -> str:
+    """Permit HTTP(S) to loopback or numeric private LAN addresses only."""
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname or ""
+        port = parsed.port
+        local = host == "localhost"
+        if host and not local:
+            address = ipaddress.ip_address(host)
+            local = address.is_loopback or any(address in network for network in _LAN_NETWORKS)
+        if (local and parsed.scheme in {"http", "https"}
+                and parsed.username is None and parsed.password is None
+                and port != 0 and not parsed.query and not parsed.fragment):
+            return url
+    except ValueError:
+        pass
+    raise ValueError(f"{variable}: فقط نشانی HTTP(S) محلی یا IP خصوصی شبکه مجاز است.")
 
 
 def parse_device_tokens(spec: str) -> dict[str, str]:
@@ -338,6 +372,9 @@ class Settings:
 
     model_path: str = DEFAULT_MODEL_PATH
     llama_server_url: str = DEFAULT_LLAMA_SERVER_URL
+    # Executable used when the management panel starts llama-server itself.
+    # A bare name is resolved through PATH; an absolute path wins over PATH.
+    llama_server_exe: str = "llama-server"
     n_ctx: int = 4096
     # These three are consumed by ``llama_server_command`` / ``tools/start_llama.ps1``
     # (-c, -t, -ngl).  They are *not* read by the HTTP client: llama-server picks
@@ -364,6 +401,7 @@ class Settings:
     asr_vad_filter: bool = False  # Whisper VAD is not our endpointing authority
     asr_language: str = "fa"  # or "auto": let Whisper decide per segment
     asr_initial_prompt: str = ""  # biases spelling/script; empty = none
+    asr_hotwords: str = ""  # comma-separated domain vocabulary; empty = disabled
     asr_no_speech_threshold: float = 0.6  # faster-whisper's default, made explicit
     asr_log_prob_threshold: float = -1.0  # mean logprob below this = unreliable
     asr_compression_ratio_threshold: float = 2.4  # repetition loops
@@ -451,8 +489,7 @@ class Settings:
     ws_enabled: bool = False  # opt-in: needs device token(s) and a trusted LAN
     ws_token: str = ""  # PVAI_WS_TOKEN; empty => every connection is refused
     # One token per device: ``PVAI_WS_TOKENS="esp32-a:tokenA,esp32-b:tokenB"``.
-    # When set it replaces the shared ``ws_token``, so revoking one device does
-    # not require reflashing every other device.
+    # Revoke individual devices without reflashing every other device.
     ws_tokens: str = ""
     ws_max_connections: int = 4  # concurrent device pipelines (each is a model)
     ws_heartbeat_s: float = 15.0  # server ping interval; 0 disables
@@ -478,6 +515,18 @@ class Settings:
     def device_tokens(self) -> dict[str, str]:
         """``{token: device_id}`` for per-device authentication (may be empty)."""
         return parse_device_tokens(self.ws_tokens)
+
+    def shared_device_token(self) -> str:
+        """A legacy shared credential is only valid with explicit opt-in."""
+        return self.ws_token if self.ws_allow_shared_tokens else ""
+
+    def api_bind_error(self) -> str | None:
+        if not is_loopback_host(self.api_host) and not self.api_token.strip():
+            return (
+                f"PVAI_HOST={self.api_host} (غیر loopback) بدون PVAI_API_TOKEN مجاز نیست؛ "
+                "توکن را تنظیم کنید یا روی 127.0.0.1 بمانید."
+            )
+        return None
 
     def _device_token_errors(self) -> list[tuple[str, str]]:
         """Token-list problems, reported without mutating the global issue log."""
@@ -509,6 +558,7 @@ class Settings:
         take effect instead of sitting unused in the dataclass while the README
         told the user to pass different flags by hand.
         """
+        require_local_http_url(self.llama_server_url)
         command = [
             executable,
             "-m",
@@ -571,13 +621,13 @@ class Settings:
         for name, file in (("PVAI_SSL_CERTFILE", self.ssl_certfile), ("PVAI_SSL_KEYFILE", self.ssl_keyfile)):
             if file and not Path(file).is_file():
                 errors.append(f"{name} یافت نشد: {file}")
-        api_token_present = bool(self.api_token)
-        if not is_loopback_host(self.api_host) and not api_token_present:
-            errors.append(
-                f"PVAI_HOST={self.api_host} (غیر loopback) بدون PVAI_API_TOKEN مجاز نیست؛ "
-                "REST بدون احراز هویت کل رونوشت مکالمه‌ها را افشا می‌کند. "
-                "PVAI_API_TOKEN را تنظیم کنید یا روی 127.0.0.1 بمانید."
-            )
+        bind_error = self.api_bind_error()
+        if bind_error:
+            errors.append(bind_error)
+        try:
+            require_local_http_url(self.llama_server_url)
+        except ValueError as exc:
+            errors.append(str(exc))
         if self.ws_enabled and not (self.ws_token or self.ws_tokens):
             errors.append(
                 "PVAI_WS_ENABLED=true بدون PVAI_WS_TOKEN/PVAI_WS_TOKENS مجاز نیست؛ "
@@ -654,6 +704,7 @@ class Settings:
         settings = cls(
             model_path=_env_str("PVAI_MODEL_PATH", DEFAULT_MODEL_PATH),
             llama_server_url=_env_str("PVAI_LLAMA_SERVER_URL", DEFAULT_LLAMA_SERVER_URL).rstrip("/"),
+            llama_server_exe=_env_str("PVAI_LLAMA_SERVER_EXE", "llama-server"),
             n_ctx=_env_int("PVAI_N_CTX", 4096, minimum=512, maximum=32768),
             n_threads=_env_int("PVAI_N_THREADS", 0, minimum=0, maximum=64),
             n_gpu_layers=_env_int("PVAI_N_GPU_LAYERS", 0, minimum=0, maximum=999),
@@ -671,8 +722,9 @@ class Settings:
             asr_threads=_env_int("PVAI_ASR_THREADS", 2, minimum=1, maximum=32),
             asr_beam_size=_env_int("PVAI_ASR_BEAM_SIZE", 1, minimum=1, maximum=5),
             asr_vad_filter=bool(_env_optional_bool("PVAI_ASR_VAD_FILTER", False)),
-            asr_language=_env_str("PVAI_ASR_LANGUAGE", "fa").strip().lower() or "auto",
+            asr_language=_env_str("PVAI_ASR_LANGUAGE", "fa", allow_empty=True).lower() or "auto",
             asr_initial_prompt=_env_str("PVAI_ASR_INITIAL_PROMPT", ""),
+            asr_hotwords=_env_str("PVAI_ASR_HOTWORDS", "", allow_empty=True),
             asr_no_speech_threshold=_env_float(
                 "PVAI_ASR_NO_SPEECH_THRESHOLD", 0.6, minimum=0.0, maximum=1.0
             ),
@@ -683,7 +735,7 @@ class Settings:
                 "PVAI_ASR_COMPRESSION_RATIO", 2.4, minimum=1.0, maximum=10.0
             ),
             asr_hallucination_phrases=_env_str(
-                "PVAI_ASR_HALLUCINATION_PHRASES", DEFAULT_HALLUCINATION_PHRASES
+                "PVAI_ASR_HALLUCINATION_PHRASES", DEFAULT_HALLUCINATION_PHRASES, allow_empty=True
             ),
             asr_max_no_speech_prob=_env_float(
                 "PVAI_ASR_MAX_NO_SPEECH_PROB", 0.75, minimum=0.0, maximum=1.0
@@ -796,7 +848,11 @@ def _print_launch(argv: list[str]) -> int:
             executable = argument
 
     settings = Settings.from_env()
-    command = settings.llama_server_command(executable)
+    try:
+        command = settings.llama_server_command(executable)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     if json_output:
         import json
 

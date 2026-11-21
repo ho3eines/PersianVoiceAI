@@ -13,7 +13,7 @@ from typing import Any, AsyncIterator, Mapping, Sequence
 
 import httpx
 
-from .config import Settings
+from .config import Settings, require_local_http_url
 
 
 class LlamaServerError(RuntimeError):
@@ -158,8 +158,10 @@ class LlamaServerClient:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._client = httpx.AsyncClient(
-            base_url=settings.llama_server_url,
+            base_url=require_local_http_url(settings.llama_server_url),
             timeout=httpx.Timeout(settings.request_timeout_s, connect=5.0),
+            trust_env=False,
+            follow_redirects=False,
         )
 
     async def aclose(self) -> None:
@@ -244,7 +246,7 @@ class LlamaServerClient:
         # Only user-facing content is returned, never reasoning.
         content = message.get("content") or ""
         return ChatResult(
-            content=str(content),
+            content=_strip_thinking_blocks(str(content)),
             model=str(data.get("model") or self.settings.model_path.split("\\")[-1].split("/")[-1]),
             finish_reason=str(choice.get("finish_reason") or "stop"),
             timings=timings,
@@ -306,7 +308,8 @@ class LlamaServerClient:
         )
         started = time.perf_counter()
         chunks: list[str] = []
-        final: dict[str, Any] = {}
+        final: dict[str, Any] | None = None
+        content_filter = _ThinkingFilter()
 
         try:
             async with self._client.stream("POST", "/v1/chat/completions", json=payload) as response:
@@ -331,7 +334,7 @@ class LlamaServerClient:
                     choice = (data.get("choices") or [{}])[0]
                     delta = choice.get("delta") or {}
                     # Only speak user-facing content, not reasoning deltas.
-                    piece = str(delta.get("content") or "")
+                    piece = content_filter.feed(str(delta.get("content") or ""))
                     if piece:
                         chunks.append(piece)
                         yield StreamDelta(piece)
@@ -347,6 +350,12 @@ class LlamaServerClient:
         except httpx.HTTPError as exc:
             raise LlamaServerUnavailable(f"خطای ارتباط با llama-server: {exc}") from exc
 
+        if final is None:
+            raise GenerationError("جریان پاسخ llama-server پیش از اعلام پایان قطع شد.")
+        tail = content_filter.finish()
+        if tail:
+            chunks.append(tail)
+            yield StreamDelta(tail)
         wall_ms = (time.perf_counter() - started) * 1000
         result = self._result(final, wall_ms)
         result.content = "".join(chunks)

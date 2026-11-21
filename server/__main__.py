@@ -9,6 +9,9 @@ from .config import Settings
 
 def main() -> None:
     settings = Settings.from_env()
+    bind_error = settings.api_bind_error()
+    if bind_error:
+        raise SystemExit(bind_error)
     uvicorn.run(
         "server.main:app",
         host=settings.api_host,

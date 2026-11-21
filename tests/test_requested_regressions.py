@@ -360,7 +360,7 @@ def test_cli_default_url_matches_configured_tls_and_port(monkeypatch):
 
 
 def test_ready_includes_real_thinking_probe_outcome():
-    from fastapi.testclient import TestClient
+    from voicekit import LocalTestClient as TestClient
     from test_api import FakeLLM
     class ProbeLlm(FakeLLM):
         async def probe_no_thinking(self):
@@ -380,7 +380,7 @@ def test_tls_config_rejects_one_sided_or_missing_key(tmp_path):
 
 
 def test_active_session_cannot_be_deleted_and_returns_conflict(tmp_path):
-    from fastapi.testclient import TestClient
+    from voicekit import LocalTestClient as TestClient
     from server.conversation import open_store
     from test_api import FakeLLM
     settings = Settings(data_dir=str(tmp_path), history_persist=True)

@@ -60,7 +60,7 @@ if str(ROOT) not in sys.path:
 
 import httpx  # noqa: E402
 
-from server.config import Settings  # noqa: E402
+from server.config import Settings, require_local_http_url  # noqa: E402
 from server.metrics import Metrics  # noqa: E402
 from server.resources import create_sampler, sample_process_usage  # noqa: E402
 from server.streaming_voice import Pipeline  # noqa: E402
@@ -371,7 +371,6 @@ def scenario_asr(report: Report, settings: Settings, seconds: float) -> None:
 
 def scenario_llm(report: Report, settings: Settings, seconds: float) -> None:
     """Real llama-server: TTFT and throughput on a short Persian prompt."""
-    base = settings.llama_server_url
     payload = {
         "messages": [
             {"role": "system", "content": settings.system_prompt},
@@ -385,6 +384,7 @@ def scenario_llm(report: Report, settings: Settings, seconds: float) -> None:
     first_token_at: float | None = None
     pieces = 0
     try:
+        base = require_local_http_url(settings.llama_server_url)
         with httpx.Client(base_url=base, timeout=settings.request_timeout_s, trust_env=False) as client:
             with client.stream("POST", "/v1/chat/completions", json=payload) as response:
                 response.raise_for_status()
@@ -405,9 +405,9 @@ def scenario_llm(report: Report, settings: Settings, seconds: float) -> None:
                         first_token_at = time.perf_counter()
                     if content:
                         pieces += 1
-    except (httpx.HTTPError, OSError) as exc:
+    except (httpx.HTTPError, OSError, ValueError) as exc:
         report.add("llm", "llm_ttft_ms", None, "ms", NOT_MEASURED,
-                   f"llama-server not reachable at {base}: {type(exc).__name__}")
+                   f"llama-server unavailable or not configured locally: {type(exc).__name__}")
         report.add("llm", "llm_tokens_per_second", None, "tok/s", NOT_MEASURED,
                    "start ./tools/start_server.ps1 and rerun")
         return
@@ -423,7 +423,7 @@ def scenario_llm(report: Report, settings: Settings, seconds: float) -> None:
 
 
 def scenario_tts(report: Report, settings: Settings, seconds: float) -> None:
-    """Real Piper: first chunk, first frame, played duration (discarded sink)."""
+    """Real Piper synthesis, timed with an output sink that discards the PCM."""
     from server.live_voice import Speaker
     from server.voice import VoiceError
 
@@ -459,9 +459,10 @@ def scenario_tts(report: Report, settings: Settings, seconds: float) -> None:
         report.add("tts", "tts_first_chunk_ms", None, "ms", NOT_MEASURED, "no audio chunk")
     if frames:
         report.add("tts", "tts_first_frame_ms", (frames[0] - started) * 1000, "ms", MEASURED,
-                   "device hand-off proxy; DAC latency is not measurable here")
+                   "first PCM block delivered to a discard sink, not to a speaker")
     if completed:
-        report.add("tts", "tts_played_ms", completed[-1], "ms", MEASURED)
+        report.add("tts", "tts_played_ms", completed[-1], "ms", MEASURED,
+                   "duration of PCM delivered to the discard sink; no physical playback")
         report.add("tts", "tts_total_ms", (time.perf_counter() - started) * 1000, "ms", MEASURED)
 
 
@@ -817,19 +818,20 @@ def _maybe_real_tts(settings: Settings, report: Report) -> tuple[str, str, Any]:
 
 def _maybe_real_llm(settings: Settings, report: Report) -> tuple[str, str, Any]:
     try:
+        base = require_local_http_url(settings.llama_server_url)
         with httpx.Client(
-            base_url=settings.llama_server_url, timeout=5.0, trust_env=False
+            base_url=base, timeout=5.0, trust_env=False
         ) as client:
             health = client.get("/health")
             health.raise_for_status()
-    except (httpx.HTTPError, OSError):
+    except (httpx.HTTPError, OSError, ValueError):
         return (
             SIMULATED,
-            f"simulated LLM (llama-server unreachable at {settings.llama_server_url})",
+            "simulated LLM (llama-server unreachable or not configured as a local endpoint)",
             lambda: simulated_client(SimulatedStream()),
         )
     return MEASURED, "", lambda: httpx.AsyncClient(
-        base_url=settings.llama_server_url,
+        base_url=base,
         timeout=settings.request_timeout_s,
         trust_env=False,
         follow_redirects=False,

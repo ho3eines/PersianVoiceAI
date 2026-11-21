@@ -104,6 +104,7 @@ METRIC_NAMES: tuple[str, ...] = (
     "ws_idle_timeouts",
     "ws_session_errors",
     "ws_voice_rejected",
+    "ws_critical_overflow_exhausted",
     # HTTP API (loopback client)
     "api_auth_failures",
     "api_rate_limited",

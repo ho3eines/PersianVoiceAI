@@ -235,6 +235,31 @@ def test_a_clean_environment_reports_nothing(monkeypatch: pytest.MonkeyPatch) ->
     assert Settings.from_env().env_issues == ()
 
 
+def test_nonfinite_interval_is_reported_and_empty_phrase_list_stays_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PVAI_VOICE_ASR_INTERVAL", "NaN")
+    monkeypatch.setenv("PVAI_ASR_HALLUCINATION_PHRASES", "")
+    settings = Settings.from_env()
+    assert settings.voice_asr_interval_s == Settings().voice_asr_interval_s
+    assert any(name == "PVAI_VOICE_ASR_INTERVAL" for name, _ in settings.env_issues)
+    assert settings.asr_hallucination_phrases == ""
+
+
+def test_blank_asr_language_uses_auto_but_unset_defaults_to_farsi(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("server.config.dotenv_candidates", lambda path=None: [tmp_path / ".env"])
+    assert Settings.from_env().asr_language == "fa"
+    (tmp_path / ".env").write_text("PVAI_ASR_LANGUAGE=\n", encoding="utf-8")
+    assert Settings.from_env().asr_language == "auto"
+
+
+def test_asr_hotwords_are_read_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PVAI_ASR_HOTWORDS", "رله, سنسور")
+    assert Settings.from_env().asr_hotwords == "رله, سنسور"
+
+
 def test_issues_do_not_accumulate_across_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PVAI_N_THREADS", "bad")
     first = Settings.from_env()
@@ -246,7 +271,7 @@ def test_issues_do_not_accumulate_across_calls(monkeypatch: pytest.MonkeyPatch) 
 
 def test_ready_endpoint_surfaces_rejected_values(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """/ready must show the problem instead of claiming a valid configuration."""
-    from fastapi.testclient import TestClient
+    from voicekit import LocalTestClient as TestClient
 
     from server.main import create_app
 
