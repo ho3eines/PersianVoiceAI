@@ -40,9 +40,8 @@
 
 No audio, transcript, or prompt is sent to any cloud API. Speech recognition (ASR), language model inference (LLM), text-to-speech (TTS), acoustic echo cancellation (AEC), and conversation persistence all run locally on your machine.
 
-> **مستندات یکپارچهٔ فارسی:** برای راهنمای کامل فارسی (راه‌اندازی، معماری، تنظیمات و وضعیت فعلی)،
-> **[راهنمای یکپارچهٔ کامل پروژه (`docs/PROJECT_GUIDE.md`)](PROJECT_GUIDE.md)** را بخوانید.
-> پس از ویرایش هر سند مرجع، دستور `python tools/build_docs.py` را برای به‌روزرسانی و `python tools/build_docs.py --check` را برای بررسی هم‌خوانی اجرا کنید.
+> **Persian project guide:** For a complete Persian walkthrough (setup, architecture, configuration, and current status), read the **[single-file project guide (`docs/PROJECT_GUIDE.md`)](PROJECT_GUIDE.md)**.
+> After editing any source document, run `python tools/build_docs.py` to regenerate it and `python tools/build_docs.py --check` to verify it is in sync.
 
 ---
 
@@ -371,8 +370,8 @@ python -m server.voice --turn-based
 python -m server.cli
 
 # Single-prompt one-shot inference
-./tools/chat.sh --once "سلام! خودت را در دو جمله معرفی کن."
-.\tools\chat.ps1 --once "سلام! خودت را در دو جمله معرفی کن."
+./tools/chat.sh --once "Hello! Introduce yourself in two sentences."
+.\tools\chat.ps1 --once "Hello! Introduce yourself in two sentences."
 ```
 
 #### Local Conversation Session CLI
@@ -443,7 +442,7 @@ async def stream_llm() -> None:
     llm = LlamaServerClient(settings)
     try:
         async for event in llm.stream_chat([
-            {"role": "user", "content": "سه نکته درباره یادگیری پایتون بگو."}
+            {"role": "user", "content": "Give me three tips for learning Python."}
         ]):
             if isinstance(event, StreamDelta):
                 print(event.content, end="", flush=True)
@@ -472,7 +471,7 @@ with httpx.Client(base_url=BASE_URL, headers=HEADERS, timeout=60.0) as client:
     # Simple session-aware endpoint
     r = client.post(
         "/api/chat",
-        json={"message": "سلام! وضعیت هوا چطوره؟", "session_id": "demo-session"},
+        json={"message": "Hello! How is the weather?", "session_id": "demo-session"},
     )
     r.raise_for_status()
     print("Reply:", r.json()["reply"])
@@ -481,7 +480,7 @@ with httpx.Client(base_url=BASE_URL, headers=HEADERS, timeout=60.0) as client:
     r2 = client.post(
         "/v1/chat/completions",
         json={
-            "messages": [{"role": "user", "content": "پایتخت ایران کجاست؟"}],
+            "messages": [{"role": "user", "content": "What is the capital of Iran?"}],
             "temperature": 0.7,
             "max_tokens": 128,
             "stream": False,
