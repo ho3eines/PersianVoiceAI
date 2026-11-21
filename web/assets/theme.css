@@ -232,6 +232,11 @@ textarea { min-height: 74px; resize: vertical; }
 }
 @keyframes pulse { 50% { box-shadow: 0 0 0 20px rgba(224, 87, 79, .06); } }
 
+.btn.recording {
+  background: #fdecea; border-color: var(--red); color: var(--red);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
 .stage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
 .stage {
   border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 13px 14px; background: var(--surface2);

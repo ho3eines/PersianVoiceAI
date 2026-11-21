@@ -284,8 +284,22 @@
     return btoa(binary);
   }
 
+  function setRecordingUI(active, mode) {
+    const chatMic = $("mic");
+    const debugBtn = $("micDebug");
+    if (mode === "debug") {
+      debugBtn.classList.toggle("recording", active);
+      debugBtn.textContent = active ? "⏹ توقف ضبط" : "🎤 ضبط آزمایشی";
+      chatMic.classList.remove("recording");
+    } else {
+      chatMic.classList.toggle("recording", active);
+    }
+  }
+
   async function startRecording(mode) {
-    if (state.busy || !state.asrReady || state.stream) return;
+    if (state.stream) return;
+    if (state.busy) { notify("در حال پردازش پاسخ قبلی است؛ کمی صبر کنید.", "warn"); return; }
+    if (!state.asrReady) { notify("ASR هنوز آماده نیست؛ چند لحظه صبر کنید.", "warn"); return; }
     state.captureMode = mode;
     try {
       state.stream = await navigator.mediaDevices.getUserMedia({
@@ -305,27 +319,34 @@
     state.processor.onaudioprocess = (event) => state.chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
     source.connect(state.processor);
     state.processor.connect(state.audioCtx.destination);
-    $("mic").classList.add("recording");
+    setRecordingUI(true, mode);
     setBadge("stageCaptureBadge", "در حال ضبط", "warn");
+    log("ok", mode === "debug" ? "ضبط آزمایشی شروع شد." : "ضبط شروع شد.");
     const started = performance.now();
     state.timer = setInterval(() => {
-      $("recTimer").textContent = ((performance.now() - started) / 1000).toFixed(1) + "s";
+      const secs = ((performance.now() - started) / 1000).toFixed(1) + "s";
+      $("recTimer").textContent = secs;
+      if (mode === "debug") $("micDebug").textContent = `⏹ توقف ضبط (${secs})`;
     }, 100);
   }
 
   async function stopRecording() {
     if (!state.stream) return;
+    const mode = state.captureMode;
     clearInterval(state.timer);
     state.processor?.disconnect();
+    state.processor = null;
     state.stream.getTracks().forEach((track) => track.stop());
     await state.audioCtx?.close();
+    state.audioCtx = null;
     state.stream = null;
-    $("mic").classList.remove("recording");
+    setRecordingUI(false, mode);
     $("recTimer").textContent = "۰٫۰s";
     const total = state.chunks.reduce((sum, part) => sum + part.length, 0);
     if (total < 1600) {
       setBadge("stageCaptureBadge", "خیلی کوتاه", "warn");
       notify("ضبط خیلی کوتاه بود؛ دوباره و کمی طولانی‌تر بگویید.", "warn");
+      state.chunks = [];
       return;
     }
     const joined = new Float32Array(total);
@@ -333,7 +354,7 @@
     for (const part of state.chunks) { joined.set(part, offset); offset += part.length; }
     const pcmB64 = toBase64Pcm16(await resampleTo16k(joined, state.rate));
     state.chunks = [];
-    await transcribe(pcmB64, false, state.captureMode);
+    await transcribe(pcmB64, false, mode);
   }
 
   async function transcribe(pcmB64, useLast, mode = "chat") {
@@ -386,6 +407,29 @@
     if (prompt) payload.initial_prompt = prompt;
     return payload;
   }
+
+  // ASR options are remembered across reloads so they never have to be re-entered.
+  const ASR_STORE = "pvai.asr.settings";
+  function loadAsrSettings() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(ASR_STORE) || "{}");
+      if (saved.beam) $("beam").value = String(saved.beam);
+      if (saved.lang) $("lang").value = saved.lang;
+      if (typeof saved.prompt === "string") $("prompt").value = saved.prompt;
+    } catch { /* ignore corrupt storage */ }
+  }
+  function saveAsrSettings() {
+    try {
+      localStorage.setItem(ASR_STORE, JSON.stringify({
+        beam: $("beam").value, lang: $("lang").value, prompt: $("prompt").value,
+      }));
+    } catch { /* storage may be unavailable */ }
+  }
+  ["beam", "lang", "prompt"].forEach((id) => {
+    $(id).addEventListener("change", saveAsrSettings);
+    $(id).addEventListener("input", saveAsrSettings);
+  });
+  loadAsrSettings();
 
   // mic interactions: hold-to-talk on the chat mic, click-to-toggle in debug
   const mic = $("mic");
