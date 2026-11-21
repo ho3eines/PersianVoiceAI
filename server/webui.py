@@ -39,6 +39,13 @@ from .conversation import create_conversation
 from .live_voice import Speaker
 from .llm import LlamaServerClient, LlamaServerError, StreamDelta, StreamDone
 from .manage_api import install_management
+from .manage_models import (
+    CATALOG,
+    _activation_value,
+    _active_id,
+    installed_models,
+)
+from .manage_common import persist_env_updates
 from .voice import LocalAudio, VoiceError
 
 logger = logging.getLogger("persian_voice_ai.webui")
@@ -71,6 +78,10 @@ class ChatRequest(BaseModel):
 
 class TtsRequest(BaseModel):
     text: str
+
+
+class VoiceSelectRequest(BaseModel):
+    id: str
 
 
 def pcm_stats(pcm: bytes, sample_rate: int = 16000) -> dict[str, float]:
@@ -135,10 +146,16 @@ class WebUIState:
         asr: Any = None,
         speaker: Any = None,
         client: Any = None,
+        speaker_factory: Callable[[Settings], Any] | None = None,
+        models_dir: Path | None = None,
+        env_path: Path | None = None,
     ) -> None:
         self.settings = settings
         self.asr = asr
         self.speaker = speaker
+        self.speaker_factory = speaker_factory or Speaker
+        self.models_dir = models_dir or (Path(__file__).resolve().parents[1] / "models")
+        self.env_path = env_path or (Path(__file__).resolve().parents[1] / ".env")
         self.client = client if client is not None else LlamaServerClient(settings)
         # One persistent conversation per bench: every message is appended to the
         # local JSONL store (PVAI_HISTORY_PERSIST) and reloaded on restart, so the
@@ -291,6 +308,79 @@ class WebUIState:
             await asyncio.gather(task, return_exceptions=True)
             raise
 
+    def voices(self) -> dict[str, Any]:
+        """Installed Piper voices plus the one the bench is currently using."""
+        installed = installed_models(self.models_dir, "tts")
+        active = _active_id("tts", self.settings, self.models_dir)
+        labels: dict[str, str] = {}
+        for entry in CATALOG:
+            if entry.kind != "tts":
+                continue
+            for file in entry.files:
+                labels[Path(file.name).stem] = entry.label_fa
+            for alias in entry.aliases:
+                labels[alias] = entry.label_fa
+        voices = [
+            {
+                "id": item["id"],
+                "name": item["name"],
+                "path": item["path"],
+                "valid": item["valid"],
+                "active": item["id"] == active,
+                "label_fa": labels.get(item["id"], item["id"]),
+            }
+            for item in installed
+        ]
+        return {"active_id": active, "voices": voices}
+
+    async def select_voice(self, model_id: str) -> dict[str, Any]:
+        """Persist the chosen voice and hot-swap the running Piper model.
+
+        The bench owns its own ``Speaker``; rewriting ``.env`` alone would only
+        take effect after a restart.  Building the replacement first keeps the
+        old voice usable when the new file is broken.
+        """
+        installed = installed_models(self.models_dir, "tts")
+        item = next((entry for entry in installed if entry["id"] == model_id), None)
+        if item is None:
+            raise HTTPException(status_code=404, detail="این صدا نصب نشده است.")
+        if not item["valid"]:
+            raise HTTPException(status_code=409, detail="فایل تنظیمات این صدا کامل نیست.")
+        value = _activation_value("tts", Path(item["path"]), self.models_dir)
+        updates = {"PVAI_TTS_MODEL_PATH": value}
+        if (self.settings.tts_voice or "").strip().lower() == "male":
+            updates["PVAI_TTS_MODEL_MALE"] = ""
+        else:
+            updates["PVAI_TTS_MODEL_FEMALE"] = ""
+        try:
+            persist_env_updates(self.env_path, updates)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        new_settings = dataclasses.replace(
+            self.settings,
+            tts_model_path=value,
+            tts_model_male="" if "PVAI_TTS_MODEL_MALE" in updates else self.settings.tts_model_male,
+            tts_model_female="" if "PVAI_TTS_MODEL_FEMALE" in updates else self.settings.tts_model_female,
+        )
+        try:
+            replacement = await asyncio.to_thread(self.speaker_factory, new_settings)
+        except Exception as exc:  # noqa: BLE001 - reported to the page
+            raise HTTPException(status_code=500, detail=f"بارگذاری صدای جدید ناموفق بود: {exc}") from exc
+        previous = self.speaker
+        self.speaker = replacement
+        self.settings = new_settings
+        self.status["tts"] = "ready"
+        closer = getattr(previous, "close", None)
+        if callable(closer):
+            try:
+                await asyncio.to_thread(closer)
+            except Exception:  # noqa: BLE001 - teardown must not fail
+                pass
+        return {"active_id": model_id, "path": value, "label_fa": next(
+            (voice["label_fa"] for voice in self.voices()["voices"] if voice["id"] == model_id),
+            model_id,
+        )}
+
     async def transcribe_recording(
         self, pcm: bytes, sample_rate: int, overrides: dict[str, Any] | None = None,
     ) -> str:
@@ -328,6 +418,9 @@ def create_app(
     asr: Any = None,
     speaker: Any = None,
     client: Any = None,
+    speaker_factory: Callable[[Settings], Any] | None = None,
+    models_dir: Path | None = None,
+    env_path: Path | None = None,
     preload: bool = True,
     panel_host: str = "127.0.0.1",
     panel_port: int = 8100,
@@ -350,8 +443,23 @@ def create_app(
 
     app = FastAPI(title="Persian Voice AI — Test Bench", lifespan=lifespan)
     app.state.started_at = time.time()
-    app.state.webui = WebUIState(resolved, asr=asr, speaker=speaker, client=client)
-    panel_manager = install_management(app, resolved, host=panel_host, port=panel_port)
+    app.state.webui = WebUIState(
+        resolved,
+        asr=asr,
+        speaker=speaker,
+        client=client,
+        speaker_factory=speaker_factory,
+        models_dir=models_dir,
+        env_path=env_path,
+    )
+    panel_manager = install_management(
+        app,
+        resolved,
+        env_path=env_path,
+        models_dir=models_dir,
+        host=panel_host,
+        port=panel_port,
+    )
 
     @app.middleware("http")
     async def restrict_to_loopback(request: Request, call_next: Callable[..., Any]) -> Response:
@@ -533,7 +641,7 @@ def create_app(
                 "beam_size": resolved.asr_beam_size,
                 "language": resolved.asr_language,
             },
-            "tts": {"status": state.status["tts"], "model": str(resolved.tts_model_path)},
+            "tts": {"status": state.status["tts"], "model": str(state.settings.tts_model_path)},
             "llm": backend,
             "conversation": {
                 "messages": len(state.conversation.messages),
@@ -566,6 +674,19 @@ def create_app(
             "tts_wav_b64": base64.b64encode(wav_bytes(pcm, rate)).decode("ascii") if pcm else "",
             "timings": {"tts_ms": round((time.perf_counter() - started) * 1000, 1)},
         }
+
+    @app.get("/api/voices")
+    async def voices() -> dict[str, Any]:
+        """Piper voices installed under ``models/`` and the active one."""
+        state: WebUIState = app.state.webui
+        return state.voices()
+
+    @app.post("/api/voices/select")
+    async def select_voice(payload: VoiceSelectRequest) -> dict[str, Any]:
+        """Switch the bench voice now; the choice is also saved to ``.env``."""
+        state: WebUIState = app.state.webui
+        async with state.turn_lock:
+            return await state.select_voice(payload.id.strip())
 
     @app.post("/api/turn")
     async def turn(payload: TurnRequest) -> dict[str, Any]:

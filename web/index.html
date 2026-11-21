@@ -44,6 +44,7 @@
       </div>
       <div class="top-actions">
         <span class="connection"><span class="dot" id="connDot"></span><span id="connText">در حال اتصال…</span></span>
+        <select class="voice-select" id="voiceSelect" aria-label="صدای پاسخ" title="صدای پاسخ"></select>
         <span class="badge" id="chipAsr">ASR: …</span>
         <span class="badge" id="chipTts">TTS: …</span>
         <span class="badge" id="chipMsgs">پیام‌ها: ۰</span>
@@ -156,6 +157,16 @@
           <button class="btn ghost small" id="resetBtn">گفتگوی تازه</button>
         </div>
         <div class="muted mono" id="ttsMeta" style="font-size:.75rem;margin-top:6px"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div><h2>مدیریت صداها</h2>
+          <p>صدای نصب‌شده را انتخاب کنید یا صدای فارسی تازه دانلود کنید.</p></div>
+          <button class="btn ghost small" id="refreshVoices">↻ بازخوانی</button></div>
+        <label class="field"><span>صدای فعال</span><select id="voiceSelectDebug"></select></label>
+        <div class="voice-list" id="voiceList"><div class="placeholder">در حال خواندن صداها…</div></div>
+        <div class="progress hidden" id="voiceProgressWrap"><i id="voiceProgress"></i></div>
+        <p class="muted" id="voiceNotice" style="font-size:.8rem;margin-top:8px;min-height:20px"></p>
       </div>
 
       <div class="card">

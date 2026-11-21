@@ -43,6 +43,7 @@
 | تنظیمات ASR | `beam_size`، `language`، `initial_prompt` (در `localStorage` ذخیره و پس از reload بازیابی می‌شوند) و رونویسی دوبارهٔ **همان** ضبط (`use_last: true`) |
 | مدل | `POST /api/chat` بدون صدا، برای مقایسه با مسیر استریم |
 | صدا | `POST /api/tts` بدون مدل |
+| مدیریت صداها | فهرست صداهای نصب‌شده، انتخاب صدا با اعمال فوری (hot-swap) و دانلود صداهای کاتالوگ با نوار پیشرفت |
 | تشخیص سیستم | `GET /api/diagnostics`: نسخهٔ پایتون، وضعیت ASR/TTS، سلامت llama، حافظهٔ مکالمه، آخرین ضبط |
 | گزارش رویدادها | هر درخواست با زمان و نتیجه، به ترتیب (قابل پاک‌کردن) |
 
@@ -69,6 +70,8 @@
 | `POST` | `/api/chat` | `{"text": "..."}` | `reply`, `timings` |
 | `POST` | `/api/chat/stream` | `{"text": "..."}` | SSE: `delta` / `done` / `error` و پایان با `[DONE]` |
 | `POST` | `/api/tts` | `{"text": "..."}` | `tts_wav_b64`, `timings.tts_ms` |
+| `GET` | `/api/voices` | — | صداهای Piper نصب‌شده و شناسهٔ صدای فعال |
+| `POST` | `/api/voices/select` | `{"id": "fa_IR-amir-medium"}` | فعال‌سازی فوری صدا و ذخیرهٔ `PVAI_TTS_MODEL_PATH` در `.env` |
 | `POST` | `/api/turn` | `{"text": "..."}` یا `{"pcm_b64": "...", "sample_rate": 16000}` | `transcript`, `reply`, `tts_wav_b64`, `timings` |
 | `POST` | `/api/reset` | — | `{"status": "ok"}` |
 | `GET` | `/api/history` | — | پیام‌های پنجرهٔ فعلی |
@@ -86,4 +89,6 @@
 - **«گفتگوی تازه» فقط پنجرهٔ RAM را خالی می‌کند**؛ فایل JSONL و آخرین ضبط دست‌نخورده می‌مانند.
 - `last_pcm` فقط در RAM می‌ماند و با هر ضبط جدید جایگزین می‌شود.
 - تنظیمات ASR در `localStorage` مرورگر (`pvai.asr.settings`) نگه داشته می‌شوند؛ سمت سرور ذخیره نمی‌شوند و فقط همان مرورگر/پروفایل آن‌ها را می‌بیند.
+- انتخاب صدا در `.env` ذخیره می‌شود و همان لحظه در میز آزمایش اعمال می‌شود؛ دانلود صدا از کاتالوگ همان مسیر `/api/manage/models/download` پنل را به کار می‌برد و SHA-256 را بررسی می‌کند.
+- کاتالوگ چهار صدای زنانهٔ فارسی دارد: `mana-female` (MIT)، `mantatts-female` (Apache-2.0)، `haaniye-female` (CC-0) و `magnoliasis-female` (مجوز نامشخص، فقط شخصی/آزمایشی). صدای هانیه فایل تنظیمات Piper سازگار ندارد؛ سرور هنگام دانلود، `configs/voices/fa_IR-haaniye-medium.onnx.json` را کنار وزن می‌نویسد.
 - در استریم، متن فقط از `delta.content` نمایش داده می‌شود؛ `reasoning_content` هرگز به کاربر نمی‌رسد.

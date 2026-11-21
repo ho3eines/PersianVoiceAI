@@ -6,11 +6,20 @@ active model, and validate a download request before any network work starts.
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from managekit import build_app, install_asr_model, local_client, make_settings
 from server.config import PROJECT_ROOT
-from server.manage_models import CATALOG, _activation_value
+from server.manage_models import (
+    CATALOG,
+    CatalogFile,
+    Job,
+    _activation_value,
+    _download_file,
+    _run_job,
+    catalog_installed,
+)
 
 
 def test_models_kind_is_validated(tmp_path: Path) -> None:
@@ -271,3 +280,89 @@ def test_catalog_entries_carry_sha256_for_weights() -> None:
     turbo = next(entry for entry in CATALOG if entry.id == "whisper-large-v3-turbo")
     weight = next(file for file in turbo.files if file.name == "model.bin")
     assert isinstance(weight.sha256, str) and len(weight.sha256) == 64
+
+
+def test_catalog_recognises_a_downloaded_voice_by_its_file_name() -> None:
+    """The installed id is the file stem, not the shorter catalog id."""
+    amir = next(entry for entry in CATALOG if entry.id == "amir")
+    installed = [{"id": "fa_IR-amir-medium", "name": "fa_IR-amir-medium.onnx"}]
+    assert catalog_installed(amir, installed) is True
+
+    ganji = next(entry for entry in CATALOG if entry.id == "ganji-adabi")
+    assert catalog_installed(ganji, [{"id": "fa_IR", "name": "fa_IR.onnx"}]) is True
+
+
+def test_catalog_offers_a_licensed_female_persian_voice() -> None:
+    """The default voices are male; a Persian female option must stay in the catalog."""
+    mana = next(entry for entry in CATALOG if entry.id == "mana-female")
+    assert mana.kind == "tts"
+    assert "زنانه" in mana.needs
+    assert mana.source == "MahtaFetrat/Mana-Persian-Piper"
+    for file in mana.files:
+        assert file.sha256 and len(file.sha256) == 64
+        assert file.size and file.size > 0
+
+    female_ids = {entry.id for entry in CATALOG if entry.kind == "tts" and "زنانه" in entry.needs}
+    assert {
+        "mana-female",
+        "magnoliasis-female",
+        "mantatts-female",
+        "haaniye-female",
+    } <= female_ids
+
+    haaniye = next(entry for entry in CATALOG if entry.id == "haaniye-female")
+    assert haaniye.config_file == "configs/voices/fa_IR-haaniye-medium.onnx.json"
+    assert (PROJECT_ROOT / haaniye.config_file).is_file()
+
+
+def test_download_creates_the_destination_folder(tmp_path: Path, monkeypatch) -> None:
+    """A first download into ``models/<new-id>/`` must not fail on a missing dir."""
+    payload = b"onnx-voice"
+
+    class Response:
+        status = 200
+        headers = {"Content-Length": str(len(payload))}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _size: int) -> bytes:
+            nonlocal payload
+            block, payload = payload, b""
+            return block
+
+    class Opener:
+        def open(self, _request, timeout: float = 0):
+            return Response()
+
+    monkeypatch.setattr("server.manage_models.urllib.request.build_opener", lambda *a: Opener())
+    file = CatalogFile(
+        name="voice.onnx",
+        url="https://example.invalid/voice.onnx",
+        sha256=hashlib.sha256(b"onnx-voice").hexdigest(),
+        size=len(b"onnx-voice"),
+    )
+    destination = tmp_path / "models" / "new-voice"
+    job = Job(id="job", kind="tts", name="new-voice", total=file.size or 0, destination=destination)
+    _download_file(file, destination / file.name, job)
+    assert (destination / "voice.onnx").read_bytes() == b"onnx-voice"
+
+
+def test_run_job_writes_shipped_piper_config(tmp_path: Path, monkeypatch) -> None:
+    """A voice whose upstream config is not Piper-compatible gets ours written."""
+    def fake_download(file, destination, job):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"onnx")
+
+    monkeypatch.setattr("server.manage_models._download_file", fake_download)
+    destination = tmp_path / "models" / "haaniye-female"
+    file = CatalogFile(name="fa_IR-haaniye-medium.onnx", url="https://example.invalid/v.onnx")
+    job = Job(id="job", kind="tts", name="haaniye-female", total=0, destination=destination)
+    _run_job(job, [file], destination, "configs/voices/fa_IR-haaniye-medium.onnx.json")
+    assert job.state == "done"
+    config = destination / "fa_IR-haaniye-medium.onnx.json"
+    assert config.is_file()
+    assert '"num_symbols": 37' in config.read_text(encoding="utf-8")

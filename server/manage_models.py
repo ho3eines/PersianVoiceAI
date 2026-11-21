@@ -76,6 +76,14 @@ class CatalogModel:
     needs: str = ""
     source: str = ""
     installed_by_default: bool = False
+    aliases: tuple[str, ...] = ()
+    config_file: str | None = None
+    """Repo-relative Piper config to write next to the ``.onnx`` after download.
+
+    Some upstream repositories publish a VITS training config instead of the
+    Piper ``.onnx.json``.  When set, this file is copied to
+    ``<onnx>.json`` in the destination folder so the voice can be activated.
+    """
 
 
 def _mirror(
@@ -105,6 +113,9 @@ _QWEN35 = "unsloth/Qwen3.5-4B-GGUF"
 _QWEN3 = "Qwen/Qwen3-4B-GGUF"
 _QWEN3_TINY = "Qwen/Qwen3-0.6B-GGUF"
 _PIPER = "rhasspy/piper-voices"
+_MANA = "MahtaFetrat/Mana-Persian-Piper"
+_MANTATTS = "kiarashQ/fa-ir-tts-piper-ar-mantatts-v1"
+_HAANIYE = "csukuangfj/vits-piper-fa-haaniye_low"
 
 CATALOG: tuple[CatalogModel, ...] = (
     CatalogModel(
@@ -215,6 +226,7 @@ CATALOG: tuple[CatalogModel, ...] = (
         needs="همان صدای پیش‌فرض پروژه (models/piper/fa_IR.onnx)؛ برای فعال‌سازی فایل onnx انتخاب می‌شود.",
         source=_PIPER,
         installed_by_default=True,
+        aliases=("fa_IR",),
         files=(
             _mirror(
                 _PIPER,
@@ -277,6 +289,96 @@ CATALOG: tuple[CatalogModel, ...] = (
                 filename="fa_IR-gyro-medium.onnx.json",
                 sha256="4cd0ca01824b460f490224e284f9b68ecf07f91f3c654ba3bce59d4eb7646082",
                 size=7210,
+            ),
+        ),
+    ),
+    CatalogModel(
+        id="mana-female",
+        kind="tts",
+        label_fa="صدای خانم فارسی — مانا (ایران، MIT)",
+        approx_size="۶۱ مگابایت",
+        needs="زنانه، فارسی ایران (Mana-TTS)، مجوز MIT؛ برای پاسخ‌های طبیعی‌تر پیشنهاد می‌شود.",
+        source=_MANA,
+        files=(
+            _mirror(
+                _MANA,
+                "fa_IR-mana-medium.onnx",
+                filename="fa_IR-mana-medium.onnx",
+                sha256="e390c0e74ba71fd97c49ba662ee0c6e1724b462ba2d4561698af4f564840f126",
+                size=63531379,
+            ),
+            _mirror(
+                _MANA,
+                "fa_IR-mana-medium.onnx.json",
+                filename="fa_IR-mana-medium.onnx.json",
+                sha256="d102276a05436613a05e1fbad8f125abcf8f56759aaf4fd36adf216653949997",
+                size=7088,
+            ),
+        ),
+    ),
+    CatalogModel(
+        id="magnoliasis-female",
+        kind="tts",
+        label_fa="صدای خانم فارسی — مگنولیا (مجوز نامشخص)",
+        approx_size="۶۱ مگابایت",
+        needs="زنانه، فارسی ایران؛ مجوز دیتاست نامشخص است و فقط برای استفادهٔ شخصی/آزمایشی پیشنهاد می‌شود.",
+        source=_PIPER,
+        files=(
+            _mirror(
+                _PIPER,
+                "fa/fa_IR/magnoliasis/medium/fa_IR-magnoliasis-medium.onnx",
+                filename="fa_IR-magnoliasis-medium.onnx",
+                sha256="856025b3c16402e035daae3cd2a82ce36ad9c80f8a8f3d90fd101c6b6622cdec",
+                size=63221984,
+            ),
+            _mirror(
+                _PIPER,
+                "fa/fa_IR/magnoliasis/medium/fa_IR-magnoliasis-medium.onnx.json",
+                filename="fa_IR-magnoliasis-medium.onnx.json",
+                sha256="d0590f5e99b982dedd1c3c9fb6f68224651feea7a7b735612ff383ecd8f3f897",
+                size=6070,
+            ),
+        ),
+    ),
+    CatalogModel(
+        id="mantatts-female",
+        kind="tts",
+        label_fa="صدای خانم فارسی — مانتاتس (ایران، Apache-2.0)",
+        approx_size="۲۵۳ مگابایت",
+        needs="زنانه، فارسی ایران (ManaTTS)، Apache-2.0؛ مدل بزرگ‌تر است و بارگذاری اولیهٔ آن بیشتر طول می‌کشد.",
+        source=_MANTATTS,
+        files=(
+            _mirror(
+                _MANTATTS,
+                "fa_IR-mantatts-par.onnx",
+                filename="fa_IR-mantatts-par.onnx",
+                sha256="01e1749b6238de526a67cfd0b08af2a6131aff8eec831a14795344d8fbaf8df1",
+                size=253646036,
+            ),
+            _mirror(
+                _MANTATTS,
+                "fa_IR-mantatts-par.onnx.json",
+                filename="fa_IR-mantatts-par.onnx.json",
+                sha256="87da9927492a12b91a28736415b3e8c592ef718e80cd7a2f3a8db411532814d6",
+                size=10479299,
+            ),
+        ),
+    ),
+    CatalogModel(
+        id="haaniye-female",
+        kind="tts",
+        label_fa="صدای خانم فارسی — هانیه (CC-0)",
+        approx_size="۶۰ مگابایت",
+        needs="زنانه، فارسی ایران (Haaniye، تبدیل‌شده از Mycroft mimic3)، CC-0؛ سبک و سریع برای CPU.",
+        source=_HAANIYE,
+        config_file="configs/voices/fa_IR-haaniye-medium.onnx.json",
+        files=(
+            _mirror(
+                _HAANIYE,
+                "fa-haaniye_low.onnx",
+                filename="fa_IR-haaniye-medium.onnx",
+                sha256="9551ec8d28eac19ca93eff73edc53f53b7cb9d55353f937f38aab1635a3e16a8",
+                size=62783895,
             ),
         ),
     ),
@@ -353,6 +455,7 @@ def _download_file(
     chunk: int = 1 << 20,
 ) -> None:
     """Fetch one file to ``destination``; verify SHA-256 when the catalog pins it."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(destination.suffix + ".part")
     opener = urllib.request.build_opener(_SafeRedirect)
     request = urllib.request.Request(
@@ -386,17 +489,31 @@ def _download_file(
     if file.size and written != file.size:
         temporary.unlink(missing_ok=True)
         raise OSError("فایل ناقص دریافت شد.")
-    destination.parent.mkdir(parents=True, exist_ok=True)
     temporary.replace(destination)
 
 
-def _run_job(job: Job, files: list[CatalogFile], destination: Path) -> None:
+def _run_job(
+    job: Job,
+    files: list[CatalogFile],
+    destination: Path,
+    config_file: str | None = None,
+) -> None:
     try:
         for file in files:
             if job._cancel.is_set():
                 job.state = "cancelled"
                 return
             _download_file(file, destination / file.name, job)
+        if config_file:
+            onnx = next(
+                (file.name for file in files if file.name.lower().endswith(".onnx")),
+                None,
+            )
+            if onnx:
+                source = PROJECT_ROOT / config_file
+                (destination / f"{onnx}.json").write_text(
+                    source.read_text(encoding="utf-8"), encoding="utf-8"
+                )
         job.state = "done"
     except Exception as exc:  # noqa: BLE001 - reported through the job record
         job.state = "failed"
@@ -448,6 +565,29 @@ def _index_models(models_dir: Path) -> dict[str, list[dict[str, Any]]]:
                 "valid": config.is_file(),
             })
     return found
+
+
+def installed_models(models_dir: Path, kind: str) -> list[dict[str, Any]]:
+    """Public view of the installed models for one kind."""
+    return _index_models(models_dir)[kind]
+
+
+def catalog_installed(entry: CatalogModel, installed: list[dict[str, Any]]) -> bool:
+    """Whether a catalog entry is already on disk.
+
+    A downloaded voice keeps the publisher's file name, so the installed id is
+    the file stem (``fa_IR-amir-medium``) rather than the catalog id (``amir``).
+    The default Persian voice is stored under a shorter name (``fa_IR``), which
+    is why entries may also declare explicit aliases.
+    """
+    names = {file.name for file in entry.files}
+    stems = {Path(file.name).stem for file in entry.files}
+    for item in installed:
+        if item["id"] in (entry.id, *entry.aliases):
+            return True
+        if item.get("name") in names or item["id"] in stems:
+            return True
+    return False
 
 
 def _active_id(kind: str, settings: Settings, models_dir: Path) -> str:
@@ -540,13 +680,10 @@ def build_router(
                 else ("فایل‌های مدل کامل‌اند." if item["valid"] else "فایل‌های مدل ناقص است.")
             )
         catalog = [
-            _catalog_entry(entry, entry.id in installed_ids or (entry.installed_by_default and entry.id in installed_ids))
+            _catalog_entry(entry, catalog_installed(entry, installed))
             for entry in CATALOG
             if entry.kind == kind
         ]
-        for entry in catalog:
-            if entry["id"] in installed_ids:
-                entry["installed"] = True
         return {
             "kind": kind,
             "models_dir": str(models_dir),
@@ -574,6 +711,7 @@ def build_router(
             name = entry.id
             files = list(entry.files)
             total = sum(file.size or 0 for file in files)
+            config_file = entry.config_file
         else:
             name = (payload.name or "").strip()
             if not _SAFE_NAME.fullmatch(name):
@@ -591,6 +729,7 @@ def build_router(
                     raise HTTPException(status_code=422, detail=f"نام فایل نامعتبر است: {file_name}")
                 files.append(CatalogFile(name=file_name, url=url, sha256=item.get("sha256") or None))
             total = 0
+            config_file = None
         destination = (models_dir / name).resolve()
         try:
             destination.relative_to(models_dir.resolve())
@@ -603,7 +742,9 @@ def build_router(
             )
         job = Job(id=uuid.uuid4().hex[:12], kind=payload.kind, name=name, total=total, destination=destination)
         registry.add(job)
-        thread = threading.Thread(target=_run_job, args=(job, files, destination), daemon=True)
+        thread = threading.Thread(
+            target=_run_job, args=(job, files, destination, config_file), daemon=True
+        )
         thread.start()
         return {"job_id": job.id, "name": name, "files": [file.name for file in files]}
 

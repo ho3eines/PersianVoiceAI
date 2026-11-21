@@ -1533,6 +1533,7 @@ Linux ممکن است PortAudio سیستمی لازم داشته باشد.
 | تنظیمات ASR | `beam_size`، `language`، `initial_prompt` (در `localStorage` ذخیره و پس از reload بازیابی می‌شوند) و رونویسی دوبارهٔ **همان** ضبط (`use_last: true`) |
 | مدل | `POST /api/chat` بدون صدا، برای مقایسه با مسیر استریم |
 | صدا | `POST /api/tts` بدون مدل |
+| مدیریت صداها | فهرست صداهای نصب‌شده، انتخاب صدا با اعمال فوری (hot-swap) و دانلود صداهای کاتالوگ با نوار پیشرفت |
 | تشخیص سیستم | `GET /api/diagnostics`: نسخهٔ پایتون، وضعیت ASR/TTS، سلامت llama، حافظهٔ مکالمه، آخرین ضبط |
 | گزارش رویدادها | هر درخواست با زمان و نتیجه، به ترتیب (قابل پاک‌کردن) |
 
@@ -1559,6 +1560,8 @@ Linux ممکن است PortAudio سیستمی لازم داشته باشد.
 | `POST` | `/api/chat` | `{"text": "..."}` | `reply`, `timings` |
 | `POST` | `/api/chat/stream` | `{"text": "..."}` | SSE: `delta` / `done` / `error` و پایان با `[DONE]` |
 | `POST` | `/api/tts` | `{"text": "..."}` | `tts_wav_b64`, `timings.tts_ms` |
+| `GET` | `/api/voices` | — | صداهای Piper نصب‌شده و شناسهٔ صدای فعال |
+| `POST` | `/api/voices/select` | `{"id": "fa_IR-amir-medium"}` | فعال‌سازی فوری صدا و ذخیرهٔ `PVAI_TTS_MODEL_PATH` در `.env` |
 | `POST` | `/api/turn` | `{"text": "..."}` یا `{"pcm_b64": "...", "sample_rate": 16000}` | `transcript`, `reply`, `tts_wav_b64`, `timings` |
 | `POST` | `/api/reset` | — | `{"status": "ok"}` |
 | `GET` | `/api/history` | — | پیام‌های پنجرهٔ فعلی |
@@ -1576,6 +1579,8 @@ Linux ممکن است PortAudio سیستمی لازم داشته باشد.
 - **«گفتگوی تازه» فقط پنجرهٔ RAM را خالی می‌کند**؛ فایل JSONL و آخرین ضبط دست‌نخورده می‌مانند.
 - `last_pcm` فقط در RAM می‌ماند و با هر ضبط جدید جایگزین می‌شود.
 - تنظیمات ASR در `localStorage` مرورگر (`pvai.asr.settings`) نگه داشته می‌شوند؛ سمت سرور ذخیره نمی‌شوند و فقط همان مرورگر/پروفایل آن‌ها را می‌بیند.
+- انتخاب صدا در `.env` ذخیره می‌شود و همان لحظه در میز آزمایش اعمال می‌شود؛ دانلود صدا از کاتالوگ همان مسیر `/api/manage/models/download` پنل را به کار می‌برد و SHA-256 را بررسی می‌کند.
+- کاتالوگ چهار صدای زنانهٔ فارسی دارد: `mana-female` (MIT)، `mantatts-female` (Apache-2.0)، `haaniye-female` (CC-0) و `magnoliasis-female` (مجوز نامشخص، فقط شخصی/آزمایشی). صدای هانیه فایل تنظیمات Piper سازگار ندارد؛ سرور هنگام دانلود، `configs/voices/fa_IR-haaniye-medium.onnx.json` را کنار وزن می‌نویسد.
 - در استریم، متن فقط از `delta.content` نمایش داده می‌شود؛ `reasoning_content` هرگز به کاربر نمی‌رسد.
 
 ---
@@ -4173,6 +4178,10 @@ shipping a binary that links it.
 | Qwen3.5-4B (GGUF) | `models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf` | Verify the exact release | NOT VERIFIED (revision-dependent) | The default path does not identify a verified publisher, revision, or checksum. Record those and review the model card and licence before redistributing the weight. |
 | Whisper `small` weights | `models/whisper-small` | MIT | NOT VERIFIED (conversion-dependent) | OpenAI releases both code and weights under MIT; `faster-whisper` conversions keep it. |
 | Piper Persian voice | `models/piper/fa_IR.onnx` | **varies per voice — check** | NOT VERIFIED (voice-dependent) | The voice file is a separate work from the Piper engine. See below. |
+| Mana Persian Piper (female) | `models/mana/fa_IR-mana-medium.onnx` | **MIT** | `e390c0e74ba71fd97c49ba662ee0c6e1724b462ba2d4561698af4f564840f126` | Female `fa_IR` voice fine-tuned on Mana-TTS; source `MahtaFetrat/Mana-Persian-Piper`. Offered in the model catalog as `mana-female`. |
+| Magnoliasis Persian Piper (female) | `models/magnoliasis-female/fa_IR-magnoliasis-medium.onnx` | **unknown / no licence** | `856025b3c16402e035daae3cd2a82ce36ad9c80f8a8f3d90fd101c6b6622cdec` | Female `fa_IR` voice from `rhasspy/piper-voices`; its model card says the Kaggle dataset has no licence. Catalog entry `magnoliasis-female` is marked personal/experimental use only. |
+| ManaTTS Arabic-base Piper (female) | `models/mantatts-female/fa_IR-mantatts-par.onnx` | **Apache-2.0** | `01e1749b6238de526a67cfd0b08af2a6131aff8eec831a14795344d8fbaf8df1` | Female `fa_IR` voice fine-tuned on ManaTTS from an Arabic Piper checkpoint; source `kiarashQ/fa-ir-tts-piper-ar-mantatts-v1`. Catalog entry `mantatts-female`. |
+| Haaniye Persian Piper (female) | `models/haaniye/fa_IR-haaniye-medium.onnx` | **CC-0** | `9551ec8d28eac19ca93eff73edc53f53b7cb9d55353f937f38aab1635a3e16a8` | Female `fa_IR` voice converted from Mycroft mimic3 `fa/haaniye_low` (LICENSE `CC-0`) and published by `csukuangfj/vits-piper-fa-haaniye_low`. Upstream ships a VITS config, so the catalog writes the Piper-compatible `configs/voices/fa_IR-haaniye-medium.onnx.json` at download time. Catalog entry `haaniye-female`. |
 
 ### The Piper voice licence trap
 

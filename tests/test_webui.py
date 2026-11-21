@@ -14,6 +14,7 @@ import io
 import sys
 import threading
 import wave
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -114,6 +115,10 @@ def make_client(
     asr: FakeAsr | None = None,
     speaker: FakeSpeaker | None = None,
     client: FakeClient | None = None,
+    settings: Settings | None = None,
+    models_dir: Any = None,
+    env_path: Any = None,
+    speaker_factory: Any = None,
 ) -> tuple[TestClient, FakeAsr, FakeSpeaker, FakeClient]:
     # A fresh data dir per client: the bench now persists its conversation, so
     # tests must never read or write the real ``data/`` folder or each other's log.
@@ -122,10 +127,13 @@ def make_client(
     data_dir = tempfile.mkdtemp(prefix="pvai-webui-")
     _TEST_DATA_DIR.append(data_dir)
     app = create_app(
-        settings=Settings(data_dir=data_dir),
+        settings=settings or Settings(data_dir=data_dir),
         asr=asr or FakeAsr(),
         speaker=speaker or FakeSpeaker(),
         client=client or FakeClient(),
+        models_dir=models_dir,
+        env_path=env_path,
+        speaker_factory=speaker_factory,
         preload=False,
     )
     return (
@@ -540,3 +548,60 @@ def test_the_model_sees_earlier_turns_from_the_conversation() -> None:
     contents = [message["content"] for message in last_request]
     assert "اسم من آرش است" in contents, "the earlier fact must reach the model"
     assert contents[-1] == "اسم من چیست؟"
+
+
+def test_voice_selection_persists_and_hot_swaps_the_speaker(tmp_path: Path) -> None:
+    """Picking a voice must take effect now, not only after a restart."""
+    models_dir = tmp_path / "models"
+    for name in ("fa_IR-amir-medium", "fa_IR-gyro-medium"):
+        folder = models_dir / name.split("-")[1]
+        folder.mkdir(parents=True)
+        (folder / f"{name}.onnx").write_bytes(b"\x00" * 8)
+        (folder / f"{name}.onnx.json").write_text("{}", encoding="utf-8")
+    env_path = tmp_path / ".env"
+    env_path.write_text("PVAI_TTS_MODEL_PATH=models/piper/fa_IR.onnx\n", encoding="utf-8")
+    settings = Settings(
+        data_dir=str(tmp_path / "data"),
+        tts_model_path=str(models_dir / "amir" / "fa_IR-amir-medium.onnx"),
+    )
+    built: list[tuple[Settings, FakeSpeaker]] = []
+
+    def factory(new_settings: Settings) -> FakeSpeaker:
+        speaker = FakeSpeaker()
+        built.append((new_settings, speaker))
+        return speaker
+
+    old_speaker = FakeSpeaker()
+    client, *_ = make_client(
+        settings=settings,
+        speaker=old_speaker,
+        models_dir=models_dir,
+        env_path=env_path,
+        speaker_factory=factory,
+    )
+    with client:
+        body = client.get("/api/voices").json()
+        assert {voice["id"] for voice in body["voices"]} == {
+            "fa_IR-amir-medium",
+            "fa_IR-gyro-medium",
+        }
+        assert body["active_id"] == "fa_IR-amir-medium"
+
+        response = client.post("/api/voices/select", json={"id": "fa_IR-gyro-medium"})
+        assert response.status_code == 200, response.text
+        assert response.json()["active_id"] == "fa_IR-gyro-medium"
+
+        assert client.get("/api/voices").json()["active_id"] == "fa_IR-gyro-medium"
+
+    assert "gyro" in env_path.read_text(encoding="utf-8")
+    assert built and built[-1][0].tts_model_path.endswith("fa_IR-gyro-medium.onnx")
+    assert client.app.state.webui.speaker is built[-1][1]
+
+
+def test_voice_selection_rejects_an_unknown_voice(tmp_path: Path) -> None:
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    client, *_ = make_client(models_dir=models_dir, env_path=tmp_path / ".env")
+    with client:
+        response = client.post("/api/voices/select", json={"id": "ghost"})
+    assert response.status_code == 404

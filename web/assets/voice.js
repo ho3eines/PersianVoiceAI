@@ -21,6 +21,7 @@
     lastWav: "",
     captureMode: "chat",
     abort: null,
+    voiceBusy: false,
   };
 
   const titles = {
@@ -541,6 +542,129 @@
   }
 
   // ---------------------------------------------------------------- status
+  function setVoiceNotice(text, kind = "") {
+    const el = $("voiceNotice");
+    if (!el) return;
+    el.textContent = text || "";
+    el.style.color = kind === "error" ? "var(--red)" : kind === "warn" ? "var(--amber)" : "var(--muted)";
+  }
+
+  function fillVoiceSelects(voices, activeId) {
+    const usable = voices.filter((voice) => voice.valid);
+    const options = usable
+      .map((voice) => `<option value="${escapeHtml(voice.id)}"${voice.id === activeId ? " selected" : ""}>${escapeHtml(voice.label_fa || voice.name)}</option>`)
+      .join("");
+    for (const id of ["voiceSelect", "voiceSelectDebug"]) {
+      const select = $(id);
+      if (!select) continue;
+      select.innerHTML = options || '<option value="">صدایی نصب نیست</option>';
+      select.disabled = !usable.length || state.voiceBusy;
+    }
+  }
+
+  function renderVoiceCatalog(models) {
+    const box = $("voiceList");
+    if (!box) return;
+    const installed = models.installed || [];
+    const catalog = models.catalog || [];
+    const rows = [];
+    for (const item of installed) {
+      rows.push(`<div class="voice-row${item.active ? " active" : ""}"><div><b>${escapeHtml(item.name || item.id)}</b><small>${escapeHtml(item.path || "")}${item.active ? " · فعال" : ""}</small></div>${item.active ? '<span class="badge ok">فعال</span>' : `<button class="btn ghost small" data-voice-pick="${escapeHtml(item.id)}">انتخاب</button>`}</div>`);
+    }
+    for (const item of catalog) {
+      if (item.installed) continue;
+      rows.push(`<div class="voice-row"><div><b>${escapeHtml(item.label_fa || item.id)}</b><small>${escapeHtml(item.approx_size || "")}${item.needs ? " · " + escapeHtml(item.needs) : ""}</small></div><button class="btn small" data-voice-download="${escapeHtml(item.id)}">دانلود</button></div>`);
+    }
+    box.innerHTML = rows.length ? rows.join("") : '<div class="placeholder">صدایی در کاتالوگ پیدا نشد.</div>';
+    box.querySelectorAll("[data-voice-pick]").forEach((btn) => btn.addEventListener("click", () => selectVoice(btn.dataset.voicePick)));
+    box.querySelectorAll("[data-voice-download]").forEach((btn) => btn.addEventListener("click", () => downloadVoice(btn.dataset.voiceDownload)));
+  }
+
+  async function loadVoices() {
+    try {
+      const [voices, models] = await Promise.all([
+        fetch("/api/voices").then((r) => r.json()),
+        fetch("/api/manage/models?kind=tts").then((r) => r.json()),
+      ]);
+      fillVoiceSelects(voices.voices || [], voices.active_id || "");
+      renderVoiceCatalog(models);
+      const active = (voices.voices || []).find((voice) => voice.id === voices.active_id);
+      if (active) setVoiceNotice(`صدای فعال: ${active.label_fa || active.name}`);
+    } catch (err) {
+      setVoiceNotice(`خواندن صداها ناموفق بود: ${err.message}`, "error");
+    }
+  }
+
+  async function selectVoice(id) {
+    if (!id || state.voiceBusy) return;
+    state.voiceBusy = true;
+    fillVoiceSelects([], "");
+    setVoiceNotice("در حال بارگذاری صدای جدید… (چند ثانیه)");
+    log("warn", `تغییر صدا به ${id}`);
+    try {
+      const result = await postJson("/api/voices/select", { id });
+      setVoiceNotice(`صدا فعال شد: ${result.label_fa || id}`);
+      log("ok", `صدا فعال شد: ${result.label_fa || id}`);
+      notify(`صدای پاسخ به «${result.label_fa || id}» تغییر کرد.`);
+      await loadVoices();
+      await pollStatus();
+    } catch (err) {
+      setVoiceNotice(`تغییر صدا ناموفق بود: ${err.message}`, "error");
+      log("err", `تغییر صدا: ${err.message}`);
+    } finally {
+      state.voiceBusy = false;
+      await loadVoices();
+    }
+  }
+
+  async function downloadVoice(id) {
+    if (!id || state.voiceBusy) return;
+    if (!confirm("برای دانلود صدا، فایل از اینترنت دریافت می‌شود. ادامه می‌دهید؟")) return;
+    state.voiceBusy = true;
+    const wrap = $("voiceProgressWrap");
+    const bar = $("voiceProgress");
+    wrap.classList.remove("hidden");
+    bar.style.width = "0%";
+    setVoiceNotice("در حال شروع دانلود…");
+    try {
+      const job = await postJson("/api/manage/models/download", { kind: "tts", catalog_id: id });
+      setVoiceNotice(`دانلود ${id} شروع شد…`);
+      await new Promise((resolve, reject) => {
+        const timer = setInterval(async () => {
+          try {
+            const status = await fetch(`/api/manage/jobs/${encodeURIComponent(job.job_id)}`).then((r) => r.json());
+            const percent = Math.max(0, Math.min(100, Number(status.percent || 0)));
+            bar.style.width = `${percent}%`;
+            setVoiceNotice(`دانلود ${id}: ${faNumber(Math.round(percent))}٪${status.error ? " — " + status.error : ""}`, status.state === "failed" ? "error" : "");
+            if (["done", "failed", "cancelled"].includes(status.state)) {
+              clearInterval(timer);
+              status.state === "done" ? resolve() : reject(new Error(status.error || "دانلود ناموفق بود."));
+            }
+          } catch (err) {
+            clearInterval(timer);
+            reject(err);
+          }
+        }, 1200);
+      });
+      setVoiceNotice(`دانلود ${id} کامل شد.`);
+      log("ok", `دانلود صدای ${id} کامل شد.`);
+      notify("صدای جدید دانلود شد؛ از فهرست انتخاب کنید.");
+    } catch (err) {
+      setVoiceNotice(`دانلود ناموفق بود: ${err.message}`, "error");
+      log("err", `دانلود صدا: ${err.message}`);
+    } finally {
+      state.voiceBusy = false;
+      setTimeout(() => wrap.classList.add("hidden"), 1500);
+      await loadVoices();
+    }
+  }
+
+  for (const id of ["voiceSelect", "voiceSelectDebug"]) {
+    const select = $(id);
+    if (select) select.addEventListener("change", () => selectVoice(select.value));
+  }
+  $("refreshVoices").addEventListener("click", loadVoices);
+
   async function pollStatus() {
     try {
       const data = await fetch("/api/status").then((r) => r.json());
@@ -564,6 +688,7 @@
   }
 
   pollStatus();
+  loadVoices();
   loadHistory();
   loadDiagnostics();
   setInterval(pollStatus, 3000);

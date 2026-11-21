@@ -1,0 +1,67 @@
+{
+  "audio": {
+    "sample_rate": 22050,
+    "quality": "medium"
+  },
+  "espeak": {
+    "voice": "fa"
+  },
+  "language": {
+    "code": "fa_IR",
+    "family": "fa",
+    "region": "IR",
+    "name_native": "فارسی",
+    "name_english": "Farsi",
+    "country_english": "Iran"
+  },
+  "inference": {
+    "noise_scale": 0.333,
+    "length_scale": 1.0,
+    "noise_w": 0.333
+  },
+  "phoneme_type": "espeak",
+  "phoneme_map": {},
+  "phoneme_id_map": {
+    "_": [0],
+    "^": [1],
+    "$": [2],
+    ",": [3],
+    ".": [4],
+    "#": [5],
+    "ˈ": [6],
+    "ˌ": [7],
+    "1": [8],
+    "a": [9],
+    "b": [10],
+    "d": [11],
+    "e": [12],
+    "f": [13],
+    "h": [14],
+    "i": [15],
+    "j": [16],
+    "k": [17],
+    "l": [18],
+    "m": [19],
+    "n": [20],
+    "o": [21],
+    "p": [22],
+    "q": [23],
+    "r": [24],
+    "s": [25],
+    "t": [26],
+    "u": [27],
+    "v": [28],
+    "x": [29],
+    "z": [30],
+    "ɑ": [31],
+    "ɡ": [32],
+    "ʃ": [33],
+    "ʒ": [34],
+    "ʔ": [35],
+    "ː": [36],
+    " ": [0]
+  },
+  "num_symbols": 37,
+  "num_speakers": 1,
+  "dataset": "mimic3-haaniye_low"
+}
